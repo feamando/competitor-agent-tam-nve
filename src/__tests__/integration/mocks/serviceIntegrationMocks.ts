@@ -1,99 +1,84 @@
 // Service Integration Mocks for Cross-Service Validation
 
+import { jest } from '@jest/globals';
+import { ComparativeAnalysisService } from '@/services/analysis/comparativeAnalysisService';
+import { ComparativeReportService } from '@/services/reports/comparativeReportService';
+import { UserExperienceAnalyzer } from '@/services/analysis/userExperienceAnalyzer';
+import type { ComparativeAnalysis, UXAnalysisResult, ReportGenerationResult } from '@/types/analysis';
+import type { AnalysisConfiguration, UXAnalysisOptions } from '@/types/analysis';
+
 export const createMockAnalysisService = () => ({
-  analyzeProductVsCompetitors: jest.fn().mockImplementation(async (input: any) => {
-    if (!input.product?.id || !input.product?.name) {
-      throw new Error('Invalid analysis input: missing required product data');
+  analyzeProductVsCompetitors: jest.fn().mockResolvedValue({
+    id: 'mock-analysis-id',
+    summary: { key: 'value' },
+    detailed: {
+      featureComparison: {},
+      positioningAnalysis: {},
+      userExperienceComparison: {},
+      customerTargeting: {}
+    },
+    recommendations: {
+      immediate: [],
+      shortTerm: [],
+      longTerm: []
+    },
+    metadata: {
+      correlationId: 'mock-correlation-id',
+      timestamp: new Date().toISOString()
     }
-
-    return {
-      id: 'analysis-test-id',
-      productId: input.product.id,
-      projectId: input.product.projectId || 'default-project',
-      summary: {
-        overallPosition: 'competitive',
-        keyStrengths: ['AI-powered analysis', 'Real-time monitoring'],
-        keyWeaknesses: ['Mobile app missing', 'API limitations'],
-        opportunityScore: 87,
-        threatLevel: 'medium'
-      },
-      detailed: {
-        featureComparison: {
-          coreFeatures: ['Feature A', 'Feature B'],
-          missingFeatures: ['Feature C'],
-          competitorAdvantages: ['Better mobile experience']
-        },
-        marketPosition: 'Strong in enterprise segment',
-        competitiveLandscape: 'Crowded but differentiated'
-      },
-      recommendations: [
-        'Develop mobile application',
-        'Improve API capabilities',
-        'Focus on enterprise features'
-      ],
-      metadata: {
-        analysisMethod: 'ai_powered',
-        confidenceScore: 87,
-        dataQuality: 'high',
-        processingTime: 1500,
-        correlationId: `analysis-${Date.now()}`,
-        competitorCount: input.competitors?.length || 0,
-        inputProductId: input.product.id
-      },
-      analysisDate: new Date(),
-      competitorIds: input.competitors?.map((c: any) => c.competitor?.id) || []
-    };
+  }),
+  generateAnalysisReport: jest.fn().mockResolvedValue({
+    id: 'mock-report-id',
+    content: 'Mock report content'
+  }),
+  getAnalysisHistory: jest.fn().mockResolvedValue([]),
+  updateAnalysisConfiguration: jest.fn().mockImplementation(async (config: Partial<AnalysisConfiguration>) => {
+    // Implementation
   })
-});
-
-export const createMockUXAnalyzer = () => ({
-  analyzeProductVsCompetitors: jest.fn().mockImplementation(async (productData: any, competitorData: any[], options: any) => {
-    return {
-      summary: 'UX analysis shows competitive positioning with room for mobile improvement',
-      recommendations: [
-        'Improve mobile responsiveness',
-        'Enhance user onboarding flow',
-        'Optimize navigation structure'
-      ],
-      confidence: 0.78,
-      metadata: {
-        correlationId: `ux-analysis-${Date.now()}`,
-        analyzedAt: new Date(),
-        focusAreas: options.focus ? [options.focus] : ['both'],
-        technicalAnalysisIncluded: options.includeTechnical || false,
-        accessibilityAnalysisIncluded: options.includeAccessibility || false
-      }
-    };
-  })
-});
+}) as unknown as jest.Mocked<ComparativeAnalysisService>;
 
 export const createMockReportService = () => ({
-  generateUXEnhancedReport: jest.fn().mockImplementation(async (analysis: any, product: any, productSnapshot: any, competitorSnapshots: any[]) => {
-    return {
-      report: {
-        id: `report-${Date.now()}`,
-        analysisId: analysis.id,
-        sections: [
-          {
-            title: 'Executive Summary',
-            content: 'Comprehensive analysis of competitive positioning',
-            order: 1
-          },
-          {
-            title: 'Feature Comparison',
-            content: 'Detailed feature analysis and recommendations',
-            order: 2
-          }
-        ],
-        metadata: {
-          generatedAt: new Date(),
-          template: 'comprehensive',
-          correlationId: `report-${Date.now()}`
-        }
-      },
-      generationTime: 1200,
-      tokensUsed: 2800,
-      cost: 0.0320
-    };
+  generateUXEnhancedReport: jest.fn().mockResolvedValue({
+    report: {
+      id: 'mock-report-id',
+      sections: [],
+      metadata: {}
+    },
+    generationTime: 1000
+  }),
+  generateComparativeReport: jest.fn().mockResolvedValue({
+    report: {
+      id: 'mock-report-id',
+      sections: [],
+      metadata: {}
+    },
+    generationTime: 1000
+  }),
+  generateEnhancedReportContent: jest.fn().mockResolvedValue({
+    content: 'Enhanced mock content',
+    metadata: {}
+  }),
+  getAvailableTemplates: jest.fn().mockResolvedValue(['default', 'enhanced']),
+  validateAnalysisForReporting: jest.fn().mockReturnValue(true)
+}) as unknown as jest.Mocked<ComparativeReportService>;
+
+export const createMockUXAnalyzer = () => ({
+  analyzeProductVsCompetitors: jest.fn().mockResolvedValue({
+    summary: 'Mock UX analysis summary',
+    recommendations: [],
+    confidence: 0.85,
+    detailed: {
+      usability: {},
+      accessibility: {},
+      performance: {}
+    }
+  }),
+  analyzeCompetitiveUX: jest.fn().mockResolvedValue({
+    competitorScores: [],
+    insights: []
+  }),
+  generateFocusedAnalysis: jest.fn().mockResolvedValue({
+    focus: 'usability',
+    findings: []
   })
-});
+}) as unknown as jest.Mocked<UserExperienceAnalyzer>;

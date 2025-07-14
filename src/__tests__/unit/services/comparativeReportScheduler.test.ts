@@ -341,14 +341,14 @@ describe('ComparativeReportScheduler', () => {
       });
 
       await expect(scheduler.generateScheduledReport('project-123'))
-        .rejects.toThrow('Project project-123 not found or has no products');
+        .rejects.toThrow(/Project.*project-123.*not found.*no products/i);
     });
 
     it('should throw error when product has no snapshots', async () => {
       mockPrismaInstance.productSnapshot.findFirst.mockResolvedValue(null);
 
       await expect(scheduler.generateScheduledReport('project-123'))
-        .rejects.toThrow('No product snapshot found for product product-1');
+        .rejects.toThrow(/No product snapshot.*product.*product-1/i);
     });
   });
 

@@ -2,11 +2,58 @@
 
 ## 🎯 **DOCUMENT ORGANIZATION**
 
-This index helps you find the right documentation for your needs. Documents have been aligned and organized to eliminate redundancy.
+This index helps you find the right documentation for your needs. Documents have been organized into logical sections for ease of use.
 
 ---
 
-## 🔧 **SMART SNAPSHOT SCHEDULING IMPLEMENTATION**
+## 🗂️ **DOCUMENTATION STRUCTURE**
+
+The documentation is now organized into the following structure:
+
+```
+docs/
+├── analysis/          - Technical analysis, specifications, and recommendations
+│   ├── testing/       - Test suite analysis and testing documentation
+│   └── ...            - Other analysis documents
+│
+├── implementation/    - Implementation details and technical documentation
+│   ├── aws/           - AWS integration implementation
+│   └── ...            - Other implementation documentation
+│
+├── status-reports/    - Status reports, summaries, and updates
+│   ├── phase-completion/ - Phase completion and implementation summaries
+│   └── ...            - Other status reports
+│
+├── testing/           - Testing documentation and results
+│
+└── ... (other documentation folders)
+```
+
+---
+
+## 🔍 **DOCUMENT CATEGORIES**
+
+### **📊 Analysis Documents**
+- Technical analysis and specifications
+- Testing analysis reports
+- Production readiness assessments
+- Remediation plans
+
+### **🔧 Implementation Documents**
+- Implementation summaries
+- Technical implementations
+- Integration guides
+- AWS credential implementation
+
+### **📋 Status Reports**
+- Phase completion summaries
+- Implementation status reports
+- Critical fixes summaries
+- Executive summaries
+
+---
+
+## 🎯 **SMART SNAPSHOT SCHEDULING IMPLEMENTATION**
 
 ### **📋 Primary Planning Document**
 **File**: `SMART_SNAPSHOT_SCHEDULING_PLAN.md`
@@ -24,131 +71,48 @@ This index helps you find the right documentation for your needs. Documents have
 
 ### **📊 Phase-Specific Summaries**
 **Files**: 
-- `PHASE_1_1_IMPLEMENTATION_SUMMARY.md` - Product Scraping Service details
-- `PHASE_1_2_IMPLEMENTATION_SUMMARY.md` - Smart Scheduling Service details
-- `PHASE_1_3_IMPLEMENTATION_SUMMARY.md` - Enhanced Project Creation API details
+- `status-reports/phase-completion/PHASE_*_IMPLEMENTATION_SUMMARY.md` - Implementation details by phase
+- `status-reports/phase-completion/PHASE_*_COMPLETION_SUMMARY.md` - Phase completion reports
 
 ---
 
-## 🤖 **CLAUDE AI INTEGRATION**
+## 🧪 **TESTING & PRODUCTION READINESS**
 
-### **📋 Current Implementation Summary**
-**File**: `IMPLEMENTATION_SUMMARY.md`
-- **Purpose**: Complete Claude AI integration documentation
-- **Audience**: Developers implementing AI features
-- **Content**: Technical implementation, testing, environment setup
-- **Status**: Complete implementation (independent feature)
+### **📋 Test Analysis Documents**
+**Files**: 
+- `analysis/testing/TEST_SUITE_ANALYSIS_AND_PRODUCTION_READINESS.md` - Comprehensive test suite analysis
+- `analysis/testing/PRODUCTION_READINESS_ASSESSMENT_2025-07-09.md` - Production readiness evaluation
+- `analysis/testing/test-failures-summary.md` - Summary of test failures
+- `analysis/testing/test-failures-remediation-plan.md` - Plan to address test failures
+- `analysis/testing/test-coverage-implementation-summary.md` - Test coverage implementation details
 
-### **🚀 Enhancement Plan**
-**File**: `CLAUDE_AI_INTEGRATION_IMPROVEMENTS.md`
-- **Purpose**: Specific improvements for AI integration with Smart Scheduling
-- **Audience**: Developers planning AI enhancements
-- **Content**: Smart scheduling + AI integration, auto-activation workflows, intelligent reporting
-- **Status**: Ready for implementation when prioritized
+### **📊 Production Readiness**
+**Files**: 
+- `analysis/PRODUCTION_READINESS_REMEDIATION_PLAN.md` - Plan to address production readiness issues
+- `analysis/technical-recommendations.md` - Technical recommendations for production
+
+---
+
+## ☁️ **AWS INTEGRATION**
+
+### **📋 AWS Implementation Documents**
+**Files**: 
+- `implementation/aws/AWS_CREDENTIAL_CAPTURE_IMPLEMENTATION_SUMMARY.md` - Implementation summary
+- `implementation/aws/AWS_CREDENTIAL_CAPTURE_COMPLETE_SUMMARY.md` - Complete implementation details
 
 ---
 
 ## 🚀 **GETTING STARTED GUIDE**
 
-### **For Smart Snapshot Scheduling Implementation:**
-1. **📋 Read**: `SMART_SNAPSHOT_SCHEDULING_PLAN.md` (master plan & technical details)
-2. **📋 Track**: `PROJECT_STATUS_AND_NEXT_STEPS.md` (progress checklist & next steps)
-3. **📊 Reference**: Phase-specific summaries (detailed implementation)
-
-### **For Claude AI Integration:**
-1. **📋 Current**: `IMPLEMENTATION_SUMMARY.md` (complete AI setup)
-2. **🚀 Future**: `CLAUDE_AI_INTEGRATION_IMPROVEMENTS.md` (enhancement plan)
-3. **🔧 Configure**: AWS Bedrock and environment variables
-
-### **For Project Management:**
-1. **📋 Start**: `PROJECT_STATUS_AND_NEXT_STEPS.md` (comprehensive work tracking)
-2. **📋 Plan**: `SMART_SNAPSHOT_SCHEDULING_PLAN.md` (implementation details)
-3. **📊 Monitor**: Phase-specific summaries (detailed status)
-
-### **For General Application Usage:**
-1. **📋 Start**: `README.md` (application overview & setup)
+### **For Developers:**
+1. **📋 Start**: `README.md` (at project root - application overview & setup)
 2. **🔧 Setup**: Environment configuration and dependencies
 3. **🚀 Run**: Development server and testing
 
----
-
-## 🗂️ **DOCUMENT RELATIONSHIPS**
-
-```
-Competitor Research Agent Documentation
-├── 📘 Core Application
-│   ├── README.md (Main application documentation)
-│   ├── package.json (Dependencies & scripts)
-│   └── prisma/schema.prisma (Database schema)
-│
-├── 🔧 Smart Snapshot Scheduling (Phase 1-3 Implementation)
-│   ├── SMART_SNAPSHOT_SCHEDULING_PLAN.md (Master plan)
-│   ├── PROJECT_STATUS_AND_NEXT_STEPS.md (Quick start guide)
-│   ├── PHASE_1_1_IMPLEMENTATION_SUMMARY.md (Product scraping)
-│   ├── PHASE_1_2_IMPLEMENTATION_SUMMARY.md (Smart scheduling)
-│   └── PHASE_1_3_IMPLEMENTATION_SUMMARY.md (Project creation - TBD)
-│
-├── 🤖 Claude AI Integration (Independent Feature)
-│   ├── IMPLEMENTATION_SUMMARY.md (Complete AI integration)
-│   ├── CLAUDE_AI_INTEGRATION_IMPROVEMENTS.md (Enhancement plan)
-│   ├── INTEGRATION_GUIDE.md (Setup instructions)
-│   └── setup-env.sh (Environment setup script)
-│
-└── 🧪 Testing & Validation
-    ├── test-phase1-1-implementation.js (Product scraping tests)
-    ├── test-phase1-2-implementation.js (Smart scheduling tests)
-    ├── test-phase1-3-implementation.js (Project creation tests)
-    └── test-integration.js (Claude AI tests)
-```
-
----
-
-## 🎯 **DOCUMENT PURPOSES CLARIFIED**
-
-### **✅ ALIGNED & ORGANIZED**
-
-| Document | Purpose | Scope | Audience |
-|----------|---------|-------|----------|
-| **SMART_SNAPSHOT_SCHEDULING_PLAN.md** | Master implementation plan | Complete 3-phase technical implementation | Technical leads, developers |
-| **PROJECT_STATUS_AND_NEXT_STEPS.md** | Work tracking checklist | All phases & Claude AI status | Project managers, developers |
-| **CLAUDE_AI_INTEGRATION_IMPROVEMENTS.md** | AI enhancement plan | Smart scheduling + AI integration | AI developers, technical leads |
-| **IMPLEMENTATION_SUMMARY.md** | Claude AI current state | Completed AI features | AI integration developers |
-
-### **❌ REDUNDANCY ELIMINATED**
-
-**Removed/Consolidated:**
-- Duplicate implementation details between scheduling documents
-- Repetitive status information across files
-- Confusing overlap between different features
-- Unclear document purposes and audiences
-
-**Result:**
-- ✅ Clear separation of concerns
-- ✅ Non-redundant information
-- ✅ Obvious entry points for different tasks
-- ✅ Logical document progression
-
----
-
-## 🔍 **QUICK REFERENCE**
-
-### **Need to implement Smart Scheduling?**
-→ Start with `SMART_SNAPSHOT_SCHEDULING_PLAN.md` for technical details
-
-### **Need to track project progress?**
-→ Go to `PROJECT_STATUS_AND_NEXT_STEPS.md` for work status
-
-### **Need to enhance Claude AI integration?**
-→ Check `CLAUDE_AI_INTEGRATION_IMPROVEMENTS.md` for enhancement plan
-
-### **Need current Claude AI setup?**
-→ Go to `IMPLEMENTATION_SUMMARY.md` for current implementation
-
-### **Looking for specific phase details?**
-→ Use `PHASE_*_IMPLEMENTATION_SUMMARY.md` files
-
-### **Want to run tests?**
-→ Use `test-*.js` files in project root
+### **For Project Management:**
+1. **📋 Overview**: `docs/status-reports/EXECUTIVE_SUMMARY.md` (project overview)
+2. **📋 Status**: `docs/status-reports/phase-completion/` (phase completion reports)
+3. **📊 Technical**: `docs/analysis/` (technical analysis and recommendations)
 
 ---
 

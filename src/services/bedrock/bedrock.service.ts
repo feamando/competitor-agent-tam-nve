@@ -1,6 +1,7 @@
 import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
 import { BedrockConfig, BedrockMessage, BedrockRequest, BedrockResponse, ModelProvider, MistralMessage } from './types';
-import { claudeConfig, mistralConfig } from './bedrock.config';
+import { claudeConfig, mistralConfig, getBedrockConfig } from './bedrock.config';
+import { CredentialProviderOptions } from '../aws/credentialProvider';
 
 export class BedrockService {
   private client: BedrockRuntimeClient;
@@ -12,20 +13,42 @@ export class BedrockService {
       ...config
     };
 
+    this.client = this.createClient(this.config);
+  }
+
+  /**
+   * Factory method to create BedrockService with stored credentials
+   */
+  static async createWithStoredCredentials(
+    provider: ModelProvider = 'anthropic',
+    configOverrides: Partial<BedrockConfig> = {},
+    credentialOptions: CredentialProviderOptions = {}
+  ): Promise<BedrockService> {
+    const config = await getBedrockConfig(provider, configOverrides, credentialOptions);
+    const service = new BedrockService();
+    service.config = config;
+    service.client = service.createClient(config);
+    return service;
+  }
+
+  /**
+   * Create BedrockRuntime client with proper credential handling
+   */
+  private createClient(config: BedrockConfig): BedrockRuntimeClient {
     const clientConfig: any = {
-      region: this.config.region
+      region: config.region
     };
 
     // Only add credentials if they're properly configured
-    if (this.config.credentials?.accessKeyId && this.config.credentials?.secretAccessKey) {
+    if (config.credentials?.accessKeyId && config.credentials?.secretAccessKey) {
       clientConfig.credentials = {
-        accessKeyId: this.config.credentials.accessKeyId,
-        secretAccessKey: this.config.credentials.secretAccessKey,
-        ...(this.config.credentials.sessionToken && { sessionToken: this.config.credentials.sessionToken })
+        accessKeyId: config.credentials.accessKeyId,
+        secretAccessKey: config.credentials.secretAccessKey,
+        ...(config.credentials.sessionToken && { sessionToken: config.credentials.sessionToken })
       };
     }
 
-    this.client = new BedrockRuntimeClient(clientConfig);
+    return new BedrockRuntimeClient(clientConfig);
   }
 
   private async invokeModel(request: BedrockRequest): Promise<BedrockResponse> {
@@ -86,18 +109,6 @@ export class BedrockService {
         })) as MistralMessage[]
       };
     }
-  }
-
-  private formatMessages(messages: BedrockMessage[]): string {
-    return messages.map(msg => {
-      const role = msg.role === 'user' ? 'Human' : 'Assistant';
-      const content = msg.content.map(c => {
-        if (c.type === 'text') return c.text;
-        if (c.type === 'image_url') return `[Image: ${c.image_url.url}]`;
-        return '';
-      }).join('\n');
-      return `${role}: ${content}`;
-    }).join('\n\n');
   }
 
   async generateCompletion(messages: BedrockMessage[]): Promise<string> {

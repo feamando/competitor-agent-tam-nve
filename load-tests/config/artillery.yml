@@ -1,0 +1,141 @@
+config:
+  target: "http://localhost:3000"
+  phases:
+    - name: "Warm up"
+      duration: 60
+      arrivalRate: 2
+      rampTo: 5
+    - name: "Sustained load"
+      duration: 300
+      arrivalRate: 5
+    - name: "Peak load"
+      duration: 120
+      arrivalRate: 10
+      rampTo: 20
+    - name: "Cooldown"
+      duration: 60
+      arrivalRate: 5
+  plugins:
+    expect: {}
+    metrics-by-endpoint: {}
+  ensure:
+    p95: 3000   # 95% of responses must complete within 3 seconds
+    maxErrorRate: 5  # Error rate should not exceed 5%
+  environments:
+    local:
+      target: "http://localhost:3000"
+      phases:
+        - duration: 30
+          arrivalRate: 1
+          rampTo: 3
+        - duration: 60
+          arrivalRate: 3
+    development:
+      target: "https://dev-competitor-research-agent.example.com"
+      phases:
+        - duration: 60
+          arrivalRate: 2
+          rampTo: 5
+        - duration: 120
+          arrivalRate: 5
+    production:
+      target: "https://competitor-research-agent.example.com"
+      phases:
+        - duration: 60
+          arrivalRate: 2
+          rampTo: 5
+        - duration: 300
+          arrivalRate: 5
+        - duration: 120
+          arrivalRate: 10
+          rampTo: 20
+        - duration: 60
+          arrivalRate: 5
+  http:
+    timeout: 30  # Increase default timeout to 30 seconds
+    extendedMetrics: true
+
+scenarios:
+  - name: "Homepage and navigation"
+    weight: 20
+    flow:
+      - get:
+          url: "/"
+          expect:
+            - statusCode: 200
+      - think: 2
+      - get:
+          url: "/projects"
+          expect:
+            - statusCode: 200
+      - think: 3
+      - get:
+          url: "/reports"
+          expect:
+            - statusCode: 200
+
+  - name: "Project creation and view"
+    weight: 40
+    flow:
+      - get:
+          url: "/projects/new"
+          expect:
+            - statusCode: 200
+      - think: 5
+      - post:
+          url: "/api/projects"
+          json:
+            name: "Load Test Project {{ $randomString(10) }}"
+            productWebsite: "https://loadtest-{{ $randomString(5) }}.com"
+            competitors: 
+              - name: "Load Test Competitor {{ $randomString(8) }}"
+                website: "https://competitor-{{ $randomString(5) }}.com"
+          capture:
+            - json: "$.id"
+              as: "projectId"
+          expect:
+            - statusCode: 201
+      - think: 3
+      - get:
+          url: "/projects/{{ projectId }}"
+          expect:
+            - statusCode: 200
+
+  - name: "API endpoints load testing"
+    weight: 40
+    flow:
+      - get:
+          url: "/api/health"
+          expect:
+            - statusCode: 200
+      - think: 1
+      - get:
+          url: "/api/projects"
+          expect:
+            - statusCode: 200
+      - think: 2
+      - get:
+          url: "/api/competitors"
+          expect:
+            - statusCode: 200
+      - think: 2
+      - get:
+          url: "/api/reports"
+          expect:
+            - statusCode: 200
+      - think: 2
+      - get:
+          url: "/api/performance-dashboard"
+          expect:
+            - statusCode: 200
+
+processor: "./scenarios/customFunctions.js"
+
+reporting:
+  output:
+    - "json"
+    - "console"
+  reporter: "./scenarios/custom-reporter.js"
+
+output:
+  exportMetrics: "load-tests/reports/metrics-{{ $processEnvironment.TEST_ID }}.json" 

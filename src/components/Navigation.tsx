@@ -44,4 +44,7 @@ export function Navigation() {
       </div>
     </nav>
   )
-} 
+}
+
+// Add default export for compatibility
+export default Navigation; 

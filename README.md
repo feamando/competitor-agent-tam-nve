@@ -533,6 +533,19 @@ This repository uses a structured branching strategy to organize development wor
 - **Status**: ✅ Fully tested and production-ready
 - **Use For**: New feature development, standard deployments, observability monitoring
 
+#### **aws-bedrock-credentials-feature** (AWS Credentials Integration)
+- **Purpose**: AWS Bedrock credentials integration and test stability improvements
+- **Features**: Everything in main plus:
+  - AWS Bedrock credential management and validation
+  - Test failures remediation implementation
+  - Enhanced performance optimization
+  - Comprehensive test coverage for edge cases
+  - Cross-browser testing infrastructure
+  - Load testing framework
+  - Memory optimization for large operations
+- **Status**: ✅ Fully tested and production-ready
+- **Use For**: Production deployments with AWS Bedrock integration, performance testing
+
 ### **Working with Branches**
 
 #### **For Stable Development**
@@ -571,9 +584,11 @@ git checkout -b hotfix/your-fix-name
 
 | Use Case | Recommended Branch | Why |
 |----------|-------------------|-----|
-| **Production Deployment** | `stable-main` | Proven stability, no experimental features |
+| **Production Deployment** | `aws-bedrock-credentials-feature` | Latest stable features with AWS integration and performance optimizations |
 | **Feature Development** | `main` | Latest features with good test coverage |
 | **Observability Monitoring** | `main` | Advanced monitoring and error tracking included |
+| **AWS Integration** | `aws-bedrock-credentials-feature` | Complete AWS Bedrock credential handling and validation |
+| **Performance Testing** | `aws-bedrock-credentials-feature` | Enhanced testing infrastructure for load and cross-browser testing |
 | **Critical Bug Fixes** | `stable-main` | Minimal risk, focused fixes |
 | **Integration Testing** | `main` | Full feature set including observability |
 
@@ -617,15 +632,25 @@ For support and questions:
 - ✅ Report generation functional 
 - ✅ Real web scraping operational (100% success rate)
 - ✅ AWS Bedrock API configured correctly
+- ✅ AWS Credential management and validation
 - ✅ Database and file storage operational
 - ✅ Chat interface responsive
 - ✅ Scheduled scraping available
 - ✅ Comprehensive logging active
+- ✅ Performance monitoring active
+- ✅ Memory optimization implemented
+- ✅ Cross-browser compatibility verified
 
 **Recent Enhancements**:
+- 🆕 AWS Bedrock credentials integration and validation
+- 🆕 Comprehensive test failures remediation implementation
+- 🆕 Enhanced performance optimization for API response times
+- 🆕 Memory monitoring and optimization for large operations
+- 🆕 Cross-browser testing infrastructure with Playwright
+- 🆕 Load testing framework with Artillery
 - 🆕 Real web scraping implementation with Puppeteer
 - 🆕 Scheduled scraping with configurable cron jobs
 - 🆕 Performance-optimized content extraction
 - 🆕 Comprehensive scraping API endpoints
 
-**Last Updated**: June 2024
+**Last Updated**: July 2025

@@ -8,6 +8,9 @@ import {
   trackCorrelation,
   trackError 
 } from '@/lib/logger'
+import redisCacheService, { withRedisCache } from '@/lib/redis-cache'
+import { withCache } from '@/lib/cache'
+import { profileOperation, PERFORMANCE_THRESHOLDS } from '@/lib/profiling'
 
 const competitorSchema = z.object({
   name: z.string().min(1, 'Company name is required').max(255, 'Company name too long'),
@@ -224,140 +227,234 @@ export async function POST(request: Request) {
   }
 }
 
-export async function GET(request: Request) {
+// Define TTL for caching competitors list (in seconds)
+const COMPETITORS_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+export async function GET(request: NextRequest) {
   const correlationId = generateCorrelationId();
+  const startTime = performance.now();
+  
+  const url = new URL(request.url);
+  const page = parseInt(url.searchParams.get('page') || '1');
+  const limit = parseInt(url.searchParams.get('limit') || '10');
+  const search = url.searchParams.get('search') || '';
+  
+  // Logging context
   const context = {
     endpoint: '/api/competitors',
     method: 'GET',
     correlationId
   };
-
-  try {
-    trackCorrelation(correlationId, 'competitors_list_request_received', context);
-    logger.info('Competitors list request received', context);
-
-    const { searchParams } = new URL(request.url);
-    const page = Math.max(1, parseInt(searchParams?.get('page') || '1'));
-    const limit = Math.min(100, Math.max(1, parseInt(searchParams?.get('limit') || '10')));
-    const search = searchParams?.get('search') || '';
-
-    const enhancedContext = {
-      ...context,
+  
+  const enhancedContext = {
+    ...context,
+    queryParams: { page, limit, search }
+  };
+  
+  return profileOperation(async () => {
+    try {
+      trackCorrelation(correlationId, 'competitors_request_received', enhancedContext);
+      logger.info('Competitors request received', enhancedContext);
+      
+      // Cache key parameters
+      const cacheParams = { page, limit, search };
+      
+      // Use cache wrapper to efficiently cache results
+      const result = await withCache(
+        () => fetchCompetitorsWithBatching(page, limit, search, enhancedContext),
+        'competitors_list',
+        cacheParams,
+        COMPETITORS_CACHE_TTL
+      );
+      
+      const responseTime = performance.now() - startTime;
+      
+      // Track response time
+      trackCorrelation(correlationId, 'competitors_request_completed', {
+        ...enhancedContext,
+        responseTime: `${responseTime.toFixed(2)}ms`,
+        resultsCount: result.competitors.length,
+        totalCount: result.total
+      });
+      
+      // Set performance headers
+      const headers = {
+        'Cache-Control': 'public, max-age=60', // 1 minute browser cache
+        'X-Response-Time': `${responseTime.toFixed(2)}ms`,
+        'X-Correlation-ID': correlationId
+      };
+      
+      return NextResponse.json({
+        ...result,
+        page,
+        limit,
+        responseTime: responseTime.toFixed(2)
+      }, { headers });
+      
+    } catch (error) {
+      const errorTime = performance.now() - startTime;
+      
+      trackError(
+        error as Error,
+        'competitors_request_failed',
+        correlationId,
+        {
+          ...enhancedContext,
+          responseTime: `${errorTime.toFixed(2)}ms`
+        }
+      );
+      
+      return NextResponse.json({
+        error: 'Failed to fetch competitors',
+        message: error instanceof Error ? error.message : 'Unknown error',
+        correlationId
+      }, { 
+        status: 500,
+        headers: {
+          'X-Response-Time': `${errorTime.toFixed(2)}ms`,
+          'X-Correlation-ID': correlationId
+        }
+      });
+    }
+  }, {
+    label: 'API: GET /api/competitors',
+    correlationId,
+    additionalContext: {
       page,
       limit,
-      hasSearch: !!search
-    };
+      search: search || 'none'
+    }
+  });
+}
 
-    // Calculate offset for pagination
-    const offset = (page - 1) * limit;
+/**
+ * Optimized function that fetches competitors with query batching
+ * to reduce database round trips and improve performance
+ */
+async function fetchCompetitorsWithBatching(
+  page: number,
+  limit: number,
+  search: string,
+  context: Record<string, any>
+) {
+  const startTime = performance.now();
+  trackCorrelation(context.correlationId, 'competitors_query_started', context);
 
-    // Build where clause for search
-    const whereClause = search
-      ? {
-          OR: [
-            { name: { contains: search, mode: 'insensitive' as const } },
-            { website: { contains: search, mode: 'insensitive' as const } },
-            { description: { contains: search, mode: 'insensitive' as const } },
-            { industry: { contains: search, mode: 'insensitive' as const } },
-          ],
-        }
-      : {};
+  // Calculate offset for pagination
+  const offset = (page - 1) * limit;
 
-    trackCorrelation(correlationId, 'competitors_query_started', enhancedContext);
+  // Build where clause for search
+  const whereClause = search
+    ? {
+        OR: [
+          { name: { contains: search, mode: 'insensitive' as const } },
+          { website: { contains: search, mode: 'insensitive' as const } },
+          { description: { contains: search, mode: 'insensitive' as const } },
+          { industry: { contains: search, mode: 'insensitive' as const } },
+        ],
+      }
+    : {};
 
-    // Get total count for pagination
-    trackDatabaseOperation('count', 'competitor', {
-      ...enhancedContext,
-      query: 'total count with search filter'
-    });
-
-    const total = await prisma.competitor.count({
-      where: whereClause,
-    });
-
-    trackDatabaseOperation('count', 'competitor', {
-      ...enhancedContext,
-      success: true,
-      recordData: { total }
-    });
-
-    // Get competitors with pagination
-    trackDatabaseOperation('findMany', 'competitor', {
-      ...enhancedContext,
-      query: 'paginated list with search filter'
-    });
-
-    const competitors = await prisma.competitor.findMany({
-      where: whereClause,
-      skip: offset,
-      take: limit,
-      orderBy: { createdAt: 'desc' },
-      include: {
-        reports: {
+  try {
+    // OPTIMIZATION 1: Use Promise.all to batch queries
+    const [total, competitors] = await Promise.all([
+      // Count query
+      profileOperation(
+        () => prisma.competitor.count({ where: whereClause }),
+        { label: 'COUNT competitors query', correlationId: context.correlationId }
+      ),
+      
+      // Main data query with optimized select
+      profileOperation(
+        () => prisma.competitor.findMany({
+          where: whereClause,
+          skip: offset,
+          take: limit,
+          orderBy: { createdAt: 'desc' },
+          // OPTIMIZATION 2: Optimize select with only necessary fields
           select: {
             id: true,
             name: true,
-            createdAt: true
-          },
-          take: 3,
-          orderBy: { createdAt: 'desc' }
-        },
-        snapshots: {
-          select: {
-            id: true,
-            createdAt: true
-          },
-          take: 1,
-          orderBy: { createdAt: 'desc' }
-        }
-      }
-    });
+            website: true,
+            description: true,
+            industry: true,
+            createdAt: true,
+            updatedAt: true,
+            // OPTIMIZATION 3: Use _count for efficient counting without fetching related data
+            _count: {
+              select: {
+                reports: true,
+                snapshots: true
+              }
+            },
+            // OPTIMIZATION 4: Only fetch minimal data for related entities
+            reports: {
+              select: {
+                id: true,
+                name: true,
+                createdAt: true
+              },
+              take: 3,
+              orderBy: { createdAt: 'desc' }
+            },
+            snapshots: {
+              select: {
+                id: true,
+                createdAt: true
+              },
+              take: 1,
+              orderBy: { createdAt: 'desc' }
+            }
+          }
+        }),
+        { label: 'SELECT competitors query', correlationId: context.correlationId }
+      )
+    ]);
 
-    trackDatabaseOperation('findMany', 'competitor', {
-      ...enhancedContext,
-      success: true,
-      recordData: { count: competitors.length }
-    });
+    // OPTIMIZATION 5: Efficient data transformation
+    const enhancedCompetitors = competitors.map(competitor => ({
+      id: competitor.id,
+      name: competitor.name,
+      website: competitor.website,
+      description: competitor.description || '',
+      industry: competitor.industry,
+      createdAt: competitor.createdAt,
+      updatedAt: competitor.updatedAt,
+      reportCount: competitor._count.reports,
+      snapshotCount: competitor._count.snapshots,
+      lastReport: competitor.reports[0] || null,
+      latestReports: competitor.reports,
+      latestSnapshot: competitor.snapshots[0] || null,
+      hasReports: competitor._count.reports > 0,
+      hasSnapshots: competitor._count.snapshots > 0
+    }));
 
-    // Calculate pagination info
-    const pages = Math.ceil(total / limit);
-
-    trackCorrelation(correlationId, 'competitors_list_completed', {
-      ...enhancedContext,
-      totalRecords: total,
-      returnedRecords: competitors.length
-    });
-
-    logger.info('Competitors list retrieved successfully', {
-      ...enhancedContext,
-      totalRecords: total,
-      returnedRecords: competitors.length
-    });
-
-    return NextResponse.json({
-      competitors,
-      pagination: {
-        total,
-        pages,
-        page,
-        limit,
-      },
-      correlationId
-    });
-
-  } catch (error) {
-    trackCorrelation(correlationId, 'competitors_list_error', {
+    const queryTime = performance.now() - startTime;
+    
+    trackCorrelation(context.correlationId, 'competitors_query_completed', {
       ...context,
-      errorMessage: (error as Error).message
+      queryTime: `${queryTime.toFixed(2)}ms`,
+      resultsCount: competitors.length,
+      totalCount: total
     });
 
-    logger.error('Failed to fetch competitors', error as Error, context);
-    trackError(error as Error, 'competitors_list', context);
-
-    return NextResponse.json({ 
-      error: 'Internal Server Error',
-      message: 'Failed to fetch competitors',
-      correlationId 
-    }, { status: 500 });
+    return {
+      competitors: enhancedCompetitors,
+      total,
+      hasMore: offset + limit < total,
+      queryTime
+    };
+  } catch (error) {
+    trackError(
+      error as Error,
+      'competitors_query_failed',
+      context.correlationId,
+      {
+        ...context,
+        queryTime: `${(performance.now() - startTime).toFixed(2)}ms`
+      }
+    );
+    
+    throw error;
   }
 } 

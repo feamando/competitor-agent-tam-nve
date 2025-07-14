@@ -707,23 +707,20 @@ describe('Phase 5.4: Observability Integration Tests', () => {
       recordThroughput: jest.fn()
     };
 
-    // Setup log capture
-    const originalLogger = logger.info;
+    // Setup log capture - Fix for Phase 1.2: Remove recursive calls to prevent stack overflow
     jest.spyOn(logger, 'info').mockImplementation((message: string, metadata?: any) => {
       capturedLogs.push({ level: 'info', message, metadata });
-      return originalLogger.call(logger, message, metadata);
+      // Don't call original logger to avoid recursion - just capture the log
     });
 
-    const originalLoggerWarn = logger.warn;
     jest.spyOn(logger, 'warn').mockImplementation((message: string, metadata?: any) => {
       capturedLogs.push({ level: 'warn', message, metadata });
-      return originalLoggerWarn.call(logger, message, metadata);
+      // Don't call original logger to avoid recursion - just capture the log
     });
 
-    const originalLoggerError = logger.error;
     jest.spyOn(logger, 'error').mockImplementation((message: string, metadata?: any) => {
       capturedLogs.push({ level: 'error', message, metadata });
-      return originalLoggerError.call(logger, message, metadata);
+      // Don't call original logger to avoid recursion - just capture the log
     });
   }
 

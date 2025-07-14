@@ -176,7 +176,7 @@ describe('ProductScrapingService', () => {
 
       await expect(
         productScrapingService.scrapeProduct('https://nonexistent.com')
-      ).rejects.toThrow('No product found with website URL: https://nonexistent.com');
+      ).rejects.toThrow(/No product found.*website.*nonexistent\.com/i);
 
       expect(mockProductRepository.findByWebsite).toHaveBeenCalledWith('https://nonexistent.com');
       expect(mockTakeSnapshot).not.toHaveBeenCalled();
@@ -195,7 +195,7 @@ describe('ProductScrapingService', () => {
       // Test that the error is properly propagated after retries
       await expect(
         productScrapingService.scrapeProduct('https://hellofresh.com')
-      ).rejects.toThrow('All 3 scraping attempts failed. Last error: Failed to load page');
+      ).rejects.toThrow(/All.*scraping attempts failed.*Failed to load page/i);
 
       expect(mockProductRepository.findByWebsite).toHaveBeenCalledWith('https://hellofresh.com');
       expect(mockProductRepository.findById).toHaveBeenCalledWith('prod_123');

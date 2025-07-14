@@ -251,4 +251,34 @@ export interface ComparativeAnalysisService {
   generateAnalysisReport(analysis: ComparativeAnalysis): Promise<string>;
   getAnalysisHistory(projectId: string): Promise<ComparativeAnalysis[]>;
   updateAnalysisConfiguration(config: Partial<AnalysisConfiguration>): void;
+}
+
+export interface UXAnalysisResult {
+  summary: string;
+  recommendations: string[];
+  confidence: number;
+  detailed: {
+    usability: Record<string, unknown>;
+    accessibility: Record<string, unknown>;
+    performance: Record<string, unknown>;
+  };
+}
+
+export interface ReportGenerationResult {
+  report: {
+    id: string;
+    sections: Array<{
+      title?: string;
+      content?: string;
+      order?: number;
+    }>;
+    metadata: Record<string, unknown>;
+  };
+  generationTime: number;
+}
+
+export interface UXAnalysisOptions {
+  focus?: 'usability' | 'accessibility' | 'performance' | 'both';
+  includeTechnical?: boolean;
+  includeAccessibility?: boolean;
 } 

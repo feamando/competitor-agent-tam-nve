@@ -10,11 +10,17 @@ const customJestConfig = {
   setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
   testEnvironment: 'jest-environment-jsdom',
   
-  // Module resolution
+  // Module resolution - Fix 1.1: Enhanced ES module mappings
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',
-    '^cheerio$': 'jest-mock',
-    '^puppeteer$': 'jest-mock',
+    '^cheerio$': '<rootDir>/src/__tests__/mocks/cheerio.js',
+    '^puppeteer$': '<rootDir>/src/__tests__/mocks/puppeteer.js',
+    '^redis$': '<rootDir>/src/__tests__/mocks/redis.js',
+    // ES Module mappings for problematic packages - create simple mocks
+    '^p-limit$': '<rootDir>/src/__tests__/mocks/p-limit.js',
+    '^uuid$': require.resolve('uuid'),
+    '^msgpackr$': require.resolve('msgpackr'),
+    '^yocto-queue$': require.resolve('yocto-queue'),
   },
   
   // Performance optimizations
@@ -36,9 +42,9 @@ const customJestConfig = {
     '!**/node_modules/**'
   ],
   
-  // Transform ES modules
+  // Transform ES modules - Fix 1.1: Complete ES module support
   transformIgnorePatterns: [
-    'node_modules/(?!(cheerio|@\\w+)/)',
+    'node_modules/(?!(p-limit|msgpackr|uuid|yocto-queue|cheerio|launchdarkly-node-server-sdk|@\\w+)/)',
   ],
   
   // Global setup/teardown

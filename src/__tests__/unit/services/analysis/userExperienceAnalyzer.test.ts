@@ -31,7 +31,9 @@ jest.mock('@/lib/logger', () => ({
   generateCorrelationId: jest.fn(() => 'test-correlation-id'),
   logger: {
     info: jest.fn(),
-    error: jest.fn()
+    warn: jest.fn(),
+    error: jest.fn(),
+    debug: jest.fn()
   }
 }));
 

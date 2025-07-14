@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
@@ -162,7 +162,7 @@ model ReportSchedule {
   timeframe       Int
   lastRun         DateTime?
   nextRun         DateTime
-  recipients      String[]
+  recipients      Json
   status          ReportScheduleStatus    @default(ACTIVE)
   notifyOnChanges Boolean                 @default(false)
   createdBy       String?
@@ -184,7 +184,7 @@ model Project {
   startDate         DateTime                 @default(now())
   endDate           DateTime?
   parameters        Json
-  tags              String[]
+  tags              Json
   createdAt         DateTime                 @default(now())
   updatedAt         DateTime                 @updatedAt
   scrapingFrequency ReportScheduleFrequency? @default(WEEKLY)
@@ -288,6 +288,7 @@ model MonitoringEvent {
   correlationId String?
   timestamp    DateTime @default(now())
   source       String   @default("system")
+  alerts       MonitoringAlert[]
 
   @@index([eventType])
   @@index([resourceType])
@@ -297,26 +298,33 @@ model MonitoringEvent {
 }
 
 model MonitoringAlert {
-  id              String    @id @default(cuid())
-  alertType       String    // 'CRITICAL', 'WARNING', 'BUDGET'
-  category        String    // 'performance', 'quality', 'cost', 'user_experience'
-  metric          String
-  message         String
-  currentValue    Float
-  threshold       Float
-  window          String
-  correlationId   String?
-  acknowledged    Boolean   @default(false)
-  acknowledgedAt  DateTime?
-  acknowledgedBy  String?
-  resolvedAt      DateTime?
-  metadata        Json?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  id          String   @id @default(cuid())
+  eventId     String
+  level       String
+  message     String
+  acknowledged Boolean @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  event       MonitoringEvent @relation(fields: [eventId], references: [id])
 
-  @@index([alertType])
-  @@index([category])
+  @@index([level])
   @@index([acknowledged])
-  @@index([createdAt])
-  @@index([metric, window])
+}
+
+model AWSCredentials {
+  id                     String   @id @default(cuid())
+  profileName            String   @unique
+  accessKeyId            String   // Changed from encryptedAccessKey
+  secretAccessKey        String   // Changed from encryptedSecretKey
+  sessionToken           String?  // Changed from encryptedSessionToken
+  awsRegion              String
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+  lastValidatedAt        DateTime?
+  isValid                Boolean  @default(false)
+  validationError        String?
+  
+  @@index([profileName])
+  @@index([isValid])
+  @@index([lastValidatedAt])
 }

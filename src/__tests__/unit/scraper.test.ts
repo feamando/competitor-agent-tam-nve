@@ -1,13 +1,10 @@
 import { WebsiteScraper } from '@/lib/scraper';
-import * as puppeteer from 'puppeteer';
-
-// Mock puppeteer
-jest.mock('puppeteer');
+import puppeteer from 'puppeteer';
 
 describe('WebsiteScraper', () => {
   let scraper: WebsiteScraper;
-  let mockBrowser: jest.Mocked<puppeteer.Browser>;
-  let mockPage: jest.Mocked<puppeteer.Page>;
+  let mockBrowser: any;
+  let mockPage: any;
   let responseCallback: Function | undefined;
   let requestCallback: Function | undefined;
 
@@ -53,13 +50,13 @@ describe('WebsiteScraper', () => {
       evaluate: jest.fn().mockResolvedValue('Test Page\nTest content'),
       title: jest.fn().mockResolvedValue('Test Page Title'),
       close: jest.fn(),
-    } as unknown as jest.Mocked<puppeteer.Page>;
+    } as any;
 
     // Setup mock browser
     mockBrowser = {
       newPage: jest.fn().mockResolvedValue(mockPage),
       close: jest.fn(),
-    } as unknown as jest.Mocked<puppeteer.Browser>;
+    } as any;
 
     // Mock puppeteer.launch
     (puppeteer.launch as jest.Mock).mockResolvedValue(mockBrowser);

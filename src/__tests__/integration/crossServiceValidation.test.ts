@@ -1,802 +1,385 @@
-import { createMockAnalysisService, createMockUXAnalyzer, createMockReportService } from "./mocks/serviceIntegrationMocks";
-// import { createMockAnalysisService, createMockUXAnalyzer, createMockReportService } from "./mocks/serviceIntegrationMocks";
+/**
+ * Cross-Service Integration Validation Tests
+ * Phase 1.2: Core Workflow Restoration Validation
+ * 
+ * Tests the integration between services to ensure proper data flow
+ * and prevent workflow failures.
+ */
+
+import { serviceCoordinator, WorkflowContext } from '@/lib/workflow/serviceCoordinator';
 import { ComparativeAnalysisService } from '@/services/analysis/comparativeAnalysisService';
-import { ComparativeReportService } from '@/services/reports/comparativeReportService';
 import { UserExperienceAnalyzer } from '@/services/analysis/userExperienceAnalyzer';
-import { AutoReportGenerationService } from '@/services/autoReportGenerationService';
-import { logger } from '@/lib/logger';
-import { WorkflowMocks } from './mocks/workflowMocks';
+import { ConversationManager } from '@/lib/chat/conversation';
+import { ComparativeAnalysisInput } from '@/types/analysis';
 
-describe('Cross-Service Integration Tests', () => {
-  let analysisService: ComparativeAnalysisService;
-  let reportService: ComparativeReportService;
-  let uxAnalyzer: UserExperienceAnalyzer;
-  let autoReportService: AutoReportGenerationService;
-  let mockWorkflow: any;
+// Mock data for testing
+const mockProductData = {
+  id: 'prod-1',
+  name: 'Test Product',
+  website: 'https://testproduct.com',
+  positioning: 'Leading solution for test market',
+  customerData: 'Enterprise customers in technology sector',
+  userProblem: 'Solving complex workflow automation challenges',
+  industry: 'Technology'
+};
 
-  beforeAll(async () => {
-    // Initialize services
-    analysisService = new ComparativeAnalysisService();
-    reportService = new ComparativeReportService();
-    uxAnalyzer = new UserExperienceAnalyzer();
-    autoReportService = new AutoReportGenerationService();
+const mockProductSnapshot = {
+  id: 'snap-1',
+  productId: 'prod-1',
+  content: {
+    title: 'Test Product - Workflow Automation',
+    description: 'Advanced workflow automation platform for enterprise customers',
+    features: ['Automated workflows', 'Real-time analytics', 'Enterprise security']
+  },
+  metadata: {
+    scrapedAt: new Date().toISOString(),
+    url: 'https://testproduct.com',
+    text: 'Test Product offers comprehensive workflow automation solutions for enterprise customers. Our platform includes automated workflows, real-time analytics, and enterprise-grade security features.'
+  },
+  createdAt: new Date()
+};
 
-    // Initialize realistic data flow patterns with workflow mocks
-    mockWorkflow = WorkflowMocks.createAnalysisToReportWorkflow();
-    logger.info('Integration Test Setup Complete with Workflow Mocks');
+const mockCompetitors = [
+  {
+    competitor: {
+      id: 'comp-1',
+      name: 'Competitor A',
+      website: 'https://competitora.com',
+      industry: 'Technology'
+    },
+    snapshot: {
+      id: 'snap-comp-1',
+      competitorId: 'comp-1',
+      metadata: {
+        title: 'Competitor A - Business Automation',
+        text: 'Competitor A provides business automation tools with focus on small to medium businesses.',
+        features: ['Basic automation', 'Standard reporting']
+      },
+      createdAt: new Date(),
+      updatedAt: new Date()
+    }
+  },
+  {
+    competitor: {
+      id: 'comp-2',
+      name: 'Competitor B',
+      website: 'https://competitorb.com',
+      industry: 'Technology'
+    },
+    snapshot: {
+      id: 'snap-comp-2',
+      competitorId: 'comp-2',
+      metadata: {
+        title: 'Competitor B - Process Management',
+        text: 'Competitor B specializes in process management and workflow optimization for enterprises.',
+        features: ['Process management', 'Workflow optimization', 'Team collaboration']
+      },
+      createdAt: new Date(),
+      updatedAt: new Date()
+    }
+  }
+];
+
+const mockAnalysisInput: ComparativeAnalysisInput = {
+  product: mockProductData,
+  productSnapshot: mockProductSnapshot,
+  competitors: mockCompetitors,
+  analysisConfig: {
+    focusAreas: ['features', 'positioning', 'user_experience'],
+    depth: 'comprehensive',
+    includeRecommendations: true
+  }
+};
+
+describe('Cross-Service Integration Validation', () => {
+  let comparativeAnalysisService: ComparativeAnalysisService;
+  let userExperienceAnalyzer: UserExperienceAnalyzer;
+  let conversationManager: ConversationManager;
+
+  beforeEach(() => {
+    comparativeAnalysisService = new ComparativeAnalysisService();
+    userExperienceAnalyzer = new UserExperienceAnalyzer();
+    conversationManager = new ConversationManager();
   });
 
-  describe('Phase 4.1: Integration Testing', () => {
-    it('should integrate analysis service with report service', async () => {
-      // Mock analysis input
-      const mockAnalysisInput = {
-        product: {
-          id: 'integration-product-001',
-          name: 'Integration Test Product',
-          website: 'https://integrationtest.com',
-          positioning: 'Test positioning',
-          customerData: 'Test customers',
-          userProblem: 'Test problem',
-          industry: 'Test Industry'
-        },
-        productSnapshot: {
-          id: 'integration-snapshot-001',
-          productId: 'integration-product-001',
-          content: {
-            title: 'Integration Test Product',
-            description: 'Product for integration testing',
-            features: ['Feature 1', 'Feature 2', 'Feature 3']
-          },
-          metadata: {
-            url: 'https://integrationtest.com',
-            scrapedAt: new Date().toISOString()
-          },
-          createdAt: new Date()
-        },
-        competitors: [
-          {
-            competitor: {
-              id: 'integration-comp-001',
-              name: 'Integration Competitor A',
-              website: 'https://competitora-integration.com',
-              description: 'Test competitor A',
-              industry: 'Test Industry',
-              createdAt: new Date(),
-              updatedAt: new Date()
-            },
-            snapshot: {
-              id: 'integration-comp-snapshot-001',
-              competitorId: 'integration-comp-001',
-              metadata: {
-                title: 'Competitor A',
-                description: 'Competitor A for testing',
-                features: ['Comp Feature 1', 'Comp Feature 2']
-              },
-              createdAt: new Date(),
-              updatedAt: new Date()
-            }
-          }
-        ]
+  describe('Service Coordinator Integration', () => {
+    it('should orchestrate analysis workflow successfully', async () => {
+      const context: WorkflowContext = {
+        correlationId: 'test-correlation-1',
+        productId: 'prod-1',
+        projectId: 'proj-1',
+        analysisType: 'comprehensive'
       };
 
-      // Step 1: Generate comparative analysis
-      const analysis = await analysisService.analyzeProductVsCompetitors(mockAnalysisInput);
+      // Mock the analysis data service
+      jest.spyOn(serviceCoordinator as any, 'prepareAnalysisInput')
+        .mockResolvedValue(mockAnalysisInput);
+
+      const result = await serviceCoordinator.orchestrateAnalysis(context);
+
+      expect(result.success).toBe(true);
+      expect(result.errors).toHaveLength(0);
+      expect(result.analysis || result.uxAnalysis).toBeDefined();
+    });
+
+    it('should handle service failures gracefully', async () => {
+      const context: WorkflowContext = {
+        correlationId: 'test-correlation-2',
+        productId: 'invalid-product',
+        projectId: 'invalid-project',
+        analysisType: 'comprehensive'
+      };
+
+      const result = await serviceCoordinator.orchestrateAnalysis(context);
+
+      expect(result.success).toBe(false);
+      expect(result.errors.length).toBeGreaterThan(0);
+      expect(typeof result.errors[0]).toBe('string');
+    });
+
+    it('should provide service health status', () => {
+      const healthStatus = serviceCoordinator.getServiceHealth();
+      
+      expect(Array.isArray(healthStatus)).toBe(true);
+      expect(healthStatus.length).toBeGreaterThan(0);
+      
+      healthStatus.forEach(health => {
+        expect(health).toHaveProperty('serviceName');
+        expect(health).toHaveProperty('status');
+        expect(health).toHaveProperty('lastCheck');
+        expect(['healthy', 'degraded', 'unhealthy']).toContain(health.status);
+      });
+    });
+  });
+
+  describe('Comparative Analysis Service Integration', () => {
+    it('should generate complete analysis with all sections', async () => {
+      const analysis = await comparativeAnalysisService.analyzeProductVsCompetitors(mockAnalysisInput);
 
       expect(analysis).toBeDefined();
       expect(analysis.id).toBeDefined();
       expect(analysis.summary).toBeDefined();
+      expect(analysis.summary.length).toBeGreaterThan(50);
+      
       expect(analysis.detailed).toBeDefined();
+      expect(typeof analysis.detailed).toBe('object');
+      
       expect(analysis.recommendations).toBeDefined();
-
-      // Step 2: Generate report from analysis
-      const mockProduct = {
-        id: mockAnalysisInput.product.id,
-        name: mockAnalysisInput.product.name,
-        website: mockAnalysisInput.product.website,
-        positioning: mockAnalysisInput.product.positioning,
-        customerData: mockAnalysisInput.product.customerData,
-        userProblem: mockAnalysisInput.product.userProblem,
-        industry: mockAnalysisInput.product.industry,
-        projectId: 'integration-project-001',
-        createdAt: new Date(),
-        updatedAt: new Date()
-      };
-
-      const mockCompetitorSnapshots = [
-        {
-          competitor: {
-            name: 'Integration Competitor A',
-            website: 'https://competitora-integration.com'
-          },
-          snapshot: {
-            id: 'integration-comp-snapshot-001',
-            competitorId: 'integration-comp-001',
-            metadata: {
-              title: 'Competitor A',
-              description: 'Competitor A for testing',
-              features: ['Comp Feature 1', 'Comp Feature 2']
-            },
-            createdAt: new Date(),
-            updatedAt: new Date()
-          }
-        }
-      ];
-
-      const reportResult = await reportService.generateUXEnhancedReport(
-        analysis,
-        mockProduct,
-        mockAnalysisInput.productSnapshot,
-        mockCompetitorSnapshots
-      );
-
-      expect(reportResult).toBeDefined();
-      expect(reportResult.report).toBeDefined();
-      expect(reportResult.report.sections.length).toBeGreaterThan(0);
-      expect(reportResult.generationTime).toBeDefined();
-
-      logger.info('Analysis-Report integration test completed', {
-        analysisId: analysis.id,
-        reportSections: reportResult.report.sections.length,
-        generationTime: reportResult.generationTime
-      });
+      expect(analysis.metadata).toBeDefined();
+      expect(analysis.metadata.confidenceScore).toBeGreaterThan(0);
     });
 
-    it('should validate UX analyzer integration with report service', async () => {
-      // Mock UX analysis data
-      const mockProductData = {
-        id: 'ux-integration-snapshot',
-        productId: 'ux-integration-product',
-        content: {
-          title: 'UX Integration Test Product',
-          description: 'Product for UX integration testing',
-          features: ['UX Feature 1', 'UX Feature 2'],
-          navigation: 'Modern sidebar navigation',
-          userExperience: 'Clean, intuitive interface'
-        },
-        metadata: {
-          url: 'https://uxintegrationtest.com',
-          scrapedAt: new Date().toISOString()
-        },
-        createdAt: new Date(),
-        product: {
-          name: 'UX Integration Test Product',
-          website: 'https://uxintegrationtest.com'
-        }
-      };
-
-      const mockCompetitorData = [
-        {
-          id: 'ux-comp-snapshot-001',
-          competitorId: 'ux-comp-001',
-          metadata: {
-            title: 'UX Competitor A',
-            description: 'UX competitor for testing',
-            features: ['UX Comp Feature 1'],
-            navigation: 'Traditional menu navigation',
-            userExperience: 'Functional but dated interface'
-          },
-          createdAt: new Date(),
-          updatedAt: new Date(),
-          competitor: {
-            name: 'UX Competitor A',
-            website: 'https://uxcompetitora.com'
-          }
-        }
-      ];
-
-      // Step 1: Generate UX analysis
-      const uxAnalysis = await uxAnalyzer.analyzeProductVsCompetitors(
-        mockProductData,
-        mockCompetitorData,
-        { focus: 'both', includeTechnical: true, includeAccessibility: true }
-      );
-
-      expect(uxAnalysis).toBeDefined();
-      expect(uxAnalysis.summary).toBeDefined();
-      expect(uxAnalysis.recommendations).toBeInstanceOf(Array);
-      expect(uxAnalysis.confidence).toBeGreaterThan(0);
-
-      // Step 2: Verify UX analysis can be used in report generation
-      // This validates that the UX analyzer output format is compatible with report service
-      expect(uxAnalysis.metadata).toBeDefined();
-      expect(uxAnalysis.metadata.correlationId).toBeDefined();
-      expect(uxAnalysis.metadata.analyzedAt).toBeDefined();
-
-      logger.info('UX analyzer integration test completed', {
-        uxSummary: uxAnalysis.summary,
-        recommendationCount: uxAnalysis.recommendations.length,
-        confidenceScore: uxAnalysis.confidence
-      });
-    });
-
-    it('should validate service error handling and recovery', async () => {
-      // Test analysis service with invalid input
-      const invalidAnalysisInput = {
-        product: {
-          id: '',
-          name: '',
-          website: '',
-          positioning: '',
-          customerData: '',
-          userProblem: '',
-          industry: ''
-        },
-        productSnapshot: {
-          id: '',
-          productId: '',
-          content: {},
-          metadata: {},
-          createdAt: new Date()
-        },
+    it('should handle empty competitor data gracefully', async () => {
+      const emptyInput: ComparativeAnalysisInput = {
+        ...mockAnalysisInput,
         competitors: []
       };
 
-      try {
-        await analysisService.analyzeProductVsCompetitors(invalidAnalysisInput);
-        // If no error is thrown, that's also valid (graceful handling)
-        logger.info('Analysis service handled invalid input gracefully');
-      } catch (error) {
-        expect(error).toBeInstanceOf(Error);
-        logger.info('Analysis service properly threw error for invalid input', {
-          errorMessage: (error as Error).message
-        });
-      }
-
-      // Test UX analyzer with minimal data
-      const minimalProductData = {
-        id: 'minimal-test',
-        productId: 'minimal-product',
-        content: {},
-        metadata: {},
-        createdAt: new Date(),
-        product: { name: 'Minimal Product', website: 'https://minimal.com' }
-      };
-
-      try {
-        const uxResult = await uxAnalyzer.analyzeProductVsCompetitors(
-          minimalProductData,
-          [],
-          { focus: 'both' }
-        );
-        
-        // Should handle minimal data gracefully
-        expect(uxResult).toBeDefined();
-        expect(uxResult.confidence).toBeLessThanOrEqual(1);
-        logger.info('UX analyzer handled minimal data gracefully', {
-          confidence: uxResult.confidence
-        });
-      } catch (error) {
-        expect(error).toBeInstanceOf(Error);
-        logger.info('UX analyzer properly handled minimal data error', {
-          errorMessage: (error as Error).message
-        });
-      }
+      await expect(async () => {
+        await comparativeAnalysisService.analyzeProductVsCompetitors(emptyInput);
+      }).rejects.toThrow('At least one competitor is required for analysis');
     });
 
-    it('should validate service performance under load', async () => {
-      const startTime = Date.now();
-      
-      // Create multiple concurrent analysis requests
-      const concurrentRequests = Array.from({ length: 3 }, (_, index) => {
-        const mockInput = {
-          product: {
-            id: `perf-product-${index}`,
-            name: `Performance Test Product ${index}`,
-            website: `https://perftest${index}.com`,
-            positioning: 'Performance test positioning',
-            customerData: 'Performance test customers',
-            userProblem: 'Performance test problem',
-            industry: 'Performance Test Industry'
-          },
-          productSnapshot: {
-            id: `perf-snapshot-${index}`,
-            productId: `perf-product-${index}`,
-            content: {
-              title: `Performance Test Product ${index}`,
-              description: 'Performance testing product',
-              features: [`Feature ${index}A`, `Feature ${index}B`]
-            },
-            metadata: {
-              url: `https://perftest${index}.com`,
-              scrapedAt: new Date().toISOString()
-            },
-            createdAt: new Date()
-          },
-          competitors: [
-            {
-              competitor: {
-                id: `perf-comp-${index}`,
-                name: `Performance Competitor ${index}`,
-                website: `https://perfcomp${index}.com`,
-                description: `Performance competitor ${index}`,
-                industry: 'Performance Test Industry',
-                createdAt: new Date(),
-                updatedAt: new Date()
-              },
-              snapshot: {
-                id: `perf-comp-snapshot-${index}`,
-                competitorId: `perf-comp-${index}`,
-                metadata: {
-                  title: `Performance Competitor ${index}`,
-                  description: `Performance competitor ${index} for testing`,
-                  features: [`Perf Comp Feature ${index}`]
-                },
-                createdAt: new Date(),
-                updatedAt: new Date()
-              }
-            }
-          ]
-        };
-
-        return analysisService.analyzeProductVsCompetitors(mockInput);
-      });
-
-      // Execute all requests concurrently
-      const results = await Promise.all(concurrentRequests);
-      const endTime = Date.now();
-      const totalTime = endTime - startTime;
-
-      // Validate all requests completed successfully
-      expect(results).toHaveLength(3);
-      results.forEach((result, index) => {
-        expect(result).toBeDefined();
-        expect(result.id).toBeDefined();
-        expect(result.summary).toBeDefined();
-      });
-
-      // Performance validation
-      expect(totalTime).toBeLessThan(60000); // Should complete within 1 minute
-      const averageTime = totalTime / 3;
-      expect(averageTime).toBeLessThan(30000); // Average should be under 30 seconds
-
-      logger.info('Performance test completed', {
-        totalTime,
-        averageTime,
-        requestCount: 3,
-        status: totalTime < 60000 ? 'PASS' : 'FAIL'
-      });
-    });
-
-    it('should validate data consistency across services', async () => {
-      // Create consistent test data
-      const testProductId = 'consistency-product-001';
-      const testAnalysisId = 'consistency-analysis-001';
-      
-      const mockAnalysisInput = {
-        product: {
-          id: testProductId,
-          name: 'Consistency Test Product',
-          website: 'https://consistencytest.com',
-          positioning: 'Consistent positioning',
-          customerData: 'Consistent customers',
-          userProblem: 'Consistent problem',
-          industry: 'Consistency Industry'
-        },
-        productSnapshot: {
-          id: 'consistency-snapshot-001',
-          productId: testProductId,
-          content: {
-            title: 'Consistency Test Product',
-            description: 'Product for consistency testing',
-            features: ['Consistency Feature 1', 'Consistency Feature 2']
-          },
-          metadata: {
-            url: 'https://consistencytest.com',
-            scrapedAt: new Date().toISOString()
-          },
-          createdAt: new Date()
-        },
-        competitors: [
-          {
-            competitor: {
-              id: 'consistency-comp-001',
-              name: 'Consistency Competitor',
-              website: 'https://consistencycomp.com',
-              description: 'Consistency competitor',
-              industry: 'Consistency Industry',
-              createdAt: new Date(),
-              updatedAt: new Date()
-            },
-            snapshot: {
-              id: 'consistency-comp-snapshot-001',
-              competitorId: 'consistency-comp-001',
-              metadata: {
-                title: 'Consistency Competitor',
-                description: 'Consistency competitor for testing',
-                features: ['Consistency Comp Feature']
-              },
-              createdAt: new Date(),
-              updatedAt: new Date()
-            }
-          }
-        ]
+    it('should validate input data structure', async () => {
+      const invalidInput: ComparativeAnalysisInput = {
+        ...mockAnalysisInput,
+        product: { ...mockProductData, id: '', name: '' }
       };
 
-      // Step 1: Generate analysis
-      const analysis = await analysisService.analyzeProductVsCompetitors(mockAnalysisInput);
-
-      // Step 2: Verify analysis data consistency
-      expect(analysis.productId).toBe(testProductId);
-      expect(analysis.competitorIds).toContain('consistency-comp-001');
-      expect(analysis.metadata.dataQuality).toBeDefined();
-
-      // Step 3: Generate report and verify consistency
-      const mockProduct = {
-        id: testProductId,
-        name: mockAnalysisInput.product.name,
-        website: mockAnalysisInput.product.website,
-        positioning: mockAnalysisInput.product.positioning,
-        customerData: mockAnalysisInput.product.customerData,
-        userProblem: mockAnalysisInput.product.userProblem,
-        industry: mockAnalysisInput.product.industry,
-        projectId: 'consistency-project-001',
-        createdAt: new Date(),
-        updatedAt: new Date()
-      };
-
-      const reportResult = await reportService.generateUXEnhancedReport(
-        analysis,
-        mockProduct,
-        mockAnalysisInput.productSnapshot,
-        [
-          {
-            competitor: {
-              name: 'Consistency Competitor',
-              website: 'https://consistencycomp.com'
-            },
-            snapshot: {
-              id: 'consistency-comp-snapshot-001',
-              competitorId: 'consistency-comp-001',
-              metadata: {
-                title: 'Consistency Competitor',
-                description: 'Consistency competitor for testing',
-                features: ['Consistency Comp Feature']
-              },
-              createdAt: new Date(),
-              updatedAt: new Date()
-            }
-          }
-        ]
-      );
-
-      // Verify report data consistency
-      expect(reportResult.report.metadata.productName).toBe('Consistency Test Product');
-      expect(reportResult.report.metadata.competitorCount).toBe(1);
-      expect(reportResult.report.metadata.analysisId).toBe(analysis.id);
-
-      logger.info('Data consistency test completed', {
-        analysisId: analysis.id,
-        productId: testProductId,
-        reportProductName: reportResult.report.metadata.productName,
-        competitorCount: reportResult.report.metadata.competitorCount
-      });
+      await expect(async () => {
+        await comparativeAnalysisService.analyzeProductVsCompetitors(invalidInput);
+      }).rejects.toThrow('Product information is incomplete');
     });
   });
 
-  describe('Phase 4.1: API Integration Testing', () => {
-    it('should validate service interfaces and contracts', async () => {
-      // Test ComparativeAnalysisService interface
-      expect(typeof analysisService.analyzeProductVsCompetitors).toBe('function');
-      
-      // Test ComparativeReportService interface
-      expect(typeof reportService.generateUXEnhancedReport).toBe('function');
-      expect(typeof reportService.generateComparativeReport).toBe('function');
-      
-      // Test UserExperienceAnalyzer interface
-      expect(typeof uxAnalyzer.analyzeProductVsCompetitors).toBe('function');
-      expect(typeof uxAnalyzer.generateFocusedAnalysis).toBe('function');
-      
-      // Test AutoReportGenerationService interface
-      expect(typeof autoReportService.generateInitialComparativeReport).toBe('function');
-
-      logger.info('Service interface validation completed');
-    });
-
-    it('should validate service configuration and initialization', async () => {
-      // Verify services are properly initialized
-      expect(analysisService).toBeInstanceOf(ComparativeAnalysisService);
-      expect(reportService).toBeInstanceOf(ComparativeReportService);
-      expect(uxAnalyzer).toBeInstanceOf(UserExperienceAnalyzer);
-      expect(autoReportService).toBeInstanceOf(AutoReportGenerationService);
-
-      // Test service health/status (if available)
-      // This would typically check database connections, external service availability, etc.
-      
-      logger.info('Service initialization validation completed');
-    });
-  });
-
-  describe('Phase 7.1b: Realistic Data Flow Patterns', () => {
-    it('should integrate analysis service with report service using realistic data flow', async () => {
-      // Mock analysis input with realistic structure
-      const mockAnalysisInput = {
-        product: {
-          id: 'integration-product-001',
-          name: 'Integration Test Product',
-          website: 'https://integrationtest.com',
-          positioning: 'Test positioning',
-          customerData: 'Test customers',
-          userProblem: 'Test problem',
-          industry: 'Test Industry'
-        },
-        productSnapshot: {
-          id: 'integration-snapshot-001',
-          productId: 'integration-product-001',
-          content: {
-            title: 'Integration Test Product',
-            description: 'Product for integration testing',
-            features: ['Feature 1', 'Feature 2', 'Feature 3'],
-            text: 'Detailed product content for analysis'
-          },
-          metadata: {
-            url: 'https://integrationtest.com',
-            scrapedAt: new Date().toISOString()
-          },
-          createdAt: new Date()
-        },
-        competitors: [
-          {
-            competitor: {
-              id: 'integration-comp-001',
-              name: 'Integration Competitor A',
-              website: 'https://competitora-integration.com',
-              description: 'Test competitor A',
-              industry: 'Test Industry',
-              createdAt: new Date(),
-              updatedAt: new Date()
-            },
-            snapshot: {
-              id: 'integration-comp-snapshot-001',
-              competitorId: 'integration-comp-001',
-              metadata: {
-                title: 'Competitor A',
-                description: 'Competitor A for testing',
-                features: ['Comp Feature 1', 'Comp Feature 2']
-              },
-              createdAt: new Date(),
-              updatedAt: new Date()
-            }
-          }
-        ]
-      };
-
-      // Step 1: Generate comparative analysis using workflow mock
-      const analysis = await mockWorkflow.analysisService.analyzeProductVsCompetitors(mockAnalysisInput);
-
-      // Validate realistic analysis response with proper data flow
-      expect(analysis).toBeDefined();
-      expect(analysis.id).toBeDefined();
-      expect(analysis.productId).toBe(mockAnalysisInput.product.id);
-      expect(analysis.competitorIds).toContain('integration-comp-001');
-      expect(analysis.metadata.correlationId).toBeDefined();
-      expect(analysis.metadata.inputProductId).toBe(mockAnalysisInput.product.id);
-      expect(analysis.metadata.competitorCount).toBe(1);
-
-      // Step 2: Generate report using analysis data with realistic data flow
-      const mockProduct = {
-        id: mockAnalysisInput.product.id,
-        name: mockAnalysisInput.product.name,
-        website: mockAnalysisInput.product.website,
-        positioning: mockAnalysisInput.product.positioning,
-        customerData: mockAnalysisInput.product.customerData,
-        userProblem: mockAnalysisInput.product.userProblem,
-        industry: mockAnalysisInput.product.industry,
-        projectId: 'integration-project-001',
-        createdAt: new Date(),
-        updatedAt: new Date()
-      };
-
-      const reportResult = await mockWorkflow.reportService.generateComparativeReport(
-        analysis,
-        mockProduct,
-        mockAnalysisInput.productSnapshot,
-        { template: 'comprehensive', format: 'markdown' }
+  describe('UX Analyzer Integration', () => {
+    it('should generate UX analysis with complete metadata', async () => {
+      const uxAnalysis = await userExperienceAnalyzer.analyzeProductVsCompetitors(
+        mockProductSnapshot as any,
+        mockCompetitors.map(c => c.snapshot) as any,
+        { maxCompetitors: 5 }
       );
 
-      // Validate realistic report generation with proper data flow
-      expect(reportResult).toBeDefined();
-      expect(reportResult.report).toBeDefined();
-      expect(reportResult.report.analysisId).toBe(analysis.id);
-      expect(reportResult.report.productId).toBe(mockProduct.id);
-      expect(reportResult.report.metadata.correlationId).toBe(analysis.metadata.correlationId);
-      expect(reportResult.report.metadata.basedOnAnalysis).toBe(analysis.id);
-      expect(reportResult.report.sections.length).toBeGreaterThan(0);
-      
-      // Verify content is based on analysis data
-      const executiveSummary = reportResult.report.sections.find(s => s.id === 'executive-summary');
-      expect(executiveSummary?.content).toContain(analysis.id);
-      expect(executiveSummary?.content).toContain(analysis.summary.overallPosition);
-
-      // Step 3: Store report with realistic repository workflow
-      const storedReport = await mockWorkflow.repository.create(reportResult.report);
-
-      // Validate realistic repository storage with data flow
-      expect(storedReport.id).toBe(reportResult.report.id);
-      expect(storedReport.analysisId).toBe(analysis.id);
-      expect(storedReport.metadata.correlationId).toBe(analysis.metadata.correlationId);
-
-      // Step 4: Verify realistic data flow patterns
-      const workflowExecution = mockWorkflow.verifyWorkflowExecution();
-      expect(workflowExecution.analysisServiceCalled).toBe(true);
-      expect(workflowExecution.reportServiceCalled).toBe(true);
-      expect(workflowExecution.repositoryCalled).toBe(true);
-      expect(workflowExecution.workflowCompleted).toBe(true);
-
-      const dataFlow = mockWorkflow.verifyDataFlow();
-      expect(dataFlow.dataFlowValid).toBe(true);
-      expect(dataFlow.validationErrors).toHaveLength(0);
-      expect(dataFlow.servicesConnected).toBe(3);
-
-      logger.info('Realistic data flow pattern validation completed', {
-        analysisId: analysis.id,
-        reportId: reportResult.report.id,
-        correlationId: analysis.metadata.correlationId,
-        workflowCompleted: workflowExecution.workflowCompleted,
-        dataFlowValid: dataFlow.dataFlowValid
-      });
-    });
-
-    it('should validate UX analyzer integration with realistic data flow patterns', async () => {
-      // Create UX analyzer workflow
-      const uxWorkflow = WorkflowMocks.createUXAnalyzerWorkflow();
-
-      // Mock UX analysis data with realistic structure
-      const mockProductData = {
-        id: 'ux-integration-snapshot',
-        productId: 'ux-integration-product',
-        content: {
-          title: 'UX Integration Test Product',
-          description: 'Product for UX integration testing',
-          features: ['UX Feature 1', 'UX Feature 2'],
-          navigation: 'Modern sidebar navigation',
-          userExperience: 'Clean, intuitive interface'
-        },
-        metadata: {
-          url: 'https://uxintegrationtest.com',
-          scrapedAt: new Date().toISOString()
-        },
-        createdAt: new Date(),
-        product: {
-          name: 'UX Integration Test Product',
-          website: 'https://uxintegrationtest.com'
-        }
-      };
-
-      const mockCompetitorData = [
-        {
-          id: 'ux-comp-snapshot-001',
-          competitorId: 'ux-comp-001',
-          metadata: {
-            title: 'UX Competitor A',
-            description: 'UX competitor for testing',
-            features: ['UX Comp Feature 1'],
-            navigation: 'Traditional menu navigation',
-            userExperience: 'Functional but dated interface'
-          },
-          createdAt: new Date(),
-          updatedAt: new Date(),
-          competitor: {
-            name: 'UX Competitor A',
-            website: 'https://uxcompetitora.com'
-          }
-        }
-      ];
-
-      // Generate UX analysis with realistic workflow
-      const uxAnalysis = await uxWorkflow.uxAnalyzer.analyzeProductVsCompetitors(
-        mockProductData,
-        mockCompetitorData,
-        { focus: 'both', includeTechnical: true, includeAccessibility: true }
-      );
-
-      // Validate realistic UX analysis response
       expect(uxAnalysis).toBeDefined();
       expect(uxAnalysis.summary).toBeDefined();
-      expect(uxAnalysis.recommendations).toBeInstanceOf(Array);
-      expect(uxAnalysis.confidence).toBeGreaterThan(0);
+      expect(uxAnalysis.metadata).toBeDefined();
       expect(uxAnalysis.metadata.correlationId).toBeDefined();
-      expect(uxAnalysis.metadata.competitorsAnalyzed).toBe(1);
-
-      // Verify UX workflow execution
-      const uxWorkflowExecution = uxWorkflow.verifyUXWorkflow();
-      expect(uxWorkflowExecution.uxAnalyzerCalled).toBe(true);
-
-      logger.info('UX analyzer realistic data flow validation completed', {
-        uxSummary: uxAnalysis.summary,
-        confidence: uxAnalysis.confidence,
-        correlationId: uxAnalysis.metadata.correlationId,
-        competitorsAnalyzed: uxAnalysis.metadata.competitorsAnalyzed
-      });
+      expect(uxAnalysis.metadata.analyzedAt).toBeDefined();
+      expect(uxAnalysis.metadata.competitorCount).toBe(2);
+      expect(uxAnalysis.metadata.analysisType).toBe('ux_focused');
+      
+      expect(Array.isArray(uxAnalysis.strengths)).toBe(true);
+      expect(Array.isArray(uxAnalysis.weaknesses)).toBe(true);
+      expect(Array.isArray(uxAnalysis.opportunities)).toBe(true);
+      expect(Array.isArray(uxAnalysis.recommendations)).toBe(true);
+      expect(Array.isArray(uxAnalysis.competitorComparisons)).toBe(true);
+      
+      expect(typeof uxAnalysis.confidence).toBe('number');
+      expect(uxAnalysis.confidence).toBeGreaterThan(0);
+      expect(uxAnalysis.confidence).toBeLessThanOrEqual(1);
     });
 
-    it('should validate cross-service data flow with UX-enhanced report generation', async () => {
-      // Use main workflow for cross-service integration
-      const analysisInput = {
-        product: {
-          id: 'cross-service-product',
-          name: 'Cross-Service Test Product',
-          website: 'https://crossservice.com'
-        },
-        competitors: [
-          {
-            competitor: { id: 'cross-comp-1', name: 'Cross Competitor' },
-            snapshot: { id: 'cross-snapshot-1', competitorId: 'cross-comp-1' }
-          }
-        ]
-      };
-
-      // Step 1: Generate analysis
-      const analysis = await mockWorkflow.analysisService.analyzeProductVsCompetitors(analysisInput);
-      
-      // Step 2: Generate UX-enhanced report with cross-service data flow
-      const mockCompetitorSnapshots = [
-        {
-          competitor: { name: 'Cross Competitor', website: 'https://crosscompetitor.com' },
-          snapshot: {
-            id: 'cross-snapshot-1',
-            competitorId: 'cross-comp-1',
-            metadata: { title: 'Cross Competitor', features: ['Cross Feature'] }
-          }
-        }
+    it('should handle malformed competitor data', async () => {
+      const malformedCompetitors = [
+        { invalid: 'data' },
+        null,
+        undefined
       ];
 
-      const uxReportResult = await mockWorkflow.reportService.generateUXEnhancedReport(
-        analysis,
-        analysisInput.product,
-        { id: 'product-snapshot', content: { features: ['Product Feature'] }},
-        mockCompetitorSnapshots
+      const uxAnalysis = await userExperienceAnalyzer.analyzeProductVsCompetitors(
+        mockProductSnapshot as any,
+        malformedCompetitors as any,
+        { maxCompetitors: 5 }
       );
 
-      // Validate cross-service data flow in UX-enhanced report
-      expect(uxReportResult.report.analysisId).toBe(analysis.id);
-      expect(uxReportResult.report.metadata.correlationId).toBe(analysis.metadata.correlationId);
-      expect(uxReportResult.report.metadata.uxIntegration).toBe(true);
-      expect(uxReportResult.report.metadata.competitorsAnalyzed).toBe(1);
-      expect(uxReportResult.report.uxAnalysisData).toBeDefined();
-
-      // Verify data flow maintains correlation throughout the workflow
-      expect(uxReportResult.report.metadata.correlationId).toBe(analysis.metadata.correlationId);
-
-      logger.info('Cross-service UX integration data flow validated', {
-        analysisId: analysis.id,
-        uxReportId: uxReportResult.report.id,
-        correlationId: analysis.metadata.correlationId,
-        uxIntegration: uxReportResult.report.metadata.uxIntegration
-      });
+      expect(uxAnalysis).toBeDefined();
+      expect(uxAnalysis.metadata).toBeDefined();
+      expect(uxAnalysis.metadata.fallbackMode).toBe(true);
+      expect(uxAnalysis.confidence).toBeLessThan(0.5);
     });
 
-    it('should validate error handling in realistic data flow patterns', async () => {
-      // Test error handling with invalid input
-      await expect(
-        mockWorkflow.analysisService.analyzeProductVsCompetitors({})
-      ).rejects.toThrow('Invalid analysis input for workflow');
+    it('should provide fallback analysis when service fails', async () => {
+      // Test with completely invalid data
+      const uxAnalysis = await userExperienceAnalyzer.analyzeProductVsCompetitors(
+        null as any,
+        [] as any,
+        {}
+      );
 
-      // Test error handling with missing correlation data
-      const invalidAnalysis = { id: 'invalid', metadata: {} };
-      await expect(
-        mockWorkflow.reportService.generateComparativeReport(
-          invalidAnalysis,
-          { id: 'product' },
-          {},
-          {}
-        )
-      ).rejects.toThrow('Analysis missing required correlation metadata for report generation');
-
-      // Test error handling with missing product data
-      const validAnalysis = {
-        id: 'valid',
-        metadata: { correlationId: 'test-correlation' }
-      };
-      await expect(
-        mockWorkflow.reportService.generateComparativeReport(
-          validAnalysis,
-          {},
-          {},
-          {}
-        )
-      ).rejects.toThrow('Product data missing for report generation');
-
-      logger.info('Error handling validation in realistic data flow patterns completed');
+      expect(uxAnalysis).toBeDefined();
+      expect(uxAnalysis.summary).toBeDefined();
+      expect(uxAnalysis.metadata).toBeDefined();
+      expect(uxAnalysis.metadata.fallbackMode).toBe(true);
+      expect(uxAnalysis.recommendations.length).toBeGreaterThan(0);
     });
   });
-}); 
+
+  describe('Conversation Manager Integration', () => {
+    it('should handle undefined collectedData gracefully', async () => {
+      const response = await conversationManager.processUserMessage(
+        'Start a new competitive analysis project'
+      );
+
+      expect(response).toBeDefined();
+      expect(response.message).toBeDefined();
+      expect(typeof response.message).toBe('string');
+      expect(response.message.length).toBeGreaterThan(0);
+    });
+
+    it('should initialize chat state properly', () => {
+      const chatState = conversationManager.getChatState();
+      
+      expect(chatState).toBeDefined();
+      expect(chatState.currentStep).toBeDefined();
+      expect(chatState.stepDescription).toBeDefined();
+      expect(chatState.expectedInputType).toBeDefined();
+    });
+
+    it('should handle comprehensive input without errors', async () => {
+      const comprehensiveInput = `
+        Email: test@example.com
+        Project: Test Analysis Project
+        Frequency: Weekly
+        Product: Test Product
+        Website: https://testproduct.com
+        Industry: Technology
+        Positioning: Leading workflow automation solution
+        Customers: Enterprise technology companies
+        Problem: Complex workflow automation challenges
+      `;
+
+      const response = await conversationManager.processUserMessage(comprehensiveInput);
+
+      expect(response).toBeDefined();
+      expect(response.error).toBeUndefined();
+      expect(response.message).toBeDefined();
+    });
+  });
+
+  describe('Data Flow Validation', () => {
+    it('should maintain data consistency across service calls', async () => {
+      const context: WorkflowContext = {
+        correlationId: 'test-data-flow',
+        productId: 'prod-1',
+        projectId: 'proj-1',
+        analysisType: 'comprehensive'
+      };
+
+      // Mock successful data preparation
+      jest.spyOn(serviceCoordinator as any, 'prepareAnalysisInput')
+        .mockResolvedValue(mockAnalysisInput);
+
+      const result = await serviceCoordinator.orchestrateAnalysis(context);
+
+      if (result.success && result.analysis) {
+        expect(result.analysis.productId).toBe(mockAnalysisInput.product.id);
+        expect(result.analysis.competitorIds).toHaveLength(mockCompetitors.length);
+      }
+
+      if (result.success && result.uxAnalysis) {
+        expect(result.uxAnalysis.metadata.competitorCount).toBe(mockCompetitors.length);
+      }
+    });
+
+    it('should handle service dependencies properly', async () => {
+      // Test that UX analyzer can work even if comparative analysis fails
+      const context: WorkflowContext = {
+        correlationId: 'test-dependencies',
+        productId: 'prod-1',
+        projectId: 'proj-1',
+        analysisType: 'ux-only'
+      };
+
+      jest.spyOn(serviceCoordinator as any, 'prepareAnalysisInput')
+        .mockResolvedValue(mockAnalysisInput);
+
+      const result = await serviceCoordinator.orchestrateAnalysis(context);
+
+      expect(result).toBeDefined();
+      expect(result.uxAnalysis).toBeDefined();
+    });
+  });
+
+  describe('Error Recovery Validation', () => {
+    it('should provide meaningful error messages', async () => {
+      const context: WorkflowContext = {
+        correlationId: 'test-error-recovery',
+        productId: 'nonexistent',
+        projectId: 'nonexistent',
+        analysisType: 'comprehensive'
+      };
+
+      const result = await serviceCoordinator.orchestrateAnalysis(context);
+
+      expect(result.success).toBe(false);
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0]).toContain('Failed to prepare analysis input data');
+    });
+
+    it('should continue workflow even with partial failures', async () => {
+      const context: WorkflowContext = {
+        correlationId: 'test-partial-failure',
+        productId: 'prod-1',
+        projectId: 'proj-1',
+        analysisType: 'comprehensive'
+      };
+
+      // Mock partial success (input preparation succeeds but analysis has issues)
+      const partialInput = {
+        ...mockAnalysisInput,
+        competitors: mockCompetitors.slice(0, 1) // Minimal competitor data
+      };
+
+      jest.spyOn(serviceCoordinator as any, 'prepareAnalysisInput')
+        .mockResolvedValue(partialInput);
+
+      const result = await serviceCoordinator.orchestrateAnalysis(context);
+
+      // Should have warnings but still succeed
+      expect(result.warnings.length).toBeGreaterThan(0);
+      expect(result.analysis || result.uxAnalysis).toBeDefined();
+    });
+  });
+});
+
+export {}; 

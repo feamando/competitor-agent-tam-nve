@@ -145,18 +145,127 @@ export const teardownTestCleanup = async (): Promise<void> => {
 };
 
 /**
- * Jest setup hook
+ * Jest setup hook - DISABLED: This was causing "Cannot add a hook after tests have started running" errors
+ * Individual test files should call setupTestCleanup() and teardownTestCleanup() directly in their hooks
  */
-export const setupTestEnvironment = (): void => {
-  beforeEach(() => {
-    setupTestCleanup();
-  });
+// export const setupTestEnvironment = (): void => {
+//   beforeEach(() => {
+//     setupTestCleanup();
+//   });
 
-  afterEach(async () => {
-    await teardownTestCleanup();
-  });
+//   afterEach(async () => {
+//     await teardownTestCleanup();
+//   });
 
-  afterAll(async () => {
-    await teardownTestCleanup();
+//   afterAll(async () => {
+//     await teardownTestCleanup();
+//   });
+// };
+
+/**
+ * Test Cleanup Utilities
+ * Helper functions for ensuring test stability and handling timeouts
+ */
+
+/**
+ * Tracks timeouts for cleanup in tests
+ */
+export class TimeoutTracker {
+  private timeouts: NodeJS.Timeout[] = [];
+
+  /**
+   * Creates a timeout and tracks it for cleanup
+   * @param callback Function to execute when timeout completes
+   * @param ms Milliseconds to wait
+   * @returns Timeout object
+   */
+  setTimeout(callback: () => void, ms: number): NodeJS.Timeout {
+    const timeout = setTimeout(callback, ms);
+    this.timeouts.push(timeout);
+    return timeout;
+  }
+
+  /**
+   * Clears all tracked timeouts
+   */
+  clearAll(): void {
+    if (this.timeouts.length > 0) {
+      logger.debug(`Cleaning up ${this.timeouts.length} timeouts`);
+      
+      this.timeouts.forEach((timeout) => {
+        clearTimeout(timeout);
+      });
+      
+      this.timeouts = [];
+    }
+  }
+}
+
+/**
+ * Creates a promise that rejects after a specified timeout
+ * @param ms Milliseconds until timeout
+ * @param tracker Optional TimeoutTracker to use
+ * @returns Promise that rejects after timeout
+ */
+export function createTimeoutPromise(ms: number, message: string, tracker?: TimeoutTracker): Promise<never> {
+  return new Promise<never>((_, reject) => {
+    const createTimeout = tracker 
+      ? (cb: () => void, time: number) => tracker.setTimeout(cb, time)
+      : setTimeout;
+      
+    createTimeout(() => {
+      reject(new Error(`Test timed out after ${ms}ms: ${message}`));
+    }, ms);
   });
-}; 
+}
+
+/**
+ * Runs a test function with a timeout
+ * @param testFn The test function to run
+ * @param timeoutMs Milliseconds before timeout
+ * @param timeoutMessage Message for timeout error
+ * @returns Promise resolving to the test function result
+ */
+export async function runTestWithTimeout<T>(
+  testFn: () => Promise<T>, 
+  timeoutMs: number,
+  timeoutMessage: string
+): Promise<T> {
+  const tracker = new TimeoutTracker();
+  
+  try {
+    const timeoutPromise = createTimeoutPromise(timeoutMs, timeoutMessage, tracker);
+    return await Promise.race([testFn(), timeoutPromise]);
+  } finally {
+    tracker.clearAll();
+  }
+}
+
+/**
+ * Runs multiple async tasks in parallel with a timeout
+ * @param tasks Array of async functions to execute
+ * @param timeoutMs Milliseconds before timeout 
+ * @param timeoutMessage Message for timeout error
+ * @returns Promise resolving to an array of task results
+ */
+export async function runTasksWithTimeout<T>(
+  tasks: Array<() => Promise<T>>,
+  timeoutMs: number,
+  timeoutMessage: string
+): Promise<T[]> {
+  const tracker = new TimeoutTracker();
+  
+  try {
+    const timeoutPromise = createTimeoutPromise(timeoutMs, timeoutMessage, tracker);
+    const taskPromises = tasks.map(task => task());
+    
+    // Add the timeout promise to fail if any task takes too long
+    const allPromises = [...taskPromises, timeoutPromise.then(() => {
+      throw new Error(`Tasks timed out after ${timeoutMs}ms: ${timeoutMessage}`);
+    })];
+    
+    return await Promise.all(allPromises.slice(0, -1));
+  } finally {
+    tracker.clearAll();
+  }
+} 

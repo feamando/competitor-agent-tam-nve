@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import prisma from '@/lib/prisma';
 import { SnapshotSection } from '@/components/competitors/SnapshotSection';
+import DeleteCompetitorButton from '@/components/competitors/DeleteCompetitorButton';
 import { 
   logger, 
   generateCorrelationId, 
@@ -96,7 +97,7 @@ export default async function CompetitorPage({ params }: CompetitorPageProps) {
     return (
       <div className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
         <div className="md:flex md:items-center md:justify-between md:space-x-4 xl:border-b xl:pb-6">
-          <div>
+          <div className="flex-1">
             <h1 className="text-2xl font-bold text-gray-900">{competitor.name}</h1>
             <p className="mt-2 text-sm text-gray-700">
               <a
@@ -135,6 +136,15 @@ export default async function CompetitorPage({ params }: CompetitorPageProps) {
               <span className="mx-2">•</span>
               <span>{competitor.reports.length} reports</span>
             </div>
+          </div>
+          
+          {/* Action Buttons */}
+          <div className="mt-6 md:mt-0 md:ml-4 flex flex-col space-y-2 sm:flex-row sm:space-y-0 sm:space-x-2">
+            <DeleteCompetitorButton
+              competitorId={competitor.id}
+              competitorName={competitor.name}
+              className="sm:w-auto"
+            />
           </div>
         </div>
 

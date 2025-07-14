@@ -8,19 +8,20 @@ export interface EnhancedChatProjectData {
   projectName: string;
   
   // Product Info (Optional for extraction, Required for validation)
-  productName?: string;
-  productUrl?: string; // Updated from 'productWebsite' to match comprehensive requirements
+  productName?: string | undefined;
+  productUrl?: string | undefined; // Updated from 'productWebsite' to match comprehensive requirements
+  productWebsite?: string | undefined; // Backward compatibility alias for productUrl
   
   // Business Context (Optional for extraction, Required for validation)
-  industry?: string;
-  positioning?: string;
-  customerData?: string;
-  userProblem?: string;
+  industry?: string | undefined;
+  positioning?: string | undefined;
+  customerData?: string | undefined;
+  userProblem?: string | undefined;
   
   // Optional Enhancement Fields
-  competitorHints?: string[];
-  focusAreas?: string[];
-  reportTemplate?: string;
+  competitorHints?: string[] | undefined;
+  focusAreas?: string[] | undefined;
+  reportTemplate?: string | undefined;
 }
 
 export interface ExtractionResult {
@@ -48,7 +49,7 @@ export class EnhancedProjectExtractor {
       // First try comprehensive parsing for better accuracy
       const comprehensiveResult = this.comprehensiveCollector.parseComprehensiveInput(message);
       
-      if (comprehensiveResult.completeness >= 50) {
+      if (comprehensiveResult.completeness >= 40) {
         return this.convertFromComprehensiveResult(comprehensiveResult);
       }
       
@@ -91,13 +92,14 @@ export class EnhancedProjectExtractor {
     const data = comprehensiveResult.extractedData;
     
     return {
-      success: comprehensiveResult.completeness >= 33, // At least 3 of 9 required fields
+      success: comprehensiveResult.completeness >= 30, // At least 3 of 9 required fields
       data: {
         userEmail: data.userEmail || '',
         reportFrequency: data.reportFrequency || '',
         projectName: data.projectName || '',
         productName: data.productName,
         productUrl: data.productUrl,
+        productWebsite: data.productUrl, // Backward compatibility alias
         industry: data.industry,
         positioning: data.positioning,
         customerData: data.customerData,
@@ -189,6 +191,7 @@ export class EnhancedProjectExtractor {
           reportFrequency: frequency,
           projectName,
           productUrl: productWebsite || undefined,
+          productWebsite: productWebsite || undefined, // Backward compatibility alias
           productName: productName || undefined,
           industry: industry || undefined,
           positioning: positioning || undefined,

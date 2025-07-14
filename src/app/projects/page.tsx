@@ -106,10 +106,10 @@ export default function Projects() {
                       </p>
                     </div>
                   </div>
-                  {project.competitors.length > 0 && (
+                  {(project.competitors?.length || 0) > 0 && (
                     <div className="mt-2">
                       <p className="text-sm text-gray-500">
-                        Competitors: {project.competitors.map(c => c.name).join(', ')}
+                        Competitors: {project.competitors?.map(c => c.name).join(', ') || 'None'}
                       </p>
                     </div>
                   )}

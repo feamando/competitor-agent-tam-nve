@@ -17,13 +17,14 @@ export class EnhancedProductChatProcessor implements ProductDataCollector {
    * Step 5: User problem → Industry
    */
   public async collectProductData(content: string, chatState: ChatState): Promise<ChatResponse> {
+    // *** COMPREHENSIVE NULL GUARDS: Safe chatState initialization ***
     if (!chatState.collectedData) {
       chatState.collectedData = {};
     }
 
     const collectedData = chatState.collectedData;
     
-    // Determine which step we're in based on what data is already collected
+    // *** NULL SAFETY: Determine which step we're in based on what data is already collected ***
     if (!collectedData.productName) {
       return this.handleProductNameCollection(content, chatState);
     } else if (!collectedData.productUrl) {
@@ -172,16 +173,20 @@ Shall I proceed with creating the PRODUCT entity and starting the analysis?`,
   }
 
   public validateProductData(chatState: ChatState): boolean {
-    const data = chatState.collectedData;
-    if (!data) return false;
+    // *** COMPREHENSIVE NULL GUARDS: Safe data validation ***
+    const data = chatState?.collectedData;
+    if (!data || typeof data !== 'object') {
+      return false;
+    }
 
+    // Safe property validation with type checking
     return !!(
-      data.productName &&
-      data.productUrl &&
-      data.positioning &&
-      data.customerData &&
-      data.userProblem &&
-      data.industry
+      (typeof data.productName === 'string' && data.productName.trim()) &&
+      (typeof data.productUrl === 'string' && data.productUrl.trim()) &&
+      (typeof data.positioning === 'string' && data.positioning.trim()) &&
+      (typeof data.customerData === 'string' && data.customerData.trim()) &&
+      (typeof data.userProblem === 'string' && data.userProblem.trim()) &&
+      (typeof data.industry === 'string' && data.industry.trim())
     );
   }
 

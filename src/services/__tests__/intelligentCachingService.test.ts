@@ -8,14 +8,41 @@ import { logger } from '@/lib/logger';
 
 // Mock external dependencies
 jest.mock('@/lib/logger');
+// Fix P0.4: Complete Mock Configurations - Add all required Prisma methods
 jest.mock('@/lib/prisma', () => ({
   prisma: {
     competitor: {
-      findUnique: jest.fn()
+      findUnique: jest.fn(),
+      findMany: jest.fn(),
+      findFirst: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+      delete: jest.fn(),
+      upsert: jest.fn(),
+      count: jest.fn(),
+      aggregate: jest.fn(),
     },
     competitorSnapshot: {
-      findFirst: jest.fn()
-    }
+      findUnique: jest.fn(),
+      findMany: jest.fn(),
+      findFirst: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+      delete: jest.fn(),
+      upsert: jest.fn(),
+      count: jest.fn(),
+    },
+    project: {
+      findUnique: jest.fn(),
+      findMany: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+      delete: jest.fn(),
+      upsert: jest.fn(),
+    },
+    $connect: jest.fn().mockResolvedValue(undefined),
+    $disconnect: jest.fn().mockResolvedValue(undefined),
+    $transaction: jest.fn(),
   }
 }));
 

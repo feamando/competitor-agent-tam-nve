@@ -128,13 +128,13 @@ function ReportsPageContent() {
             <div className="flex items-center">
               <div className="w-3 h-3 bg-blue-500 rounded-full mr-2"></div>
               <span className="text-gray-600">
-                Comparative Reports: {reports.filter(r => r.reportType === 'comparative').length}
+                Comparative Reports: {reports.filter(r => r.reportType?.toLowerCase() === 'comparative').length}
               </span>
             </div>
             <div className="flex items-center">
               <div className="w-3 h-3 bg-gray-400 rounded-full mr-2"></div>
               <span className="text-gray-600">
-                Individual Reports: {reports.filter(r => r.reportType === 'individual' || !r.reportType).length}
+                Individual Reports: {reports.filter(r => r.reportType?.toLowerCase() === 'individual' || !r.reportType).length}
               </span>
             </div>
           </div>
@@ -170,8 +170,8 @@ function ReportsPageContent() {
         <div className="space-y-8">
           {/* Comparative Reports Section */}
           {(() => {
-            const comparativeReports = reports.filter(r => r.reportType === 'comparative');
-            const individualReports = reports.filter(r => r.reportType !== 'comparative');
+            const comparativeReports = reports.filter(r => r.reportType?.toLowerCase() === 'comparative');
+            const individualReports = reports.filter(r => r.reportType?.toLowerCase() !== 'comparative');
             
             return (
               <>

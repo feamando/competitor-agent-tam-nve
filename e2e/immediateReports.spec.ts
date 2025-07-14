@@ -59,8 +59,17 @@ test.describe('Phase 5.4: Immediate Reports E2E Tests', () => {
       await page.goto('/projects/new');
       await expect(page).toHaveTitle(/Create New Project/);
 
-      // 2. Fill project form
+      // 2. Fill project form - handle step-by-step wizard
       await page.fill('[data-testid="project-name"]', E2E_CONFIG.testData.projectName);
+      
+      // Navigate to product step
+      const nextButton = page.locator('[data-testid="next-button"]');
+      await expect(nextButton).toBeVisible({ timeout: 10000 });
+      await expect(nextButton).toBeEnabled({ timeout: 5000 });
+      await nextButton.click();
+      
+      // Wait for product step and fill information
+      await page.waitForSelector('[data-testid="product-website"]', { timeout: 10000 });
       await page.fill('[data-testid="product-website"]', E2E_CONFIG.testData.productWebsite);
 
       // 3. Add competitors
@@ -88,8 +97,10 @@ test.describe('Phase 5.4: Immediate Reports E2E Tests', () => {
       });
 
       // Extract project ID from URL for cleanup
-      const projectId = page.url().split('/projects/')[1];
-      testProjectIds.push(projectId);
+      const projectId = page.url().split('/projects/')[1]?.split('?')[0] || 'unknown';
+      if (projectId !== 'unknown') {
+        testProjectIds.push(projectId);
+      }
 
       // 7. Verify immediate report generation indicators
       await expect(page.locator('[data-testid="initial-report-indicator"]')).toBeVisible({

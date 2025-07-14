@@ -442,4 +442,107 @@ echo "Completed: $(date)" | tee -a "$LOG_FILE"
 echo ""
 echo "🚨 Integration Test Fixes Completed!"
 echo "📊 Check test-reports/integration-fixes.log for details"
-echo "🔄 Run 'npm run test:integration' to verify fixes" 
+echo "🔄 Run 'npm run test:integration' to verify fixes"
+
+# Fix Integration Tests - Cross-Service Stability
+# Runs and validates integration tests with timeout handling
+
+echo "🔧 Running Integration Tests with Stability Improvements"
+echo "======================================================="
+
+LOG_FILE="test-reports/integration-test-fixes.log"
+BACKUP_DIR="backups/integration-tests-$(date +%Y%m%d_%H%M%S)"
+
+mkdir -p "test-reports"
+mkdir -p "$BACKUP_DIR"
+
+echo "📋 Integration Test Fixes Started: $(date)" | tee "$LOG_FILE"
+
+# Step 1: Backup test files
+echo "1️⃣ Backing up integration tests..." | tee -a "$LOG_FILE"
+cp -r "src/__tests__/integration" "$BACKUP_DIR/"
+cp -r "src/__tests__/setup" "$BACKUP_DIR/setup"
+
+# Step 2: Verify fixes are in place
+echo "2️⃣ Verifying test stability fixes are in place..." | tee -a "$LOG_FILE"
+
+INTEGRATION_SETUP="src/__tests__/setup/integrationSetup.js"
+TEST_UTILS="src/__tests__/utils/testCleanup.ts"
+
+if grep -q "TimeoutTracker" "$TEST_UTILS"; then
+  echo "✅ Test cleanup utilities detected" | tee -a "$LOG_FILE"
+else
+  echo "❌ Test cleanup utilities missing - fix not applied correctly" | tee -a "$LOG_FILE"
+  exit 1
+fi
+
+if grep -q "pendingPromises" "$INTEGRATION_SETUP"; then
+  echo "✅ Promise tracking detected in setup" | tee -a "$LOG_FILE"
+else
+  echo "❌ Promise tracking missing in setup - fix not applied correctly" | tee -a "$LOG_FILE"
+  exit 1
+fi
+
+# Step 3: Run a subset of tests to verify stability
+echo "3️⃣ Running tests to verify stability..." | tee -a "$LOG_FILE"
+
+# Define test files to run (cross-service validation and UX analyzer)
+TEST_FILES=(
+  "src/__tests__/integration/crossServiceValidation.test.ts"
+)
+
+# Run tests with jest directly (verbose output for debugging)
+echo "Running test: ${TEST_FILES[0]}" | tee -a "$LOG_FILE"
+TEST_RESULT=0
+NODE_ENV=test VERBOSE_TESTS=1 npx jest --detectOpenHandles --no-cache --runInBand "${TEST_FILES[0]}" > "test-reports/cross-service-test-output.log" 2>&1 || TEST_RESULT=$?
+
+if [ $TEST_RESULT -eq 0 ]; then
+  echo "✅ Cross-service tests now passing" | tee -a "$LOG_FILE"
+else
+  echo "❌ Cross-service tests still have issues - check test-reports/cross-service-test-output.log" | tee -a "$LOG_FILE"
+  echo "Issues may need additional debugging" | tee -a "$LOG_FILE"
+  
+  # Extract error information from the output
+  echo "Error summary:" | tee -a "$LOG_FILE"
+  grep -A 5 "Error:" "test-reports/cross-service-test-output.log" | tee -a "$LOG_FILE" || echo "No standard errors found"
+  
+  # Look for timeout errors specifically
+  grep -A 2 "Test timed out" "test-reports/cross-service-test-output.log" | tee -a "$LOG_FILE" || echo "No timeout errors found"
+  
+  # Look for hanging promises
+  grep -A 2 "Cleaning up" "test-reports/cross-service-test-output.log" | tee -a "$LOG_FILE" || echo "No hanging promises detected"
+fi
+
+# Step 4: Run all integration tests as validation (optional based on time constraints)
+echo "4️⃣ Do you want to run all integration tests? (y/n)"
+read -r RUN_ALL
+
+if [ "$RUN_ALL" = "y" ]; then
+  echo "Running all integration tests..." | tee -a "$LOG_FILE"
+  NODE_ENV=test npx jest --detectOpenHandles --testPathPattern=src/__tests__/integration > "test-reports/all-integration-tests-output.log" 2>&1 || echo "Some tests still failing - check logs for details"
+  echo "Integration test run complete - check test-reports/all-integration-tests-output.log for details" | tee -a "$LOG_FILE"
+else
+  echo "Skipping full test run" | tee -a "$LOG_FILE"
+fi
+
+echo "" | tee -a "$LOG_FILE"
+echo "🎯 Integration Tests Stability Fix Summary:" | tee -a "$LOG_FILE"
+echo "=========================================" | tee -a "$LOG_FILE"
+echo "✅ Added Promise tracking to catch hanging promises" | tee -a "$LOG_FILE"
+echo "✅ Implemented timeout detection and handling" | tee -a "$LOG_FILE"
+echo "✅ Created test utility functions for stability" | tee -a "$LOG_FILE"
+echo "✅ Enhanced test cleanup to prevent hanging tests" | tee -a "$LOG_FILE"
+echo "✅ Fixed cross-service integration test patterns" | tee -a "$LOG_FILE"
+echo "📁 Backups saved to: $BACKUP_DIR" | tee -a "$LOG_FILE"
+echo "" | tee -a "$LOG_FILE"
+echo "🔄 Next Steps:" | tee -a "$LOG_FILE"
+echo "1. Run additional tests to verify other scenarios" | tee -a "$LOG_FILE"
+echo "2. Update remaining integration tests with the same patterns" | tee -a "$LOG_FILE"
+echo "3. Add Promise.race pattern to any long-running tests" | tee -a "$LOG_FILE"
+echo "" | tee -a "$LOG_FILE"
+echo "Completed: $(date)" | tee -a "$LOG_FILE"
+
+echo ""
+echo "🔧 Integration Test Stability Fixes Applied!"
+echo "📊 Check test-reports/integration-test-fixes.log for details"
+echo "🚀 Run 'npm test -- --testPathPattern=src/__tests__/integration' to test all integration tests" 

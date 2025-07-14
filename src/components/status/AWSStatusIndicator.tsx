@@ -8,6 +8,7 @@ import {
   formatLastUpdated,
   AWSStatus 
 } from '@/hooks/useAWSStatus';
+import { AWSCredentialsModal } from '@/components/aws/AWSCredentialsModal';
 
 interface AWSStatusIndicatorProps {
   mode?: 'compact' | 'detailed' | 'card';
@@ -15,6 +16,7 @@ interface AWSStatusIndicatorProps {
   showDetails?: boolean;
   className?: string;
   onStatusChange?: (status: AWSStatus | null) => void;
+  enableCredentialModal?: boolean;
 }
 
 export function AWSStatusIndicator({
@@ -22,7 +24,8 @@ export function AWSStatusIndicator({
   showRefreshButton = true,
   showDetails = false,
   className = '',
-  onStatusChange
+  onStatusChange,
+  enableCredentialModal = true
 }: AWSStatusIndicatorProps) {
   const { 
     status, 
@@ -39,6 +42,7 @@ export function AWSStatusIndicator({
   });
 
   const [showDetailedError, setShowDetailedError] = useState(false);
+  const [showCredentialsModal, setShowCredentialsModal] = useState(false);
 
   // Notify parent of status changes
   React.useEffect(() => {
@@ -94,15 +98,37 @@ export function AWSStatusIndicator({
     }
   };
 
+  const handleStatusClick = () => {
+    if (enableCredentialModal && (!status?.configured || !status?.valid)) {
+      setShowCredentialsModal(true);
+    }
+  };
+
+  const handleCredentialSuccess = () => {
+    setShowCredentialsModal(false);
+    refreshStatus();
+  };
+
+  // Determine if status is clickable
+  const isClickable = enableCredentialModal && (!status?.configured || !status?.valid);
+  const clickableClasses = isClickable ? 'cursor-pointer hover:opacity-80 transition-opacity' : '';
+
   const renderCompactMode = () => (
-    <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-lg ${colors.bg} ${colors.border} border ${className}`}>
+    <div 
+      className={`inline-flex items-center gap-2 px-3 py-1 rounded-lg ${colors.bg} ${colors.border} border ${className} ${clickableClasses}`}
+      onClick={handleStatusClick}
+      title={isClickable ? 'Click to configure AWS credentials' : undefined}
+    >
       <div className={`w-2 h-2 rounded-full ${colors.dot} ${isLoading || isRefreshing ? 'animate-pulse' : ''}`} />
       <span className={`text-sm font-medium ${colors.text}`}>
         {isLoading ? 'Checking...' : status?.message || 'AWS Status'}
       </span>
       {showRefreshButton && (
         <button
-          onClick={handleRefresh}
+          onClick={(e) => {
+            e.stopPropagation();
+            handleRefresh();
+          }}
           disabled={isLoading || isRefreshing}
           className={`text-xs ${colors.text} hover:opacity-75 disabled:opacity-50`}
           title="Refresh AWS status"
@@ -114,7 +140,11 @@ export function AWSStatusIndicator({
   );
 
   const renderDetailedMode = () => (
-    <div className={`p-4 rounded-lg ${colors.bg} ${colors.border} border ${className}`}>
+    <div 
+      className={`p-4 rounded-lg ${colors.bg} ${colors.border} border ${className} ${clickableClasses}`}
+      onClick={handleStatusClick}
+      title={isClickable ? 'Click to configure AWS credentials' : undefined}
+    >
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-3">
           <div className={`w-3 h-3 rounded-full ${colors.dot} ${isLoading || isRefreshing ? 'animate-pulse' : ''}`} />
@@ -127,7 +157,10 @@ export function AWSStatusIndicator({
         </div>
         {showRefreshButton && (
           <button
-            onClick={handleRefresh}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleRefresh();
+            }}
             disabled={isLoading || isRefreshing}
             className={`px-3 py-1 text-sm rounded ${colors.text} hover:bg-opacity-20 hover:bg-black disabled:opacity-50 transition-colors`}
             title="Refresh AWS status"
@@ -193,7 +226,11 @@ export function AWSStatusIndicator({
   );
 
   const renderCardMode = () => (
-    <div className={`p-6 rounded-xl shadow-sm ${colors.bg} ${colors.border} border ${className}`}>
+    <div 
+      className={`p-6 rounded-xl shadow-sm ${colors.bg} ${colors.border} border ${className} ${clickableClasses}`}
+      onClick={handleStatusClick}
+      title={isClickable ? 'Click to configure AWS credentials' : undefined}
+    >
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
           <div className={`w-4 h-4 rounded-full ${colors.dot} ${isLoading || isRefreshing ? 'animate-pulse' : ''}`} />
@@ -243,7 +280,10 @@ export function AWSStatusIndicator({
             </span>
             {showRefreshButton && (
               <button
-                onClick={handleRefresh}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleRefresh();
+                }}
                 disabled={isLoading || isRefreshing}
                 className={`px-3 py-1 text-xs rounded-md ${colors.text} hover:bg-black hover:bg-opacity-10 disabled:opacity-50 transition-colors`}
               >
@@ -269,15 +309,32 @@ export function AWSStatusIndicator({
     </div>
   );
 
-  switch (mode) {
-    case 'detailed':
-      return renderDetailedMode();
-    case 'card':
-      return renderCardMode();
-    case 'compact':
-    default:
-      return renderCompactMode();
-  }
+  return (
+    <>
+      {(() => {
+        switch (mode) {
+          case 'detailed':
+            return renderDetailedMode();
+          case 'card':
+            return renderCardMode();
+          case 'compact':
+          default:
+            return renderCompactMode();
+        }
+      })()}
+      
+      {enableCredentialModal && (
+        <AWSCredentialsModal
+          isOpen={showCredentialsModal}
+          onClose={() => setShowCredentialsModal(false)}
+          onSuccess={handleCredentialSuccess}
+          initialData={{
+            awsRegion: status?.region || 'us-east-1'
+          }}
+        />
+      )}
+    </>
+  );
 }
 
 // Quick status indicator for navigation bars

@@ -131,11 +131,14 @@ test.describe('Task 5.1: Production Validation - Complete User Journey', () => {
     // 4. Fill comprehensive project form with production-quality data
     await page.fill('[data-testid="project-name"]', PRODUCTION_VALIDATION_CONFIG.testData.projectName);
     
-    // Navigate to product step
-    await page.waitForSelector('[data-testid="next-button"]:not([disabled])', { timeout: 10000 });
-    await page.click('[data-testid="next-button"]');
+    // Navigate to product step - make navigation more robust
+    const nextButton = page.locator('[data-testid="next-button"]');
+    await expect(nextButton).toBeVisible({ timeout: 10000 });
+    await expect(nextButton).toBeEnabled({ timeout: 5000 });
+    await nextButton.click();
     
-    // Fill product information
+    // Fill product information - wait for step transition
+    await page.waitForSelector('[data-testid="product-name"]', { timeout: 10000 });
     await page.fill('[data-testid="product-name"]', PRODUCTION_VALIDATION_CONFIG.testData.productName);
     await page.fill('[data-testid="product-website"]', PRODUCTION_VALIDATION_CONFIG.testData.productWebsite);
     
@@ -187,8 +190,11 @@ test.describe('Task 5.1: Production Validation - Complete User Journey', () => {
     console.log(`📊 Project creation time: ${createTime}ms`);
 
     // Extract project ID for cleanup
-    const projectId = page.url().split('/projects/')[1].split('?')[0];
-    testProjectIds.push(projectId);
+    const projectUrl = page.url().split('/projects/')[1];
+    const projectId = projectUrl?.split('?')[0] || 'unknown';
+    if (projectId && projectId !== 'unknown') {
+      testProjectIds.push(projectId);
+    }
 
     // 8. Validate project creation success and immediate report generation
     await expect(page.locator('h1')).toContainText(PRODUCTION_VALIDATION_CONFIG.testData.projectName);

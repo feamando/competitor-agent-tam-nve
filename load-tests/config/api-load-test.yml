@@ -1,0 +1,143 @@
+config:
+  target: "http://localhost:3000/api"
+  phases:
+    - name: "API warm up"
+      duration: 30
+      arrivalRate: 2
+      rampTo: 5
+    - name: "API sustained load"
+      duration: 180
+      arrivalRate: 10
+    - name: "API peak load"
+      duration: 60
+      arrivalRate: 20
+      rampTo: 50
+    - name: "API cooldown"
+      duration: 30
+      arrivalRate: 5
+  plugins:
+    expect: {}
+    metrics-by-endpoint: {}
+  ensure:
+    p95: 2000   # 95% of API responses must complete within 2 seconds
+    maxErrorRate: 3  # API error rate should not exceed 3%
+  environments:
+    local:
+      target: "http://localhost:3000/api"
+      phases:
+        - duration: 30
+          arrivalRate: 1
+          rampTo: 3
+        - duration: 60
+          arrivalRate: 5
+    ci:
+      target: "http://localhost:3000/api"
+      phases:
+        - duration: 30
+          arrivalRate: 5
+          rampTo: 10
+        - duration: 60
+          arrivalRate: 10
+  http:
+    timeout: 20
+    pool: 10  # Limit number of concurrent connections
+    extendedMetrics: true
+
+scenarios:
+  - name: "Critical API endpoints"
+    weight: 60
+    flow:
+      - get:
+          url: "/health"
+          expect:
+            - statusCode: 200
+      - think: 1
+      - get:
+          url: "/projects"
+          expect:
+            - statusCode: 200
+      - think: 1
+      - get:
+          url: "/competitors"
+          expect:
+            - statusCode: 200
+      - think: 1
+      - get:
+          url: "/reports"
+          expect:
+            - statusCode: 200
+
+  - name: "Project creation API"
+    weight: 20
+    flow:
+      - post:
+          url: "/projects"
+          json:
+            name: "API Load Test {{ $randomString(8) }}"
+            productWebsite: "https://api-test-{{ $randomString(5) }}.com"
+            competitors: 
+              - name: "API Test Competitor {{ $randomString(8) }}"
+                website: "https://api-competitor-{{ $randomString(5) }}.com"
+          capture:
+            - json: "$.id"
+              as: "projectId"
+          expect:
+            - statusCode: 201
+      - think: 2
+      - get:
+          url: "/projects/{{ projectId }}"
+          expect:
+            - statusCode: 200
+
+  - name: "Intensive report generation"
+    weight: 10
+    flow:
+      - post:
+          url: "/projects"
+          json:
+            name: "Report Load Test {{ $randomString(8) }}"
+            productWebsite: "https://report-test-{{ $randomString(5) }}.com"
+            competitors: 
+              - name: "Report Test Competitor {{ $randomString(8) }}"
+                website: "https://report-competitor-{{ $randomString(5) }}.com"
+          capture:
+            - json: "$.id"
+              as: "projectId"
+          expect:
+            - statusCode: 201
+      - think: 2
+      - post:
+          url: "/reports/generate"
+          json:
+            projectId: "{{ projectId }}"
+            type: "comparative"
+          expect:
+            - statusCode: [200, 202]
+      - think: 2
+      - get:
+          url: "/reports?projectId={{ projectId }}"
+          expect:
+            - statusCode: 200
+
+  - name: "Performance monitoring endpoints"
+    weight: 10
+    flow:
+      - get:
+          url: "/performance-dashboard"
+          expect:
+            - statusCode: 200
+      - think: 1
+      - get:
+          url: "/monitoring/memory-usage"
+          expect:
+            - statusCode: 200
+      - think: 1
+      - get:
+          url: "/system-health"
+          expect:
+            - statusCode: 200
+
+processor: "./scenarios/apiCustomFunctions.js"
+
+output:
+  exportMetrics: "load-tests/reports/api-metrics-{{ $processEnvironment.TEST_ID }}.json" 

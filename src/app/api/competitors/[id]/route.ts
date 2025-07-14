@@ -8,6 +8,7 @@ import {
   trackCorrelation,
   trackError 
 } from '@/lib/logger';
+import { withRedisCache } from '@/lib/redis-cache';
 
 const updateCompetitorSchema = z.object({
   name: z.string().min(1, 'Company name is required').max(255, 'Company name too long').optional(),
@@ -20,6 +21,9 @@ const updateCompetitorSchema = z.object({
   headquarters: z.string().max(255, 'Headquarters location too long').optional(),
   socialMedia: z.any().optional(),
 });
+
+// Define TTL for caching competitor details (in seconds)
+const COMPETITOR_DETAIL_CACHE_TTL = 600; // 10 minutes
 
 // GET /api/competitors/[id]
 export async function GET(
@@ -48,77 +52,98 @@ export async function GET(
       }, { status: 400 });
     }
 
-    trackDatabaseOperation('findUnique', 'competitor', {
-      ...logContext,
-      query: 'fetch competitor with relations'
-    });
+    // Create fetch function for cache wrapper
+    const fetchCompetitorDetail = async () => {
+      trackDatabaseOperation('findUnique', 'competitor', {
+        ...logContext,
+        query: 'fetch competitor with relations'
+      });
 
-    const competitor = await prisma.competitor.findUnique({
-      where: {
-        id: (await context.params).id
-      },
-      include: {
-        reports: {
-          select: {
-            id: true,
-            name: true,
-            createdAt: true,
-            updatedAt: true
-          },
-          orderBy: { createdAt: 'desc' }
+      const competitor = await prisma.competitor.findUnique({
+        where: {
+          id: (await context.params).id
         },
-                 snapshots: {
-           select: {
-             id: true,
-             createdAt: true,
-             metadata: true
-           },
-           orderBy: { createdAt: 'desc' },
-           take: 5
-         }
-      }
-    });
+        include: {
+          reports: {
+            select: {
+              id: true,
+              name: true,
+              createdAt: true,
+              updatedAt: true
+            },
+            orderBy: { createdAt: 'desc' }
+          },
+          snapshots: {
+            select: {
+              id: true,
+              createdAt: true,
+              metadata: true
+            },
+            orderBy: { createdAt: 'desc' },
+            take: 5
+          }
+        }
+      });
 
-    if (!competitor) {
-      trackCorrelation(correlationId, 'competitor_not_found', logContext);
+      if (!competitor) {
+        trackCorrelation(correlationId, 'competitor_not_found', logContext);
+        trackDatabaseOperation('findUnique', 'competitor', {
+          ...logContext,
+          success: true,
+          recordData: { found: false }
+        });
+
+        logger.warn('Competitor not found', logContext);
+        return null;
+      }
+
+      trackCorrelation(correlationId, 'competitor_detail_retrieved', {
+        ...logContext,
+        competitorName: competitor.name,
+        reportsCount: competitor.reports.length,
+        snapshotsCount: competitor.snapshots.length,
+        cached: false
+      });
+
       trackDatabaseOperation('findUnique', 'competitor', {
         ...logContext,
         success: true,
-        recordData: { found: false }
+        recordData: { 
+          found: true,
+          name: competitor.name,
+          reportsCount: competitor.reports.length,
+          snapshotsCount: competitor.snapshots.length
+        }
       });
 
-      logger.warn('Competitor not found', logContext);
+      logger.info('Competitor detail retrieved successfully', {
+        ...logContext,
+        competitorName: competitor.name,
+        reportsCount: competitor.reports.length,
+        snapshotsCount: competitor.snapshots.length,
+        cached: false
+      });
+
+      return competitor;
+    };
+
+    // Use Redis cache
+    const competitor = await withRedisCache(
+      fetchCompetitorDetail,
+      'competitor_detail',
+      { id: (await context.params).id },
+      COMPETITOR_DETAIL_CACHE_TTL,
+      { logCacheHits: true }
+    );
+    
+    // Handle case when competitor is not found (after cache)
+    if (!competitor) {
       return NextResponse.json({ 
         error: 'Competitor not found',
         message: `No competitor found with ID: ${(await context.params).id}`,
         correlationId 
       }, { status: 404 });
     }
-
-    trackCorrelation(correlationId, 'competitor_detail_retrieved', {
-      ...logContext,
-      competitorName: competitor.name,
-      reportsCount: competitor.reports.length,
-      snapshotsCount: competitor.snapshots.length
-    });
-
-    trackDatabaseOperation('findUnique', 'competitor', {
-      ...logContext,
-      success: true,
-      recordData: { 
-        found: true,
-        name: competitor.name,
-        reportsCount: competitor.reports.length,
-        snapshotsCount: competitor.snapshots.length
-      }
-    });
-
-    logger.info('Competitor detail retrieved successfully', {
-      ...logContext,
-      competitorName: competitor.name,
-      reportsCount: competitor.reports.length,
-      snapshotsCount: competitor.snapshots.length
-    });
 
     return NextResponse.json({
       ...competitor,

@@ -3,12 +3,43 @@ import { prisma } from '@/lib/prisma';
 import { webScraperService } from '../webScraper';
 import { realTimeStatusService } from '../realTimeStatusService';
 
-// Mock dependencies
+// Mock dependencies with COMPLETE Prisma methods - Fix P0.4: Complete Mock Configurations
 jest.mock('@/lib/prisma', () => ({
   prisma: {
     project: {
-      findUnique: jest.fn()
-    }
+      findUnique: jest.fn(),
+      findMany: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+      delete: jest.fn(),
+      upsert: jest.fn(),
+      count: jest.fn(),
+      aggregate: jest.fn(),
+    },
+    competitor: {
+      findUnique: jest.fn(),
+      findMany: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+      delete: jest.fn(),
+      upsert: jest.fn(),
+      count: jest.fn(),
+    },
+    competitorSnapshot: {
+      findUnique: jest.fn(),
+      findMany: jest.fn(),
+      findFirst: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+      delete: jest.fn(),
+      upsert: jest.fn(),
+      count: jest.fn(),
+    },
+    $connect: jest.fn().mockResolvedValue(undefined),
+    $disconnect: jest.fn().mockResolvedValue(undefined),
+    $transaction: jest.fn(),
+    $executeRaw: jest.fn(),
+    $queryRaw: jest.fn(),
   }
 }));
 

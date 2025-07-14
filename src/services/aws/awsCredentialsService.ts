@@ -1,6 +1,7 @@
 import { BedrockService } from '@/services/bedrock/bedrock.service';
 import { BedrockMessage } from '@/services/bedrock/types';
 import { logger } from '@/lib/logger';
+import { AWSCredentialService } from './awsCredentialService';
 
 export interface AWSCredentialsStatus {
   isConfigured: boolean;
@@ -19,20 +20,39 @@ export class AWSCredentialsService {
   private bedrockService: BedrockService;
   private lastStatus: AWSCredentialsStatus | null = null;
   private statusCacheTime = 5 * 60 * 1000; // 5 minutes
+  private credentialService: AWSCredentialService;
 
   constructor() {
     this.bedrockService = new BedrockService({}, 'anthropic');
+    this.credentialService = new AWSCredentialService();
   }
 
   /**
    * Check if AWS credentials are configured
    */
-  public checkCredentialsConfigured(): boolean {
-    return !!(
-      process.env.AWS_ACCESS_KEY_ID &&
-      process.env.AWS_SECRET_ACCESS_KEY &&
-      process.env.AWS_REGION
-    );
+  public async checkCredentialsConfigured(): Promise<boolean> {
+    try {
+      // Check for primary credentials in database first
+      const primaryCredentials = await this.credentialService.getPrimaryCredentials();
+      if (primaryCredentials) {
+        return true;
+      }
+
+      // Fallback to environment variables
+      return !!(
+        process.env.AWS_ACCESS_KEY_ID &&
+        process.env.AWS_SECRET_ACCESS_KEY &&
+        process.env.AWS_REGION
+      );
+    } catch (error) {
+      logger.error('Failed to check credentials configuration', error as Error);
+      // Fallback to environment variables
+      return !!(
+        process.env.AWS_ACCESS_KEY_ID &&
+        process.env.AWS_SECRET_ACCESS_KEY &&
+        process.env.AWS_REGION
+      );
+    }
   }
 
   /**
@@ -42,6 +62,30 @@ export class AWSCredentialsService {
     const startTime = Date.now();
     
     try {
+      // Try to use database credentials first
+      const primaryCredentials = await this.credentialService.getPrimaryCredentials();
+      let bedrockService: BedrockService;
+
+      if (primaryCredentials) {
+        // Use database credentials
+        const credentials: any = {
+          accessKeyId: primaryCredentials.accessKeyId,
+          secretAccessKey: primaryCredentials.secretAccessKey
+        };
+        
+        if (primaryCredentials.sessionToken) {
+          credentials.sessionToken = primaryCredentials.sessionToken;
+        }
+
+        bedrockService = new BedrockService({
+          region: primaryCredentials.awsRegion,
+          credentials
+        }, 'anthropic');
+      } else {
+        // Fallback to environment variables
+        bedrockService = new BedrockService({}, 'anthropic');
+      }
+
       const testMessages: BedrockMessage[] = [
         {
           role: 'user',
@@ -49,7 +93,7 @@ export class AWSCredentialsService {
         }
       ];
 
-      await this.bedrockService.generateCompletion(testMessages);
+      await bedrockService.generateCompletion(testMessages);
       const latency = Date.now() - startTime;
       
       return { success: true, latency };
@@ -73,7 +117,7 @@ export class AWSCredentialsService {
       return this.lastStatus;
     }
 
-    const isConfigured = this.checkCredentialsConfigured();
+    const isConfigured = await this.checkCredentialsConfigured();
     const region = process.env.AWS_REGION || 'eu-west-1';
     const now = new Date();
 

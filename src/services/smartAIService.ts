@@ -50,13 +50,29 @@ export interface SmartAISetupConfig {
 
 export class SmartAIService {
   private smartScheduler: SmartSchedulingService;
-  private bedrockService: BedrockService;
+  private bedrockService: BedrockService | null = null;
   private conversationManager: ConversationManager;
 
   constructor() {
     this.smartScheduler = new SmartSchedulingService();
-    this.bedrockService = new BedrockService({}, 'anthropic');
     this.conversationManager = new ConversationManager();
+  }
+
+  /**
+   * Initialize the Bedrock service with stored credentials
+   */
+  private async initializeBedrockService(): Promise<BedrockService> {
+    if (!this.bedrockService) {
+      try {
+        // Try to create with stored credentials first
+        this.bedrockService = await BedrockService.createWithStoredCredentials('anthropic');
+      } catch (error) {
+        logger.warn('Failed to initialize with stored credentials, falling back to environment variables', { error });
+        // Fallback to traditional constructor with environment variables
+        this.bedrockService = new BedrockService({}, 'anthropic');
+      }
+    }
+    return this.bedrockService;
   }
 
   /**
@@ -271,7 +287,8 @@ export class SmartAIService {
       );
 
       // Generate analysis using Claude via Bedrock
-      const analysis = await this.bedrockService.generateCompletion([
+      const bedrockService = await this.initializeBedrockService();
+      const analysis = await bedrockService.generateCompletion([
         {
           role: 'user',
           content: [

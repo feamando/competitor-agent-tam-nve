@@ -1,46 +1,38 @@
-import { ComparativeReportService } from '@/services/reports/comparativeReportService';
-import { UserExperienceAnalyzer } from '@/services/analysis/userExperienceAnalyzer';
-import { ComparativeAnalysis } from '@/types/analysis';
-import { Product, ProductSnapshot } from '@/types/product';
-
-// Create a mock class that will replace the real UserExperienceAnalyzer
-const MockUserExperienceAnalyzer = jest.fn().mockImplementation(() => ({
-  analyzeProductVsCompetitors: jest.fn().mockResolvedValue({
-    summary: 'Strong UX foundation with room for mobile improvements',
-    strengths: ['Clean design', 'Fast loading', 'Intuitive navigation'],
-    weaknesses: ['Limited mobile optimization', 'Accessibility gaps'],
-    opportunities: ['Mobile-first redesign', 'Voice interface'],
-    recommendations: [
-      'Implement responsive design',
-      'Add accessibility features',
-      'Optimize mobile performance',
-      'Enhance user onboarding',
-      'Improve search functionality',
-      'Add dark mode support'
-    ],
-    competitorComparisons: [
-      {
-        competitorName: 'Competitor 1',
-        competitorWebsite: 'https://competitor1.com',
-        strengths: ['Better mobile experience'],
-        weaknesses: ['Slower loading times'],
-        keyDifferences: ['Different navigation approach'],
-        learnings: ['Mobile-first design principles']
-      }
-    ],
-    confidence: 0.85,
-    metadata: {
-      correlationId: 'test-correlation-id',
-      analyzedAt: '2024-01-01T00:00:00Z',
-      competitorCount: 1,
-      analysisType: 'ux_focused'
-    }
-  })
-}));
-
-// Mock the dependencies
+// Mock the dependencies first to avoid circular references
 jest.mock('@/services/analysis/userExperienceAnalyzer', () => ({
-  UserExperienceAnalyzer: MockUserExperienceAnalyzer
+  UserExperienceAnalyzer: jest.fn().mockImplementation(() => ({
+    analyzeProductVsCompetitors: jest.fn().mockResolvedValue({
+      summary: 'Strong UX foundation with room for mobile improvements',
+      strengths: ['Clean design', 'Fast loading', 'Intuitive navigation'],
+      weaknesses: ['Limited mobile optimization', 'Accessibility gaps'],
+      opportunities: ['Mobile-first redesign', 'Voice interface'],
+      recommendations: [
+        'Implement responsive design',
+        'Add accessibility features',
+        'Optimize mobile performance',
+        'Enhance user onboarding',
+        'Improve search functionality',
+        'Add dark mode support'
+      ],
+      competitorComparisons: [
+        {
+          competitorName: 'Competitor 1',
+          competitorWebsite: 'https://competitor1.com',
+          strengths: ['Better mobile experience'],
+          weaknesses: ['Slower loading times'],
+          keyDifferences: ['Different navigation approach'],
+          learnings: ['Mobile-first design principles']
+        }
+      ],
+      confidence: 0.85,
+      metadata: {
+        correlationId: 'test-correlation-id',
+        analyzedAt: '2024-01-01T00:00:00Z',
+        competitorCount: 1,
+        analysisType: 'ux_focused'
+      }
+    })
+  }))
 }));
 
 jest.mock('@/services/bedrock/bedrock.service', () => ({
@@ -48,6 +40,14 @@ jest.mock('@/services/bedrock/bedrock.service', () => ({
     generateCompletion: jest.fn().mockResolvedValue('Mock AI response')
   }))
 }));
+
+import { ComparativeReportService } from '@/services/reports/comparativeReportService';
+import { UserExperienceAnalyzer } from '@/services/analysis/userExperienceAnalyzer';
+import { ComparativeAnalysis } from '@/types/analysis';
+import { Product, ProductSnapshot } from '@/types/product';
+
+// Create a reference to the mocked constructor
+const MockUserExperienceAnalyzer = UserExperienceAnalyzer as jest.MockedClass<typeof UserExperienceAnalyzer>;
 
 // Mock logger
 jest.mock('@/lib/logger', () => ({

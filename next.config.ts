@@ -1,10 +1,9 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
-  // Your existing config...
-  
+  // Remove handlebars-loader config that's causing issues
   webpack: (config, { isServer }) => {
-    // Fix for Handlebars webpack warning
+    // Fix for webpack fallback warnings
     if (!isServer) {
       config.resolve.fallback = {
         ...config.resolve.fallback,
@@ -13,12 +12,6 @@ const nextConfig: NextConfig = {
         os: false,
       };
     }
-    
-    // Handle .hbs files
-    config.module.rules.push({
-      test: /\.hbs$/,
-      loader: 'handlebars-loader',
-    });
 
     return config;
   },

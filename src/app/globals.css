@@ -33,3 +33,48 @@ body {
   color: var(--foreground);
   font-family: 'Source Sans Pro', sans-serif;
 }
+
+/* Cross-browser compatibility fixes */
+/* Add prefixes for cross-browser support */
+input[type="text"],
+input[type="email"],
+input[type="url"],
+input[type="password"],
+input[type="search"],
+textarea,
+select {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  border-radius: 0.375rem;
+}
+
+/* Fix button styling across browsers */
+button {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+}
+
+/* Fix for Firefox input focus */
+input:focus,
+textarea:focus,
+select:focus,
+button:focus {
+  outline: none;
+}
+
+/* Fix for Safari border radius */
+@supports (-webkit-touch-callout: none) {
+  .rounded-md {
+    -webkit-border-radius: 0.375rem;
+    border-radius: 0.375rem;
+  }
+}
+
+/* Fix for mobile viewport issues */
+@media screen and (max-width: 640px) {
+  input, select, textarea {
+    font-size: 16px !important; /* Prevents zoom on focus in iOS */
+  }
+}

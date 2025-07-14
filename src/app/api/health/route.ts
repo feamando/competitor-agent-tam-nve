@@ -1,276 +1,131 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
-import { readdir, stat, mkdir } from 'fs/promises';
-import { join } from 'path';
+import { healthCheckService } from '@/lib/health-check';
+import { withRedisCache } from '@/lib/redis-cache';
+import { logger } from '@/lib/logger';
 
-interface HealthCheckResult {
-  status: 'healthy' | 'degraded' | 'unhealthy';
-  timestamp: string;
-  uptime: number;
-  version: string;
-  environment: string;
-  checks: {
-    database: HealthCheck;
-    filesystem: HealthCheck;
-    memory: HealthCheck;
-    reports: HealthCheck;
-  };
-  metrics: {
-    totalReports: number;
-    databaseReports: number;
-    fileReports: number;
-    responseTime: number;
-  };
-}
-
-interface HealthCheck {
-  status: 'pass' | 'fail' | 'warn';
-  message: string;
-  responseTime?: number;
-  details?: Record<string, any>;
-}
-
-const startTime = Date.now();
+// Define TTL for health check cache (in seconds)
+const HEALTH_CHECK_CACHE_TTL = 30; // 30 seconds - short cache to still detect issues quickly
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const checkStartTime = performance.now();
+  const correlationId = `health-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
   
-  const checks = {
-    database: await checkDatabase(),
-    filesystem: await checkFilesystem(),
-    memory: checkMemory(),
-    reports: await checkReports(),
-  };
-  
-  // Determine overall health status
-  const hasFailures = Object.values(checks).some(check => check.status === 'fail');
-  const hasWarnings = Object.values(checks).some(check => check.status === 'warn');
-  
-  let overallStatus: 'healthy' | 'degraded' | 'unhealthy';
-  if (hasFailures) {
-    overallStatus = 'unhealthy';
-  } else if (hasWarnings) {
-    overallStatus = 'degraded'; // Still return 200, not 503
-  } else {
-    overallStatus = 'healthy';
-  }
-  
-  const responseTime = performance.now() - checkStartTime;
-  
-  const healthResult: HealthCheckResult = {
-    status: overallStatus,
-    timestamp: new Date().toISOString(),
-    uptime: Date.now() - startTime,
-    version: process.env.APP_VERSION || '1.0.0',
-    environment: process.env.NODE_ENV || 'development',
-    checks,
-    metrics: {
-      totalReports: (checks.reports.details?.total || 0) as number,
-      databaseReports: (checks.reports.details?.database || 0) as number,
-      fileReports: (checks.reports.details?.files || 0) as number,
-      responseTime,
-    },
-  };
-  
-  // Set appropriate HTTP status code - only 503 for critical failures
-  const httpStatus = overallStatus === 'unhealthy' ? 503 : 200;
-  
-  return NextResponse.json(healthResult, { 
-    status: httpStatus,
-    headers: {
-      'Cache-Control': 'no-cache, no-store, must-revalidate',
-      'Content-Type': 'application/json',
-    }
-  });
-}
-
-async function checkDatabase(): Promise<HealthCheck> {
-  const startTime = performance.now();
+  logger.info('Health check requested', { correlationId });
   
   try {
-    // Use lighter-weight connection test
-    await prisma.$executeRaw`SELECT 1 as test`;
-    const responseTime = performance.now() - startTime;
+    // Only cache in production to ensure development environment always gets fresh data
+    const isProduction = process.env.NODE_ENV === 'production';
+    const shouldUseCache = isProduction && !request.nextUrl.searchParams.has('no_cache');
     
-    return {
-      status: 'pass',
-      message: 'Database connection successful',
-      responseTime,
-      details: { 
-        connectionTest: true,
-        responseTime 
-      }
+    // Define the health check function
+    const performHealthCheck = async () => {
+      return await healthCheckService.performHealthCheck();
     };
+    
+    // Use caching if applicable, otherwise perform check directly
+    let healthResult;
+    
+    if (shouldUseCache) {
+      try {
+        healthResult = await withRedisCache(
+          performHealthCheck,
+          'health_check',
+          {},
+          HEALTH_CHECK_CACHE_TTL
+        );
+      } catch (cacheError) {
+        logger.warn('Redis cache failed for health check, proceeding without cache', { 
+          correlationId,
+          error: cacheError instanceof Error ? cacheError.message : String(cacheError)
+        });
+        // Fall back to direct execution if cache fails
+        healthResult = await performHealthCheck();
+      }
+    } else {
+      healthResult = await performHealthCheck();
+    }
+    
+    // Set appropriate HTTP status code - only 503 for critical failures
+    const httpStatus = healthResult.status === 'unhealthy' ? 503 : 200;
+    
+    logger.info('Health check completed', {
+      correlationId,
+      status: healthResult.status,
+      httpStatus,
+      responseTime: Math.round(performance.now() - checkStartTime),
+      cached: shouldUseCache
+    });
+    
+    return NextResponse.json(healthResult, { 
+      status: httpStatus,
+      headers: {
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Content-Type': 'application/json',
+        'X-Correlation-ID': correlationId,
+        'X-Health-Status': healthResult.status
+      }
+    });
+    
   } catch (error) {
-    // Return warn instead of fail for non-critical errors
-    const responseTime = performance.now() - startTime;
+    const responseTime = performance.now() - checkStartTime;
+    const errorMessage = error instanceof Error ? error.message : 'Unknown health check error';
     
-    return {
-      status: 'warn',
-      message: `Database issue (non-critical): ${(error as Error).message}`,
-      responseTime,
-      details: {
-        error: (error as Error).message,
-        code: (error as any).code,
-      }
-    };
-  }
-}
-
-async function checkFilesystem(): Promise<HealthCheck> {
-  const startTime = performance.now();
-  
-  try {
-    const reportsDir = './reports';
+    logger.error('Health check failed completely', error as Error, {
+      correlationId,
+      responseTime: Math.round(responseTime)
+    });
     
-    // Create directory if it doesn't exist
-    try {
-      await stat(reportsDir);
-    } catch {
-      await mkdir(reportsDir, { recursive: true });
-    }
-    
-    // Test with simple directory check
-    const files = await readdir(reportsDir);
-    const mdFiles = files.filter(f => f.endsWith('.md'));
-    
-    const responseTime = performance.now() - startTime;
-    
-    // Warn if directory is getting too large
-    let status: 'pass' | 'warn' = 'pass';
-    let message = 'Filesystem operational';
-    
-    if (files.length > 1000) {
-      status = 'warn';
-      message = 'Reports directory has many files, consider archiving old reports';
-    }
-    
-    return {
-      status,
-      message,
-      responseTime,
-      details: {
-        reportsDirectory: true,
-        fileCount: files.length,
-        reportFiles: mdFiles.length,
-      }
-    };
-  } catch (error) {
-    const responseTime = performance.now() - startTime;
-    
-    return {
-      status: 'warn', // Changed from fail to warn
-      message: `Filesystem issue (non-critical): ${(error as Error).message}`,
-      responseTime,
-      details: {
-        error: (error as Error).message,
-      }
-    };
-  }
-}
-
-function checkMemory(): HealthCheck {
-  try {
-    const memUsage = process.memoryUsage();
-    const totalMemory = memUsage.heapTotal;
-    const usedMemory = memUsage.heapUsed;
-    const memoryUsagePercent = (usedMemory / totalMemory) * 100;
-    
-    // Convert bytes to MB for readability
-    const totalMemoryMB = Math.round(totalMemory / 1024 / 1024);
-    const usedMemoryMB = Math.round(usedMemory / 1024 / 1024);
-    const externalMemoryMB = Math.round(memUsage.external / 1024 / 1024);
-    
-    let status: 'pass' | 'warn' | 'fail' = 'pass';
-    let message = 'Memory usage normal';
-    
-    if (memoryUsagePercent > 95) {
-      status = 'fail';
-      message = 'Critical memory usage detected';
-    } else if (memoryUsagePercent > 85) {
-      status = 'warn';
-      message = 'High memory usage detected';
-    }
-    
-    return {
-      status,
-      message,
-      details: {
-        totalMemoryMB,
-        usedMemoryMB,
-        externalMemoryMB,
-        usagePercent: Math.round(memoryUsagePercent * 100) / 100,
-        rss: Math.round(memUsage.rss / 1024 / 1024),
-        arrayBuffers: Math.round(memUsage.arrayBuffers / 1024 / 1024),
-      }
-    };
-  } catch (error) {
-    return {
-      status: 'fail',
-      message: `Memory check failed: ${(error as Error).message}`,
-      details: {
-        error: (error as Error).message,
-      }
-    };
-  }
-}
-
-async function checkReports(): Promise<HealthCheck> {
-  const startTime = performance.now();
-  
-  try {
-    // Quick check of reports functionality - more resilient approach
-    const [dbReports, fileReports] = await Promise.all([
-      // Database reports count - with fallback
-      (async () => {
-        try {
-          return await prisma.report.count();
-        } catch {
-          return 0; // Fallback if database check fails
+    // Return degraded status instead of complete failure
+    const fallbackHealth = {
+      status: 'degraded' as const,
+      timestamp: new Date().toISOString(),
+      uptime: Date.now(),
+      version: process.env.APP_VERSION || '1.0.0',
+      environment: process.env.NODE_ENV || 'development',
+      checks: {
+        database: {
+          status: 'warn' as const,
+          message: 'Health check service unavailable',
+          timestamp: new Date().toISOString(),
+          details: { fallback: true, error: errorMessage }
+        },
+        filesystem: {
+          status: 'warn' as const,
+          message: 'Health check service unavailable',
+          timestamp: new Date().toISOString(),
+          details: { fallback: true }
+        },
+        memory: {
+          status: 'warn' as const,
+          message: 'Health check service unavailable',
+          timestamp: new Date().toISOString(),
+          details: { fallback: true }
+        },
+        reports: {
+          status: 'warn' as const,
+          message: 'Health check service unavailable',
+          timestamp: new Date().toISOString(),
+          details: { fallback: true, total: 0, database: 0, files: 0 }
         }
-      })(),
-      // File reports count - with fallback
-      (async () => {
-        try {
-          const files = await readdir('./reports');
-          return files.filter(f => f.endsWith('.md')).length;
-        } catch {
-          return 0; // Fallback if filesystem check fails
-        }
-      })()
-    ]);
-    
-    const totalReports = dbReports + fileReports;
-    const responseTime = performance.now() - startTime;
-    
-    let status: 'pass' | 'warn' = 'pass';
-    let message = 'Reports system operational';
-    
-    if (totalReports === 0) {
-      status = 'warn';
-      message = 'No reports found in system';
-    }
-    
-    return {
-      status,
-      message,
-      responseTime,
-      details: {
-        total: totalReports,
-        database: dbReports,
-        files: fileReports,
+      },
+      metrics: {
+        totalReports: 0,
+        databaseReports: 0,
+        fileReports: 0,
+        responseTime: Math.round(responseTime)
       }
     };
-  } catch (error) {
-    const responseTime = performance.now() - startTime;
     
-    return {
-      status: 'warn', // Changed from fail to warn
-      message: `Reports check issue (non-critical): ${(error as Error).message}`,
-      responseTime,
-      details: {
-        error: (error as Error).message,
+    // Return 200 status even for fallback to prevent complete failure
+    return NextResponse.json(fallbackHealth, { 
+      status: 200,
+      headers: {
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Content-Type': 'application/json',
+        'X-Correlation-ID': correlationId,
+        'X-Health-Status': 'degraded',
+        'X-Fallback-Mode': 'true'
       }
-    };
+    });
   }
 } 
