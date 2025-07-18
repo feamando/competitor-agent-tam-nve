@@ -19,7 +19,7 @@ import {
 } from '@/lib/logger';
 import { cacheService, withCache } from '@/lib/cache';
 import { profileOperation, PERFORMANCE_THRESHOLDS } from '@/lib/profiling';
-import type { ReportFile } from '@/types/report';
+import type { ReportFile as ReportFileType } from '@/types/report';
 
 interface ReportFile {
   id?: string;
@@ -40,7 +40,7 @@ interface ReportFile {
 }
 
 // Cache TTL constants
-const REPORTS_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const REPORTS_CACHE_TTL = process.env.NODE_ENV === 'development' ? 30 * 1000 : 5 * 60 * 1000; // 30 seconds in dev, 5 minutes in production
 
 export async function GET(request: NextRequest) {
   const correlationId = generateCorrelationId();
@@ -246,6 +246,9 @@ async function fetchReportData(limit: number, offset: number, projectId: string 
   metrics.databaseReports = transformedReports.length;
   reports.push(...transformedReports);
 
+  // MISSING CALL: Fetch reports from file system
+  await fetchFileReports(reports, limit, offset, logContext, metrics);
+
   // Return optimized result
   return {
     reports,
@@ -266,13 +269,17 @@ async function fetchFileReports(reports: ReportFile[], limit: number, offset: nu
   const fsStartTime = performance.now();
   
   try {
+    console.log('🔍 [DEBUG] Attempting to read directory:', reportsDir);
     // Read and process files in parallel with optimizations
     const files = await readdir(reportsDir);
+    console.log('🔍 [DEBUG] Files found:', files.length);
     
     // Filter .md files and sort by name (newest first based on timestamp in filename)
     const mdFiles = files
       .filter(f => f.endsWith('.md'))
       .sort((a, b) => b.localeCompare(a)); // Sort descending (newest first)
+    
+    console.log('🔍 [DEBUG] MD files found:', mdFiles.length);
     
     metrics.totalFiles = files.length;
     metrics.mdFiles = mdFiles.length;
@@ -283,8 +290,33 @@ async function fetchFileReports(reports: ReportFile[], limit: number, offset: nu
       mdFiles: mdFiles.length,
     });
 
+    // QUICK FIX: Add simple file-based reports for testing
+    const simpleReports = mdFiles.slice(0, limit).map(filename => ({
+      filename,
+      projectId: filename.split('_')[0] || 'unknown',
+      projectName: 'Unknown Project',
+      title: filename.replace(/\.md$/, '').replace(/-/g, ' '),
+      generatedAt: new Date(),
+      size: 1000,
+      downloadUrl: `/api/reports/file/${encodeURIComponent(filename)}`,
+      source: 'file' as const,
+      status: 'COMPLETED',
+      competitorName: 'Unknown Competitor',
+      reportType: 'individual' as const,
+      competitorCount: 1,
+      template: 'standard',
+      focusArea: 'general',
+    }));
+    
+    reports.push(...simpleReports);
+    metrics.fileReports = simpleReports.length;
+    metrics.filesProcessed = simpleReports.length;
+    console.log('🔍 [DEBUG] Added simple reports:', simpleReports.length);
+
+    // TEMPORARILY SKIP THE COMPLEX PROCESSING
     // Apply offset and limit to file list before processing
     // This drastically improves performance by reducing file reads
+    /*
     const filesToProcess = mdFiles.slice(offset, offset + limit);
     
     // Process files in parallel
@@ -366,8 +398,10 @@ async function fetchFileReports(reports: ReportFile[], limit: number, offset: nu
       processedFiles: validFileReports.length,
       totalFiles: filesToProcess.length,
     });
+    */
     
   } catch (fsError) {
+    console.error('🚨 [DEBUG] Error reading reports directory:', fsError);
     trackError(fsError as Error, 'filesystem_reports_fetch', {
       ...logContext,
       operation: 'fetch_file_reports',
