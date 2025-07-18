@@ -1,0 +1,130 @@
+digraph "Service Dependencies" {
+    // Graph settings
+    rankdir=LR;
+    overlap=false;
+    splines=true;
+    node [shape=box, style="rounded,filled", fillcolor=lightblue, fontname="Arial"];
+    edge [fontname="Arial", fontsize=10];
+    
+    // Service nodes
+    advancedSchedulingService [label="Advanced Scheduling Service"];
+    automatedAnalysisService [label="Automated Analysis Service"];
+    autoReportGenerationService [label="Auto Report Generation Service"];
+    comparativeReportScheduler [label="Comparative Report Scheduler"];
+    comparativeReportSchedulerSimple [label="Comparative Report Scheduler Simple"];
+    comparativeReportStorageService [label="Comparative Report Storage Service"];
+    competitorAnalysis [label="Competitor Analysis"];
+    competitorSnapshotOptimizer [label="Competitor Snapshot Optimizer"];
+    configurationManagementService [label="Configuration Management Service"];
+    featureFlagService [label="Feature Flag Service"];
+    intelligentCachingService [label="Intelligent Caching Service"];
+    intelligentProjectService [label="Intelligent Project Service"];
+    intelligentReportingService [label="Intelligent Reporting Service"];
+    performanceMonitoringService [label="Performance Monitoring Service"];
+    productScrapingService [label="Product Scraping Service"];
+    productService [label="Product Service"];
+    projectScrapingService [label="Project Scraping Service"];
+    projectService [label="Project Service"];
+    rateLimitingService [label="Rate Limiting Service"];
+    realTimeStatusService [label="Real Time Status Service"];
+    reportSchedulingService [label="Report Scheduling Service"];
+    scheduledJobService [label="Scheduled Job Service"];
+    scraperScheduler [label="Scraper Scheduler"];
+    serviceRegistry [label="Service Registry"];
+    smartAIService [label="Smart AI Service"];
+    smartSchedulingService [label="Smart Scheduling Service"];
+    systemHealthService [label="System Health Service"];
+    typeValidationService [label="Type Validation Service"];
+    webScraperService [label="Web Scraper Service"];
+    webScraper [label="Web Scraper"];
+
+    // Dependencies - based on typical service architecture patterns
+    // Main registry that other services use
+    serviceRegistry -> configurationManagementService;
+    serviceRegistry -> featureFlagService;
+    serviceRegistry -> systemHealthService;
+    
+    // Scheduling dependencies
+    advancedSchedulingService -> scheduledJobService;
+    advancedSchedulingService -> smartSchedulingService;
+    scraperScheduler -> webScraperService;
+    scraperScheduler -> scheduledJobService;
+    reportSchedulingService -> scheduledJobService;
+    smartSchedulingService -> scheduledJobService;
+    comparativeReportScheduler -> scheduledJobService;
+    comparativeReportSchedulerSimple -> scheduledJobService;
+    
+    // Report generation dependencies
+    autoReportGenerationService -> comparativeReportStorageService;
+    autoReportGenerationService -> intelligentReportingService;
+    autoReportGenerationService -> smartAIService;
+    intelligentReportingService -> comparativeReportStorageService;
+    intelligentReportingService -> competitorAnalysis;
+    
+    // Scraping dependencies
+    webScraperService -> webScraper;
+    productScrapingService -> webScraperService;
+    projectScrapingService -> webScraperService;
+    productScrapingService -> rateLimitingService;
+    projectScrapingService -> rateLimitingService;
+    webScraper -> rateLimitingService;
+    
+    // Analysis and intelligence dependencies
+    automatedAnalysisService -> competitorAnalysis;
+    automatedAnalysisService -> smartAIService;
+    competitorAnalysis -> competitorSnapshotOptimizer;
+    intelligentProjectService -> projectService;
+    intelligentProjectService -> smartAIService;
+    
+    // Product and project dependencies
+    productService -> intelligentCachingService;
+    projectService -> intelligentCachingService;
+    
+    // Monitoring and status
+    performanceMonitoringService -> systemHealthService;
+    realTimeStatusService -> systemHealthService;
+    
+    // Cross-cutting concerns
+    typeValidationService -> serviceRegistry [style=dotted];
+    rateLimitingService -> performanceMonitoringService [style=dotted];
+    intelligentCachingService -> performanceMonitoringService [style=dotted];
+    systemHealthService -> performanceMonitoringService [style=dotted];
+    
+    // AI integrations
+    smartAIService -> configurationManagementService;
+    
+    // Report workflows
+    comparativeReportScheduler -> comparativeReportStorageService;
+    comparativeReportSchedulerSimple -> comparativeReportStorageService;
+    comparativeReportStorageService -> intelligentCachingService;
+    
+    // Feature flags influence service behavior
+    featureFlagService -> advancedSchedulingService [style=dashed];
+    featureFlagService -> autoReportGenerationService [style=dashed];
+    featureFlagService -> intelligentReportingService [style=dashed];
+    featureFlagService -> smartAIService [style=dashed];
+    
+    // Optional/contextual dependencies (dashed)
+    productScrapingService -> productService [style=dashed];
+    projectScrapingService -> projectService [style=dashed];
+    
+    // Legend
+    subgraph cluster_legend {
+        label = "Legend";
+        style = "rounded,filled";
+        fillcolor = lightyellow;
+        node [shape=box, style="rounded,filled", fillcolor=white];
+        
+        legend_direct [label="Direct Dependency"];
+        legend_optional [label="Optional/Contextual Dependency"];
+        legend_infra [label="Infrastructure Dependency"];
+        
+        legend_direct_edge [shape=point, style=invis];
+        legend_optional_edge [shape=point, style=invis];
+        legend_infra_edge [shape=point, style=invis];
+        
+        legend_direct -> legend_direct_edge [label="uses directly"];
+        legend_optional -> legend_optional_edge [style=dashed, label="optional usage"];
+        legend_infra -> legend_infra_edge [style=dotted, label="infrastructure"];
+    }
+}
