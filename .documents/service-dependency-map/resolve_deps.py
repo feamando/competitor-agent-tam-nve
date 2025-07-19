@@ -13,9 +13,15 @@ GRAPHVIZ_GRAPH_SETTINGS = """
 """
 
 def get_ts_files(dir_path: str) -> list[str]:
+    """
+    Returns a list of all .ts files in the given directory, excluding .test.ts files.
+    """
     return [f for f in os.listdir(dir_path) if f.endswith('.ts') and not f.endswith('.test.ts')]
 
 def get_service_names(ts_files: list[str]) -> list[str]:
+    """
+    Strips the .ts extension from the given list of .ts files.
+    """
     return [file.replace('.ts', '') for file in ts_files]
 
 def get_service_dependencies(service_file: str) -> list[str]:
