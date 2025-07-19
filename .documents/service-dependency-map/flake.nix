@@ -18,6 +18,7 @@
             name = "service-dependency-map";
             src = ./.;
             buildInputs = [
+              pkgs.python3
               pkgs.graphviz
             ];
             buildPhase = ''
@@ -51,6 +52,7 @@
 
         devShells.default = pkgs.mkShell {
           buildInputs = [
+            pkgs.python3
             pkgs.graphviz
           ];
         };
