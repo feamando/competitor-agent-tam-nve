@@ -21,8 +21,8 @@
               pkgs.graphviz
             ];
             buildPhase = ''
-              # Convert DOT to PDF with A4 paper size (8.3 x 11.7 inches)
-              dot -Tpdf -Gsize=8.3,11.7 -Gpage=A4 map.dot -o service-dependency-map.pdf
+              ${pkgs.python3}/bin/python resolve_deps.py
+              ${pkgs.graphviz}/bin/dot -Tpdf map.dot -o service-dependency-map.pdf
             '';
             installPhase = ''
               mkdir -p $out
@@ -42,6 +42,7 @@
                 exit 1
               fi
               
+              ${pkgs.python3}/bin/python resolve_deps.py
               ${pkgs.graphviz}/bin/dot -Tpdf map.dot -o service-dependency-map.pdf
               echo "Generated service-dependency-map.pdf from map.dot"
             '');

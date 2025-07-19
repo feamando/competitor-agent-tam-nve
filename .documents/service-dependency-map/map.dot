@@ -1,130 +1,63 @@
-digraph "Service Dependencies" {
-    // Graph settings
+digraph G {
+
     rankdir=LR;
     overlap=false;
     splines=true;
     node [shape=box, style="rounded,filled", fillcolor=lightblue, fontname="Arial"];
     edge [fontname="Arial", fontsize=10];
-    
-    // Service nodes
-    advancedSchedulingService [label="Advanced Scheduling Service"];
-    automatedAnalysisService [label="Automated Analysis Service"];
-    autoReportGenerationService [label="Auto Report Generation Service"];
-    comparativeReportScheduler [label="Comparative Report Scheduler"];
-    comparativeReportSchedulerSimple [label="Comparative Report Scheduler Simple"];
-    comparativeReportStorageService [label="Comparative Report Storage Service"];
-    competitorAnalysis [label="Competitor Analysis"];
-    competitorSnapshotOptimizer [label="Competitor Snapshot Optimizer"];
-    configurationManagementService [label="Configuration Management Service"];
-    featureFlagService [label="Feature Flag Service"];
-    intelligentCachingService [label="Intelligent Caching Service"];
-    intelligentProjectService [label="Intelligent Project Service"];
-    intelligentReportingService [label="Intelligent Reporting Service"];
-    performanceMonitoringService [label="Performance Monitoring Service"];
-    productScrapingService [label="Product Scraping Service"];
-    productService [label="Product Service"];
-    projectScrapingService [label="Project Scraping Service"];
-    projectService [label="Project Service"];
-    rateLimitingService [label="Rate Limiting Service"];
-    realTimeStatusService [label="Real Time Status Service"];
-    reportSchedulingService [label="Report Scheduling Service"];
-    scheduledJobService [label="Scheduled Job Service"];
-    scraperScheduler [label="Scraper Scheduler"];
-    serviceRegistry [label="Service Registry"];
-    smartAIService [label="Smart AI Service"];
-    smartSchedulingService [label="Smart Scheduling Service"];
-    systemHealthService [label="System Health Service"];
-    typeValidationService [label="Type Validation Service"];
-    webScraperService [label="Web Scraper Service"];
-    webScraper [label="Web Scraper"];
-
-    // Dependencies - based on typical service architecture patterns
-    // Main registry that other services use
-    serviceRegistry -> configurationManagementService;
-    serviceRegistry -> featureFlagService;
-    serviceRegistry -> systemHealthService;
-    
-    // Scheduling dependencies
-    advancedSchedulingService -> scheduledJobService;
-    advancedSchedulingService -> smartSchedulingService;
-    scraperScheduler -> webScraperService;
-    scraperScheduler -> scheduledJobService;
-    reportSchedulingService -> scheduledJobService;
-    smartSchedulingService -> scheduledJobService;
-    comparativeReportScheduler -> scheduledJobService;
-    comparativeReportSchedulerSimple -> scheduledJobService;
-    
-    // Report generation dependencies
-    autoReportGenerationService -> comparativeReportStorageService;
-    autoReportGenerationService -> intelligentReportingService;
-    autoReportGenerationService -> smartAIService;
-    intelligentReportingService -> comparativeReportStorageService;
-    intelligentReportingService -> competitorAnalysis;
-    
-    // Scraping dependencies
-    webScraperService -> webScraper;
-    productScrapingService -> webScraperService;
-    projectScrapingService -> webScraperService;
-    productScrapingService -> rateLimitingService;
-    projectScrapingService -> rateLimitingService;
-    webScraper -> rateLimitingService;
-    
-    // Analysis and intelligence dependencies
-    automatedAnalysisService -> competitorAnalysis;
-    automatedAnalysisService -> smartAIService;
-    competitorAnalysis -> competitorSnapshotOptimizer;
-    intelligentProjectService -> projectService;
-    intelligentProjectService -> smartAIService;
-    
-    // Product and project dependencies
-    productService -> intelligentCachingService;
-    projectService -> intelligentCachingService;
-    
-    // Monitoring and status
-    performanceMonitoringService -> systemHealthService;
-    realTimeStatusService -> systemHealthService;
-    
-    // Cross-cutting concerns
-    typeValidationService -> serviceRegistry [style=dotted];
-    rateLimitingService -> performanceMonitoringService [style=dotted];
-    intelligentCachingService -> performanceMonitoringService [style=dotted];
-    systemHealthService -> performanceMonitoringService [style=dotted];
-    
-    // AI integrations
-    smartAIService -> configurationManagementService;
-    
-    // Report workflows
-    comparativeReportScheduler -> comparativeReportStorageService;
-    comparativeReportSchedulerSimple -> comparativeReportStorageService;
-    comparativeReportStorageService -> intelligentCachingService;
-    
-    // Feature flags influence service behavior
-    featureFlagService -> advancedSchedulingService [style=dashed];
-    featureFlagService -> autoReportGenerationService [style=dashed];
-    featureFlagService -> intelligentReportingService [style=dashed];
-    featureFlagService -> smartAIService [style=dashed];
-    
-    // Optional/contextual dependencies (dashed)
-    productScrapingService -> productService [style=dashed];
-    projectScrapingService -> projectService [style=dashed];
-    
-    // Legend
-    subgraph cluster_legend {
-        label = "Legend";
-        style = "rounded,filled";
-        fillcolor = lightyellow;
-        node [shape=box, style="rounded,filled", fillcolor=white];
-        
-        legend_direct [label="Direct Dependency"];
-        legend_optional [label="Optional/Contextual Dependency"];
-        legend_infra [label="Infrastructure Dependency"];
-        
-        legend_direct_edge [shape=point, style=invis];
-        legend_optional_edge [shape=point, style=invis];
-        legend_infra_edge [shape=point, style=invis];
-        
-        legend_direct -> legend_direct_edge [label="uses directly"];
-        legend_optional -> legend_optional_edge [style=dashed, label="optional usage"];
-        legend_infra -> legend_infra_edge [style=dotted, label="infrastructure"];
-    }
+    _98048f0f [label="competitorAnalysis"];
+    _71386998 [label="configurationManagementService"];
+    _5dc0bee0 [label="scheduledJobService"];
+    _0d7ba6cb [label="systemHealthService"];
+    _3c749441 [label="productScrapingService"];
+    _f9096f1a [label="serviceRegistry"];
+    _305dc287 [label="scraperScheduler"];
+    _17d3daf5 [label="typeValidationService"];
+    _8ac2249c [label="intelligentProjectService"];
+    _eaa20286 [label="webScraperService"];
+    _edce7203 [label="competitorSnapshotOptimizer"];
+    _0a33c2b6 [label="realTimeStatusService"];
+    _9606bc3f [label="projectScrapingService"];
+    _478439f1 [label="comparativeReportScheduler"];
+    _a73c69c3 [label="reportSchedulingService"];
+    _a20cfa33 [label="projectService"];
+    _3ae07c46 [label="autoReportGenerationService"];
+    _4d638789 [label="smartAIService"];
+    _2a27e9d9 [label="comparativeReportStorageService"];
+    _e863b18c [label="webScraper"];
+    _552824ba [label="advancedSchedulingService"];
+    _3780beb2 [label="rateLimitingService"];
+    _84991ea7 [label="productService"];
+    _f5e0bfcc [label="automatedAnalysisService"];
+    _43341c68 [label="intelligentCachingService"];
+    _66df2d57 [label="intelligentReportingService"];
+    _d07517fe [label="performanceMonitoringService"];
+    _766625b8 [label="smartSchedulingService"];
+    _89672c8f [label="comparativeReportSchedulerSimple"];
+    _a8021f55 [label="featureFlagService"];
+    _5dc0bee0 -> _766625b8
+    _0d7ba6cb -> _766625b8
+    _0d7ba6cb -> _f5e0bfcc
+    _0d7ba6cb -> _5dc0bee0
+    _0d7ba6cb -> _a73c69c3
+    _0d7ba6cb -> _d07517fe
+    _0d7ba6cb -> _552824ba
+    _305dc287 -> _e863b18c
+    _8ac2249c -> _4d638789
+    _8ac2249c -> _766625b8
+    _9606bc3f -> _305dc287
+    _478439f1 -> _3c749441
+    _478439f1 -> _9606bc3f
+    _a73c69c3 -> _766625b8
+    _a73c69c3 -> _3ae07c46
+    _3ae07c46 -> _3c749441
+    _4d638789 -> _766625b8
+    _552824ba -> _766625b8
+    _f5e0bfcc -> _766625b8
+    _f5e0bfcc -> _3ae07c46
+    _66df2d57 -> _4d638789
+    _66df2d57 -> _766625b8
+    _66df2d57 -> _3ae07c46
+    _766625b8 -> _3c749441
+    _766625b8 -> _e863b18c
 }
