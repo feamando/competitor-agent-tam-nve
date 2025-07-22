@@ -1,12 +1,12 @@
 # Technical Task Plan: Competitor Research Agent v.1.5 - Architectural Remediation
 
 ## Overview
-* **Goal:** Transform the over-engineered microservice architecture into a sustainable modular monolith while preserving core functionality and addressing critical technical debt
+* **Goal:** Transform the over-engineered microservice architecture into a sustainable modular monolith focused exclusively on comparative report generation in markdown format
 * **Project Name:** Competitor Research Agent v.1.5
 * **Date:** July 18, 2025
 * **Request ID:** REQ001
 
-This task plan addresses the critical architectural issues identified in the comprehensive health audit, focusing on service consolidation, database integrity, test stabilization, and authentication consolidation to achieve production readiness.
+This task plan addresses the critical architectural issues identified in the comprehensive health audit, focusing on service consolidation, database integrity, test stabilization, and complete removal of user authentication to achieve production readiness for comparative analysis workflows. The v1.5 approach prioritizes architectural stability over feature expansion.
 
 ## Pre-requisites
 * Node.js 18+ and npm installed
@@ -21,7 +21,6 @@ This task plan addresses the critical architectural issues identified in the com
 * Current service architecture analysis (completed in health audit)
 * Database schema documentation (`prisma/schema.prisma`)
 * Test suite infrastructure (`jest.config.js`, test files)
-* Authentication providers (NextAuth.js, OAuth configurations)
 * Monitoring and logging systems (correlation ID tracking)
 * AWS Bedrock service integration
 * Web scraping service dependencies (Puppeteer)
@@ -53,9 +52,10 @@ This task plan addresses the critical architectural issues identified in the com
         - Update report generation to use consolidated analysis service
     - [ ] 1.5 **Consolidate Reporting Domain Services** (Effort: Medium)
         - Merge `ReportGenerator`, `IntelligentReportingService`, report formatting
-        - Create unified `ReportingService` with multiple output formats
-        - Preserve all report types and customization options
-        - Maintain backward compatibility for existing report APIs
+        - Create unified `ReportingService` with .md format output ONLY
+        - Ensure all report types are comparative reports (no individual or scheduled types)
+        - Focus on comparative analysis workflow only
+        - Update all dependent services to use new unified interface
 
 - [ ] 2.0 Database Schema Architectural Fixes
     - [ ] 2.1 **Fix Referential Integrity Issues** (Effort: Medium)
@@ -64,7 +64,8 @@ This task plan addresses the critical architectural issues identified in the com
         - Add proper foreign key constraints with cascade rules
         - Create database migration scripts for existing data cleanup
     - [ ] 2.2 **Implement Proper Type System** (Effort: Small)
-        - Replace `reportType` String with proper enum type
+        - Replace `reportType` String with single comparative report type enum
+        - Retain only comparative report type (no other report types planned)
         - Add enum for report status, project priority, scheduling frequency
         - Update all TypeScript interfaces to use proper enums
         - Create migration scripts to convert existing string data
@@ -98,22 +99,25 @@ This task plan addresses the critical architectural issues identified in the com
 
 ### Phase 2: Quality and Performance (Weeks 7-12)
 
-- [ ] 4.0 Authentication Architecture Consolidation
-    - [ ] 4.1 **Remove Hardcoded Credentials** (Effort: Small)
-        - Eliminate hardcoded email/password combinations from codebase
-        - Replace with proper test fixtures and environment variables
-        - Update security scanning to prevent future hardcoded credentials
-        - Document proper authentication testing patterns
-    - [ ] 4.2 **Consolidate to Single Auth Strategy** (Effort: Medium)
-        - Standardize on NextAuth.js with environment-based configuration
-        - Remove redundant mock authentication patterns
-        - Implement consistent auth middleware across all API routes
-        - Add proper session management with secure cookie handling
-    - [ ] 4.3 **Implement Auth State Management** (Effort: Medium)
-        - Create centralized auth context for React components
-        - Add proper loading states and error handling for auth flows
-        - Implement automatic token refresh and session validation
-        - Add auth debugging tools for development environment
+- [ ] 4.0 Complete Authentication Removal
+    - [ ] 4.1 **Remove All User Authentication Infrastructure** (Effort: Medium)
+        - Remove NextAuth.js and all OAuth provider configurations completely
+        - Remove all authentication database tables (User, Account, Session, etc.)
+        - Remove all hardcoded credentials and mock authentication patterns
+        - Remove all authentication middleware and route protection
+        - Remove all user-related database schemas and references
+    - [ ] 4.2 **Clean Up All Authentication Dependencies** (Effort: Small)
+        - Remove all authentication-related packages from package.json
+        - Remove all authentication environment variables and configurations
+        - Remove all authentication UI components (SignInForm, auth pages, user profiles)
+        - Clean up all authentication imports across entire codebase
+        - Remove all user session management code
+    - [ ] 4.3 **Update System for No-Auth Architecture** (Effort: Medium)
+        - Remove all session validation from API routes
+        - Remove all user context requirements from database operations
+        - Update all endpoints to work without any authentication
+        - Remove all authentication-related error responses and handling
+        - Remove all user-based data filtering and access controls
 
 - [ ] 5.0 Error Handling Standardization
     - [ ] 5.1 **Standardize Error Patterns Across Services** (Effort: Medium)
@@ -128,26 +132,21 @@ This task plan addresses the critical architectural issues identified in the com
         - Add fallback UI components for graceful degradation
     - [ ] 5.3 **Add Critical Failure Alerting** (Effort: Small)
         - Configure alerts for service failures and error rate spikes
-        - Add monitoring for authentication failures and security events
+        - Add monitoring for system performance and data processing errors
         - Implement automated recovery procedures where possible
         - Create escalation procedures for critical system failures
 
-- [ ] 6.0 Performance Architecture Optimization
-    - [ ] 6.1 **Database Query Optimization** (Effort: Medium)
-        - Add proper indexes for all frequently queried fields
-        - Fix N+1 query patterns in report generation
-        - Implement connection pooling and query optimization
-        - Add database performance monitoring and alerting
-    - [ ] 6.2 **Implement Comprehensive Caching Strategy** (Effort: Medium)
-        - Add Redis or in-memory caching for frequently accessed data
-        - Implement cache invalidation strategies for data freshness
-        - Cache expensive AI analysis results with proper TTL
-        - Add cache performance monitoring and optimization
-    - [ ] 6.3 **Optimize Service Interaction Patterns** (Effort: Medium)
-        - Reduce unnecessary API calls between consolidated services
-        - Implement batching for bulk operations where appropriate
-        - Add request/response compression for large data transfers
-        - Monitor and optimize service response times
+- [ ] 6.0 Performance Tool Preservation (Current Implementation Only)
+    - [ ] 6.1 **Preserve Existing Performance Monitoring** (Effort: Small)
+        - Ensure existing performance monitoring tools continue to function during refactoring
+        - Maintain current database indexes and query optimizations without enhancement
+        - Preserve existing caching mechanisms without modification
+        - Document current performance baseline for future reference
+    - [ ] 6.2 **Maintain Current Service Performance** (Effort: Small)
+        - Ensure service consolidation doesn't degrade existing performance metrics
+        - Monitor and validate that current response times are maintained during changes
+        - Preserve existing monitoring dashboards and alerts without enhancement
+        - Document any performance impacts during consolidation for future optimization
 
 ### Phase 3: Long-term Maintainability (Optional - Future Release)
 
@@ -158,8 +157,25 @@ This task plan addresses the critical architectural issues identified in the com
         - Implement configuration versioning for deployment tracking
         - Add runtime configuration validation and error reporting
 
-- [ ] 8.0 Monitoring System Optimization
-    - [ ] 8.1 **Implement Selective Monitoring** (Effort: Small)
+- [ ] 8.0 Performance Optimization (Future Enhancement)
+    - [ ] 8.1 **Database Query Performance Enhancement** (Effort: Medium)
+        - Optimize database queries for sub-100ms average response times
+        - Implement advanced query optimization and indexing strategies
+        - Add database connection pooling optimizations
+        - Create performance benchmarking and monitoring tools
+    - [ ] 8.2 **Advanced Caching Implementation** (Effort: Medium)
+        - Implement intelligent caching mechanisms for frequently accessed data
+        - Add cache invalidation strategies for data consistency
+        - Create caching performance metrics and monitoring
+        - Optimize memory usage and cache hit rates
+    - [ ] 8.3 **Service Performance Optimization** (Effort: Large)
+        - Optimize service response times and throughput
+        - Implement performance profiling and bottleneck identification
+        - Add service-level performance monitoring and alerting
+        - Create performance regression testing framework
+
+- [ ] 9.0 Monitoring System Optimization
+    - [ ] 9.1 **Implement Selective Monitoring** (Effort: Small)
         - Reduce monitoring overhead for high-frequency, low-risk operations
         - Consolidate 6+ monitoring services into focused domains
         - Add monitoring performance impact analysis
@@ -229,7 +245,7 @@ src/__tests__/
 - **Data Loss During Migration**: Implement comprehensive backup and rollback procedures
 - **Service Downtime**: Use feature flags and blue-green deployment strategy
 - **Performance Regression**: Add performance monitoring and automated rollback triggers
-- **Dependency Breaking**: Maintain backward compatibility interfaces during transition
+- **Dependency Breaking**: Use feature flags and rollback procedures for safe transitions
 
 ### Database Migration Risks
 - **Referential Integrity Violations**: Validate all existing data before schema changes
@@ -272,7 +288,7 @@ src/__tests__/
 - [ ] Test pass rate improved to 90%+ across all test categories
 - [ ] No functionality regression in core user workflows
 - [ ] Performance benchmarks meet or exceed current system performance
-- [ ] All critical API endpoints maintain backward compatibility
+- [ ] All critical API endpoints maintain current functionality
 
 ### Phase 2 Completion Criteria
 - [ ] Single authentication strategy implemented across entire application
