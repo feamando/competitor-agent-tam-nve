@@ -4,6 +4,8 @@ import { prisma } from '@/lib/prisma';
 import { webScraperService } from '../webScraper';
 import { ComparativeReportService } from './comparativeReportService';
 import { ComparativeAnalysisService } from '../analysis/comparativeAnalysisService';
+import { AnalysisService } from '../domains/AnalysisService';
+import { shouldUseUnifiedAnalysisService, featureFlags } from '../migration/FeatureFlags';
 import { SmartDataCollectionService } from './smartDataCollectionService'; // PHASE 2.1: Import Smart Data Collection
 import { PartialDataReportGenerator, PartialDataInfo, DataGap, PartialReportOptions } from './partialDataReportGenerator'; // PHASE 2.2: Import Partial Data Report Generator
 import { realTimeStatusService } from '../realTimeStatusService'; // PHASE 3.1: Import Real-time Status Service
@@ -63,6 +65,7 @@ export interface DataAvailabilityResult {
 export class InitialComparativeReportService {
   private comparativeReportService: ComparativeReportService;
   private comparativeAnalysisService: ComparativeAnalysisService;
+  private unifiedAnalysisService: AnalysisService | null = null;
   private smartDataCollectionService: SmartDataCollectionService; // PHASE 2.1: Smart Data Collection
   private partialDataReportGenerator: PartialDataReportGenerator; // PHASE 2.2: Partial Data Report Generator
   private configService: ConfigurationManagementService; // PHASE 5.3.1: Configuration Management
@@ -73,6 +76,11 @@ export class InitialComparativeReportService {
     this.smartDataCollectionService = new SmartDataCollectionService(); // PHASE 2.1: Initialize Smart Data Collection
     this.partialDataReportGenerator = new PartialDataReportGenerator(); // PHASE 2.2: Initialize Partial Data Report Generator
     this.configService = ConfigurationManagementService.getInstance(); // PHASE 5.3.1: Initialize Configuration Management
+    
+    // Initialize unified service if feature flag is enabled
+    if (featureFlags.isEnabledForReporting()) {
+      this.unifiedAnalysisService = new AnalysisService();
+    }
   }
 
   /**
@@ -199,7 +207,11 @@ export class InitialComparativeReportService {
 
         // Try to generate analysis, but fallback to null if it fails
         try {
-          analysis = await this.comparativeAnalysisService.analyzeProductVsCompetitors(analysisInput);
+          // Use unified service if feature flag is enabled, otherwise fallback to legacy
+          const contextKey = `initial_report_${projectId}`;
+          analysis = shouldUseUnifiedAnalysisService(contextKey) && this.unifiedAnalysisService ?
+            await this.unifiedAnalysisService.analyzeProductVsCompetitors(analysisInput) :
+            await this.comparativeAnalysisService.analyzeProductVsCompetitors(analysisInput);
         } catch (error) {
           logger.warn('Analysis failed, proceeding with partial data report without analysis', {
             ...context,
@@ -226,7 +238,11 @@ export class InitialComparativeReportService {
         // PHASE 3.1: Send analysis start update
         realTimeStatusService.sendAnalysisUpdate(projectId, 'Starting comprehensive analysis...');
 
-        analysis = await this.comparativeAnalysisService.analyzeProductVsCompetitors(analysisInput);
+        // Use unified service if feature flag is enabled, otherwise fallback to legacy
+        const contextKey = `initial_report_full_${projectId}`;
+        analysis = shouldUseUnifiedAnalysisService(contextKey) && this.unifiedAnalysisService ?
+          await this.unifiedAnalysisService.analyzeProductVsCompetitors(analysisInput) :
+          await this.comparativeAnalysisService.analyzeProductVsCompetitors(analysisInput);
         
         // PHASE 3.1: Send report generation start update
         realTimeStatusService.sendReportGenerationUpdate(projectId, 'Generating comprehensive report...');

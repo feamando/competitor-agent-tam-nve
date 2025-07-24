@@ -1,0 +1,270 @@
+# Analysis Service Monitoring Alerts
+# Task 3.3: Configure alerts for analysis failures and performance degradation
+# 
+# This configuration defines alert rules for the consolidated AnalysisService
+# covering all sub-analyzers (AI, UX, Comparative) and their performance metrics
+
+groups:
+  - name: analysis_service_alerts
+    rules:
+      # High-level service health alerts
+      - alert: AnalysisServiceDown
+        expr: analysis_service_status != 1
+        for: 1m
+        labels:
+          severity: critical
+          service: AnalysisService
+          alert_type: service_health
+        annotations:
+          summary: "AnalysisService is unavailable"
+          description: "The consolidated AnalysisService has been unavailable for more than 1 minute. This affects all analysis capabilities."
+          runbook_url: "https://docs.internal/runbooks/analysis-service-down"
+          correlation_tracking: "enabled"
+
+      - alert: AnalysisServiceDegraded
+        expr: analysis_service_status == 1 and analysis_service_health_score < 70
+        for: 5m
+        labels:
+          severity: warning
+          service: AnalysisService
+          alert_type: service_health
+        annotations:
+          summary: "AnalysisService is degraded"
+          description: "AnalysisService health score is {{ $value }}% (below 70%) for more than 5 minutes"
+          runbook_url: "https://docs.internal/runbooks/analysis-service-degraded"
+
+      # Error rate alerts
+      - alert: AnalysisServiceHighErrorRate
+        expr: analysis_service_error_rate > 10
+        for: 2m
+        labels:
+          severity: warning
+          service: AnalysisService
+          alert_type: error_rate
+        annotations:
+          summary: "High error rate in AnalysisService"
+          description: "AnalysisService error rate is {{ $value }}% (above 10% threshold) for more than 2 minutes"
+          impact: "Users may experience analysis failures"
+          
+      - alert: AnalysisServiceCriticalErrorRate
+        expr: analysis_service_error_rate > 25
+        for: 1m
+        labels:
+          severity: critical
+          service: AnalysisService
+          alert_type: error_rate
+        annotations:
+          summary: "Critical error rate in AnalysisService"
+          description: "AnalysisService error rate is {{ $value }}% (above 25% threshold) for more than 1 minute"
+          impact: "Majority of analysis requests are failing"
+          
+      # Performance alerts
+      - alert: AnalysisServiceSlowResponse
+        expr: analysis_service_avg_response_time > 30000
+        for: 3m
+        labels:
+          severity: warning
+          service: AnalysisService
+          alert_type: performance
+        annotations:
+          summary: "Slow response times in AnalysisService"
+          description: "Average analysis response time is {{ $value }}ms (above 30s threshold) for more than 3 minutes"
+          
+      - alert: AnalysisServiceVerySlowResponse
+        expr: analysis_service_avg_response_time > 60000
+        for: 1m
+        labels:
+          severity: critical
+          service: AnalysisService
+          alert_type: performance
+        annotations:
+          summary: "Very slow response times in AnalysisService"
+          description: "Average analysis response time is {{ $value }}ms (above 60s threshold) for more than 1 minute"
+
+      # Sub-analyzer specific alerts
+      - alert: AIAnalyzerHighErrorRate
+        expr: ai_analyzer_error_rate > 15
+        for: 3m
+        labels:
+          severity: warning
+          service: AnalysisService
+          component: AIAnalyzer
+          alert_type: component_error_rate
+        annotations:
+          summary: "High error rate in AI Analyzer"
+          description: "AI Analyzer error rate is {{ $value }}% (above 15% threshold)"
+          impact: "AI-powered analysis features may be unreliable"
+
+      - alert: UXAnalyzerHighErrorRate
+        expr: ux_analyzer_error_rate > 15
+        for: 3m
+        labels:
+          severity: warning
+          service: AnalysisService
+          component: UXAnalyzer
+          alert_type: component_error_rate
+        annotations:
+          summary: "High error rate in UX Analyzer"
+          description: "UX Analyzer error rate is {{ $value }}% (above 15% threshold)"
+          impact: "UX analysis features may be unreliable"
+
+      - alert: ComparativeAnalyzerHighErrorRate
+        expr: comparative_analyzer_error_rate > 15
+        for: 3m
+        labels:
+          severity: warning
+          service: AnalysisService
+          component: ComparativeAnalyzer
+          alert_type: component_error_rate
+        annotations:
+          summary: "High error rate in Comparative Analyzer"
+          description: "Comparative Analyzer error rate is {{ $value }}% (above 15% threshold)"
+          impact: "Comparative analysis features may be unreliable"
+
+      # Business metric alerts
+      - alert: LowAnalysisConfidenceScores
+        expr: analysis_service_avg_confidence_score < 70
+        for: 10m
+        labels:
+          severity: warning
+          service: AnalysisService
+          alert_type: business_metrics
+        annotations:
+          summary: "Low confidence scores in analysis results"
+          description: "Average analysis confidence score is {{ $value }}% (below 70% threshold) for more than 10 minutes"
+          impact: "Analysis quality may be degraded"
+
+      - alert: DataFreshnessIssues
+        expr: analysis_service_data_freshness_rate < 80
+        for: 5m
+        labels:
+          severity: warning
+          service: AnalysisService
+          alert_type: data_freshness
+        annotations:
+          summary: "Data freshness rate is low"
+          description: "Data freshness rate is {{ $value }}% (below 80% threshold)"
+          impact: "Analyses may be based on stale data"
+
+      # Dependency service alerts
+      - alert: BedrockServiceErrors
+        expr: bedrock_service_errors > 0
+        for: 2m
+        labels:
+          severity: warning
+          service: AnalysisService
+          dependency: BedrockService
+          alert_type: dependency_error
+        annotations:
+          summary: "Bedrock service errors detected"
+          description: "{{ $value }} Bedrock service errors in the last monitoring period"
+          impact: "AI analysis capabilities may be affected"
+
+      - alert: SmartSchedulingServiceErrors
+        expr: smart_scheduling_service_errors > 0
+        for: 2m
+        labels:
+          severity: critical
+          service: AnalysisService
+          dependency: SmartSchedulingService
+          alert_type: dependency_error
+        annotations:
+          summary: "Smart Scheduling service errors detected"
+          description: "{{ $value }} Smart Scheduling service errors detected"
+          impact: "Critical: Data freshness workflows may be broken"
+          priority: "This is a critical dependency for analysis quality"
+
+      # Volume and capacity alerts
+      - alert: AnalysisServiceHighVolume
+        expr: analysis_service_hourly_requests > 1000
+        for: 5m
+        labels:
+          severity: info
+          service: AnalysisService
+          alert_type: volume
+        annotations:
+          summary: "High analysis request volume"
+          description: "{{ $value }} analysis requests in the current hour (above normal threshold)"
+          action: "Monitor for potential capacity issues"
+
+      - alert: AnalysisServiceVeryHighVolume
+        expr: analysis_service_hourly_requests > 2000
+        for: 2m
+        labels:
+          severity: warning
+          service: AnalysisService
+          alert_type: volume
+        annotations:
+          summary: "Very high analysis request volume"
+          description: "{{ $value }} analysis requests in the current hour (approaching capacity limits)"
+          action: "Consider scaling or rate limiting"
+
+      # Memory and resource alerts
+      - alert: AnalysisServiceHighMemoryUsage
+        expr: analysis_service_memory_usage_mb > 2048
+        for: 5m
+        labels:
+          severity: warning
+          service: AnalysisService
+          alert_type: resource_usage
+        annotations:
+          summary: "High memory usage in AnalysisService"
+          description: "AnalysisService is using {{ $value }}MB of memory (above 2GB threshold)"
+
+      - alert: AnalysisServiceCriticalMemoryUsage
+        expr: analysis_service_memory_usage_mb > 4096
+        for: 1m
+        labels:
+          severity: critical
+          service: AnalysisService
+          alert_type: resource_usage
+        annotations:
+          summary: "Critical memory usage in AnalysisService"
+          description: "AnalysisService is using {{ $value }}MB of memory (above 4GB threshold)"
+          action: "Immediate attention required - potential memory leak"
+
+  # Alerting routing and notification configuration
+  - name: analysis_service_routing
+    alert_routing:
+      # Critical alerts go to on-call team immediately
+      - match:
+          severity: critical
+        receiver: on-call-team
+        group_wait: 10s
+        group_interval: 1m
+        repeat_interval: 5m
+        
+      # Warning alerts go to team channel with some grouping
+      - match:
+          severity: warning
+        receiver: dev-team-channel
+        group_wait: 30s
+        group_interval: 5m
+        repeat_interval: 15m
+        
+      # Info alerts go to monitoring channel with heavy grouping
+      - match:
+          severity: info
+        receiver: monitoring-channel
+        group_wait: 5m
+        group_interval: 30m
+        repeat_interval: 1h
+
+    # Correlation ID tracking for alerts
+    correlation_tracking:
+      enabled: true
+      fields:
+        - correlation_id
+        - project_id
+        - analysis_type
+        - operation
+      retention_days: 30
+
+    # Alert enrichment with business context
+    enrichment:
+      enabled: true
+      business_context:
+        - service_tier: "core"
+        - business_impact: "analysis_capabilities"
+        - sla_target: "99.5%"
+        - cost_impact: "medium" 

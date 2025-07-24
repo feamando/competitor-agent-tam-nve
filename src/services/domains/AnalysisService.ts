@@ -12,13 +12,14 @@
  * - Preserved critical data flows (Smart Scheduling integration)
  * - Unified error handling with correlation ID tracking
  * - Backward compatibility for existing consumers
+ * - Enhanced observability and monitoring (Task 3.3)
  */
 
 import { BedrockService } from '@/services/bedrock/bedrock.service';
 import { SmartSchedulingService } from '@/services/smartSchedulingService';
 import { ConversationManager } from '@/lib/chat/conversation';
 import { dataIntegrityValidator } from '@/lib/validation/dataIntegrity';
-import { logger, generateCorrelationId, trackErrorWithCorrelation } from '@/lib/logger';
+import { logger, generateCorrelationId, trackErrorWithCorrelation, trackPerformance, trackBusinessEvent } from '@/lib/logger';
 import { createId } from '@paralleldrive/cuid2';
 import { registerService } from '@/services/serviceRegistry';
 
@@ -361,6 +362,45 @@ export class AnalysisService implements IAnalysisService {
   private totalProcessingTime = 0;
   private lastHealthCheck = new Date();
 
+  // Task 3.3: Enhanced performance metrics collection
+  private performanceMetrics = {
+    // Analysis type specific metrics
+    aiAnalyses: { count: 0, totalTime: 0, errorCount: 0, lastError: null as Date | null },
+    uxAnalyses: { count: 0, totalTime: 0, errorCount: 0, lastError: null as Date | null },
+    comparativeAnalyses: { count: 0, totalTime: 0, errorCount: 0, lastError: null as Date | null },
+    
+    // Service health metrics  
+    bedrockServiceErrors: 0,
+    smartSchedulingErrors: 0,
+    
+    // Performance thresholds and alerts
+    slowAnalysisThreshold: 30000, // 30 seconds
+    slowAnalysisCount: 0,
+    criticalErrorCount: 0,
+    
+    // Business metrics
+    dataFreshnessHits: 0,
+    dataFreshnessMisses: 0,
+    confidenceScoreSum: 0,
+    qualityScoreSum: 0,
+    
+    // Time-based metrics
+    metricsStartTime: Date.now(),
+    lastMetricsReset: new Date(),
+    dailyAnalysisCount: 0,
+    hourlyAnalysisCount: 0,
+    lastHourReset: new Date()
+  };
+
+  // Task 3.3: Alert configuration
+  private alertThresholds = {
+    errorRatePercent: 10, // Alert if error rate > 10%
+    slowAnalysisPercent: 20, // Alert if > 20% of analyses are slow
+    criticalErrorCount: 5, // Alert if > 5 critical errors in monitoring period
+    lowConfidencePercent: 30, // Alert if > 30% analyses have low confidence
+    serviceDowntime: 60000 // Alert if any service is down > 1 minute
+  };
+
   constructor(config?: Partial<AnalysisConfig>) {
     // Initialize shared dependencies immediately (non-async dependencies)
     this.smartSchedulingService = new SmartSchedulingService(); // PRESERVE CRITICAL DEPENDENCY
@@ -515,7 +555,7 @@ export class AnalysisService implements IAnalysisService {
 
       // Update performance metrics
       const processingTime = Date.now() - startTime;
-      this.updateMetrics(true, processingTime);
+      this.trackAnalysisPerformance(request.analysisType, true, processingTime, context);
 
       AnalysisCorrelationManager.logWithCorrelation('info', 'Unified analysis completed successfully', context.correlationId, {
         analysisId: result.analysisId,
@@ -528,7 +568,7 @@ export class AnalysisService implements IAnalysisService {
     } catch (error) {
       // Update performance metrics
       const processingTime = Date.now() - startTime;
-      this.updateMetrics(false, processingTime);
+      this.trackAnalysisPerformance(request.analysisType, false, processingTime, context);
 
       // Handle and transform error
       const analysisError = AnalysisErrorHandler.handleAnalysisError(error as Error, context, 'analyzeProduct');
@@ -872,6 +912,7 @@ export class AnalysisService implements IAnalysisService {
   // PRIVATE UTILITY METHODS
   // ============================================================================
 
+  // Task 3.3: Enhanced metrics collection (replaces simple updateMetrics)
   private updateMetrics(success: boolean, processingTime: number): void {
     this.analysisCount++;
     this.totalProcessingTime += processingTime;
@@ -879,6 +920,252 @@ export class AnalysisService implements IAnalysisService {
     if (success) {
       this.successCount++;
     }
+  }
+
+  // Task 3.3: Comprehensive performance metrics tracking
+  private trackAnalysisPerformance(
+    analysisType: AnalysisType, 
+    success: boolean, 
+    processingTime: number, 
+    context: AnalysisContext,
+    qualityScore?: number,
+    confidenceScore?: number,
+    dataFreshness?: boolean
+  ): void {
+    // Update basic metrics
+    this.updateMetrics(success, processingTime);
+    
+    // Update time-based metrics
+    this.updateTimeBasedMetrics();
+    
+    // Track analysis type specific metrics
+    const typeMetrics = this.getAnalysisTypeMetrics(analysisType);
+    typeMetrics.count++;
+    typeMetrics.totalTime += processingTime;
+    
+    if (!success) {
+      typeMetrics.errorCount++;
+      typeMetrics.lastError = new Date();
+      this.performanceMetrics.criticalErrorCount++;
+    }
+    
+    // Track slow analysis
+    if (processingTime > this.performanceMetrics.slowAnalysisThreshold) {
+      this.performanceMetrics.slowAnalysisCount++;
+    }
+    
+    // Track business metrics
+    if (dataFreshness !== undefined) {
+      if (dataFreshness) {
+        this.performanceMetrics.dataFreshnessHits++;
+      } else {
+        this.performanceMetrics.dataFreshnessMisses++;
+      }
+    }
+    
+    if (confidenceScore) {
+      this.performanceMetrics.confidenceScoreSum += confidenceScore;
+    }
+    
+    if (qualityScore) {
+      this.performanceMetrics.qualityScoreSum += qualityScore;
+    }
+    
+    // Track business events with correlation
+    trackBusinessEvent('analysis_completed', {
+      analysisType,
+      success,
+      processingTime,
+      qualityScore,
+      confidenceScore,
+      dataFreshness,
+      correlationId: context.correlationId,
+      projectId: context.projectId
+    }, {
+      correlationId: context.correlationId,
+      projectId: context.projectId || 'unknown',
+      operation: 'track_analysis_performance'
+    });
+    
+    // Check and trigger alerts
+    this.checkAlertThresholds(context.correlationId);
+  }
+
+  // Task 3.3: Time-based metrics management
+  private updateTimeBasedMetrics(): void {
+    const now = new Date();
+    
+    // Reset hourly count if needed
+    if (now.getTime() - this.performanceMetrics.lastHourReset.getTime() > 3600000) {
+      this.performanceMetrics.hourlyAnalysisCount = 0;
+      this.performanceMetrics.lastHourReset = now;
+    }
+    
+    this.performanceMetrics.hourlyAnalysisCount++;
+    this.performanceMetrics.dailyAnalysisCount++;
+  }
+
+  // Task 3.3: Get analysis type specific metrics
+  private getAnalysisTypeMetrics(analysisType: AnalysisType) {
+    switch (analysisType) {
+      case 'ai_comprehensive':
+      case 'smart_scheduling':
+        return this.performanceMetrics.aiAnalyses;
+      case 'ux_comparison':
+        return this.performanceMetrics.uxAnalyses;
+      case 'comparative_analysis':
+        return this.performanceMetrics.comparativeAnalyses;
+      default:
+        return this.performanceMetrics.aiAnalyses; // Default fallback
+    }
+  }
+
+  // Task 3.3: Alert threshold monitoring
+  private checkAlertThresholds(correlationId: string): void {
+    const errorRate = this.analysisCount > 0 ? 
+      ((this.analysisCount - this.successCount) / this.analysisCount) * 100 : 0;
+    
+    const slowAnalysisRate = this.analysisCount > 0 ? 
+      (this.performanceMetrics.slowAnalysisCount / this.analysisCount) * 100 : 0;
+    
+    const avgConfidence = this.analysisCount > 0 ? 
+      this.performanceMetrics.confidenceScoreSum / this.analysisCount : 100;
+    
+    // Error rate alert
+    if (errorRate > this.alertThresholds.errorRatePercent) {
+      this.triggerAlert('high_error_rate', {
+        errorRate,
+        threshold: this.alertThresholds.errorRatePercent,
+        totalAnalyses: this.analysisCount,
+        failedAnalyses: this.analysisCount - this.successCount
+      }, correlationId);
+    }
+    
+    // Slow analysis alert
+    if (slowAnalysisRate > this.alertThresholds.slowAnalysisPercent) {
+      this.triggerAlert('high_slow_analysis_rate', {
+        slowAnalysisRate,
+        threshold: this.alertThresholds.slowAnalysisPercent,
+        slowAnalysisCount: this.performanceMetrics.slowAnalysisCount,
+        totalAnalyses: this.analysisCount
+      }, correlationId);
+    }
+    
+    // Critical error count alert
+    if (this.performanceMetrics.criticalErrorCount > this.alertThresholds.criticalErrorCount) {
+      this.triggerAlert('critical_error_threshold_exceeded', {
+        criticalErrorCount: this.performanceMetrics.criticalErrorCount,
+        threshold: this.alertThresholds.criticalErrorCount
+      }, correlationId);
+    }
+    
+    // Low confidence alert
+    if (avgConfidence < (100 - this.alertThresholds.lowConfidencePercent)) {
+      this.triggerAlert('low_confidence_scores', {
+        averageConfidence: avgConfidence,
+        threshold: 100 - this.alertThresholds.lowConfidencePercent
+      }, correlationId);
+    }
+  }
+
+  // Task 3.3: Alert triggering with correlation tracking
+  private triggerAlert(alertType: string, alertData: any, correlationId: string): void {
+    logger.warn(`Analysis Service Alert: ${alertType}`, {
+      alertType,
+      alertData,
+      correlationId,
+      service: 'AnalysisService',
+      timestamp: new Date().toISOString()
+    });
+    
+    // Track alert as business event
+    trackBusinessEvent('analysis_service_alert', {
+      alertType,
+      alertData,
+      service: 'AnalysisService'
+    }, {
+      correlationId,
+      operation: 'trigger_alert',
+      alertLevel: 'warning'
+    });
+  }
+
+  // Task 3.3: Get comprehensive performance metrics
+  public getPerformanceMetrics(): any {
+    const now = Date.now();
+    const uptimeMs = now - this.performanceMetrics.metricsStartTime;
+    
+    return {
+      // Overall metrics
+      totalAnalyses: this.analysisCount,
+      successfulAnalyses: this.successCount,
+      failedAnalyses: this.analysisCount - this.successCount,
+      successRate: this.analysisCount > 0 ? (this.successCount / this.analysisCount) * 100 : 100,
+      errorRate: this.analysisCount > 0 ? ((this.analysisCount - this.successCount) / this.analysisCount) * 100 : 0,
+      
+      // Performance metrics
+      averageProcessingTime: this.analysisCount > 0 ? this.totalProcessingTime / this.analysisCount : 0,
+      slowAnalysisCount: this.performanceMetrics.slowAnalysisCount,
+      slowAnalysisRate: this.analysisCount > 0 ? (this.performanceMetrics.slowAnalysisCount / this.analysisCount) * 100 : 0,
+      
+      // Analysis type breakdown
+      aiAnalyses: {
+        ...this.performanceMetrics.aiAnalyses,
+        averageTime: this.performanceMetrics.aiAnalyses.count > 0 ? 
+          this.performanceMetrics.aiAnalyses.totalTime / this.performanceMetrics.aiAnalyses.count : 0,
+        errorRate: this.performanceMetrics.aiAnalyses.count > 0 ?
+          (this.performanceMetrics.aiAnalyses.errorCount / this.performanceMetrics.aiAnalyses.count) * 100 : 0
+      },
+      uxAnalyses: {
+        ...this.performanceMetrics.uxAnalyses,
+        averageTime: this.performanceMetrics.uxAnalyses.count > 0 ? 
+          this.performanceMetrics.uxAnalyses.totalTime / this.performanceMetrics.uxAnalyses.count : 0,
+        errorRate: this.performanceMetrics.uxAnalyses.count > 0 ?
+          (this.performanceMetrics.uxAnalyses.errorCount / this.performanceMetrics.uxAnalyses.count) * 100 : 0
+      },
+      comparativeAnalyses: {
+        ...this.performanceMetrics.comparativeAnalyses,
+        averageTime: this.performanceMetrics.comparativeAnalyses.count > 0 ? 
+          this.performanceMetrics.comparativeAnalyses.totalTime / this.performanceMetrics.comparativeAnalyses.count : 0,
+        errorRate: this.performanceMetrics.comparativeAnalyses.count > 0 ?
+          (this.performanceMetrics.comparativeAnalyses.errorCount / this.performanceMetrics.comparativeAnalyses.count) * 100 : 0
+      },
+      
+      // Business metrics
+      dataFreshnessRate: (this.performanceMetrics.dataFreshnessHits + this.performanceMetrics.dataFreshnessMisses) > 0 ?
+        (this.performanceMetrics.dataFreshnessHits / (this.performanceMetrics.dataFreshnessHits + this.performanceMetrics.dataFreshnessMisses)) * 100 : 100,
+      averageConfidenceScore: this.analysisCount > 0 ? this.performanceMetrics.confidenceScoreSum / this.analysisCount : 0,
+      averageQualityScore: this.analysisCount > 0 ? this.performanceMetrics.qualityScoreSum / this.analysisCount : 0,
+      
+      // Time-based metrics
+      dailyAnalysisCount: this.performanceMetrics.dailyAnalysisCount,
+      hourlyAnalysisCount: this.performanceMetrics.hourlyAnalysisCount,
+      uptimeMs,
+      uptimeFormatted: this.formatUptime(uptimeMs),
+      
+      // Service health
+      bedrockServiceErrors: this.performanceMetrics.bedrockServiceErrors,
+      smartSchedulingErrors: this.performanceMetrics.smartSchedulingErrors,
+      criticalErrorCount: this.performanceMetrics.criticalErrorCount,
+      
+      // Timestamps
+      metricsStartTime: new Date(this.performanceMetrics.metricsStartTime).toISOString(),
+      lastMetricsReset: this.performanceMetrics.lastMetricsReset.toISOString(),
+      lastHealthCheck: this.lastHealthCheck.toISOString()
+    };
+  }
+
+  // Task 3.3: Format uptime for human readability
+  private formatUptime(uptimeMs: number): string {
+    const seconds = Math.floor(uptimeMs / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    const days = Math.floor(hours / 24);
+    
+    if (days > 0) return `${days}d ${hours % 24}h ${minutes % 60}m`;
+    if (hours > 0) return `${hours}h ${minutes % 60}m ${seconds % 60}s`;
+    if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
+    return `${seconds}s`;
   }
 
   private extractSummaryFromSmartAnalysis(smartResult: SmartAIAnalysisResponse): any {
@@ -1039,36 +1326,97 @@ export class AnalysisService implements IAnalysisService {
     if (!this.aiAnalyzer || !this.configuration.enabledAnalyzers.aiAnalyzer) {
       return { status: 'unhealthy', lastError: 'AI Analyzer not enabled' };
     }
-    return { status: 'healthy' };
+    
+    // Task 3.3: Enhanced health check with performance metrics
+    const aiMetrics = this.performanceMetrics.aiAnalyses;
+    const recentErrors = aiMetrics.lastError && 
+      (Date.now() - aiMetrics.lastError.getTime()) < 300000; // 5 minutes
+    
+    const baseStatus = {
+      status: recentErrors ? 'degraded' as const : 'healthy' as const,
+      responseTime: aiMetrics.count > 0 ? aiMetrics.totalTime / aiMetrics.count : 0,
+      errorRate: aiMetrics.count > 0 ? (aiMetrics.errorCount / aiMetrics.count) * 100 : 0
+    };
+    
+    return recentErrors ? 
+      { ...baseStatus, lastError: `Recent error at ${aiMetrics.lastError?.toISOString()}` } :
+      baseStatus;
   }
 
   private async checkUXAnalyzerHealth(): Promise<ServiceHealthStatus> {
     if (!this.uxAnalyzer || !this.configuration.enabledAnalyzers.uxAnalyzer) {
       return { status: 'unhealthy', lastError: 'UX Analyzer not enabled' };
     }
-    return { status: 'healthy' };
+    
+    // Task 3.3: Enhanced health check with performance metrics
+    const uxMetrics = this.performanceMetrics.uxAnalyses;
+    const recentErrors = uxMetrics.lastError && 
+      (Date.now() - uxMetrics.lastError.getTime()) < 300000; // 5 minutes
+    
+    const baseStatus = {
+      status: recentErrors ? 'degraded' as const : 'healthy' as const,
+      responseTime: uxMetrics.count > 0 ? uxMetrics.totalTime / uxMetrics.count : 0,
+      errorRate: uxMetrics.count > 0 ? (uxMetrics.errorCount / uxMetrics.count) * 100 : 0
+    };
+    
+    return recentErrors ? 
+      { ...baseStatus, lastError: `Recent error at ${uxMetrics.lastError?.toISOString()}` } :
+      baseStatus;
   }
 
   private async checkComparativeAnalyzerHealth(): Promise<ServiceHealthStatus> {
     if (!this.comparativeAnalyzer || !this.configuration.enabledAnalyzers.comparativeAnalyzer) {
       return { status: 'unhealthy', lastError: 'Comparative Analyzer not enabled' };
     }
-    return { status: 'healthy' };
+    
+    // Task 3.3: Enhanced health check with performance metrics
+    const compMetrics = this.performanceMetrics.comparativeAnalyses;
+    const recentErrors = compMetrics.lastError && 
+      (Date.now() - compMetrics.lastError.getTime()) < 300000; // 5 minutes
+    
+    const baseStatus = {
+      status: recentErrors ? 'degraded' as const : 'healthy' as const,
+      responseTime: compMetrics.count > 0 ? compMetrics.totalTime / compMetrics.count : 0,
+      errorRate: compMetrics.count > 0 ? (compMetrics.errorCount / compMetrics.count) * 100 : 0
+    };
+    
+    return recentErrors ? 
+      { ...baseStatus, lastError: `Recent error at ${compMetrics.lastError?.toISOString()}` } :
+      baseStatus;
   }
 
   private async checkBedrockServiceHealth(): Promise<ServiceHealthStatus> {
     if (!this.bedrockService) {
       return { status: 'unhealthy', lastError: 'BedrockService not initialized' };
     }
-    return { status: 'healthy' };
+    
+    // Task 3.3: Enhanced health check with error tracking
+    const recentBedrockErrors = this.performanceMetrics.bedrockServiceErrors > 0;
+    
+    const baseStatus = {
+      status: recentBedrockErrors ? 'degraded' as const : 'healthy' as const,
+      errorRate: this.performanceMetrics.bedrockServiceErrors
+    };
+    
+    return recentBedrockErrors ? 
+      { ...baseStatus, lastError: 'Recent Bedrock service errors detected' } :
+      baseStatus;
   }
 
   private async checkSmartSchedulingServiceHealth(): Promise<ServiceHealthStatus> {
     // CRITICAL: Always check SmartSchedulingService health as it's critical dependency
     try {
-      // The SmartSchedulingService doesn't have a direct health check method,
-      // so we assume it's healthy if it exists
-      return { status: 'healthy' };
+      // Task 3.3: Enhanced health check with error tracking
+      const recentSchedulingErrors = this.performanceMetrics.smartSchedulingErrors > 0;
+      
+      const baseStatus = {
+        status: recentSchedulingErrors ? 'degraded' as const : 'healthy' as const,
+        errorRate: this.performanceMetrics.smartSchedulingErrors
+      };
+      
+      return recentSchedulingErrors ? 
+        { ...baseStatus, lastError: 'Recent Smart Scheduling errors detected' } :
+        baseStatus;
     } catch (error) {
       return { 
         status: 'unhealthy', 
