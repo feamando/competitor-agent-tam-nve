@@ -1,12 +1,13 @@
 import { createId } from '@paralleldrive/cuid2';
 import { logger } from '@/lib/logger';
 import { prisma } from '@/lib/prisma';
-import { webScraperService } from '../webScraper';
 import { ComparativeReportService } from './comparativeReportService';
 import { ComparativeAnalysisService } from '../analysis/comparativeAnalysisService';
 import { AnalysisService } from '../domains/AnalysisService';
 import { shouldUseUnifiedAnalysisService, featureFlags } from '../migration/FeatureFlags';
 import { SmartDataCollectionService } from './smartDataCollectionService'; // PHASE 2.1: Import Smart Data Collection
+import { dataService } from '../domains/DataService'; // Task 1.3.5: Unified DataService
+import { dataServiceFeatureFlags } from '../migration/DataServiceFeatureFlags'; // Task 1.3.5: Feature flags
 import { PartialDataReportGenerator, PartialDataInfo, DataGap, PartialReportOptions } from './partialDataReportGenerator'; // PHASE 2.2: Import Partial Data Report Generator
 import { realTimeStatusService } from '../realTimeStatusService'; // PHASE 3.1: Import Real-time Status Service
 import { reportQualityService } from './reportQualityService'; // PHASE 3.2: Import Report Quality Service
@@ -16,8 +17,7 @@ import { ConfigurationManagementService } from '../configurationManagementServic
 import { 
   ComparativeReport, 
   ComparativeReportMetadata,
-  ReportGenerationOptions,
-  ReportGenerationResult
+  ReportGenerationOptions
 } from '@/types/comparativeReport';
 import {
   ComparativeAnalysisInput,
@@ -80,6 +80,12 @@ export class InitialComparativeReportService {
     // Initialize unified service if feature flag is enabled
     if (featureFlags.isEnabledForReporting()) {
       this.unifiedAnalysisService = new AnalysisService();
+    }
+    
+    // Task 1.3.5: Initialize unified DataService if feature flag is enabled
+    if (dataServiceFeatureFlags.isEnabledForReporting()) {
+      // DataService initialization will be handled on-demand
+      logger.info('DataService enabled for reporting - will use unified data collection');
     }
   }
 

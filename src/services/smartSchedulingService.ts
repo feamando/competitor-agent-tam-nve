@@ -1,5 +1,5 @@
 /**
- * Smart Scheduling Service - Phase 1.2 Implementation
+ * Smart Scheduling Service - Phase 1.2 Implementation (Updated for Task 1.3.5)
  * Intelligent snapshot scheduling with condition-based triggering
  * 
  * Features:
@@ -8,11 +8,14 @@
  * - Priority-based task scheduling
  * - Comprehensive error handling and correlation tracking
  * - Optimized resource usage
+ * - NEW: Unified DataService integration with feature flags
  */
 
-import { logger, generateCorrelationId, trackErrorWithCorrelation, trackPerformance } from '@/lib/logger';
+import { logger, generateCorrelationId, trackErrorWithCorrelation } from '@/lib/logger';
 import { ProductScrapingService } from './productScrapingService';
 import { WebScraperService } from './webScraper';
+import { dataService } from './domains/DataService';
+import { dataServiceFeatureFlags } from './migration/DataServiceFeatureFlags';
 import prisma from '@/lib/prisma';
 
 // Smart Scheduling interfaces
@@ -25,18 +28,6 @@ export interface ScrapingTask {
   targetName?: string;
 }
 
-export interface ScrapingNeed {
-  required: boolean;
-  reason: string;
-  priority: 'HIGH' | 'MEDIUM' | 'LOW';
-}
-
-export interface ScrapingStatus {
-  triggered: boolean;
-  tasksExecuted: number;
-  results: ScrapingTaskResult[];
-}
-
 export interface ScrapingTaskResult {
   taskType: 'PRODUCT' | 'COMPETITOR';
   targetId: string;
@@ -47,26 +38,33 @@ export interface ScrapingTaskResult {
   correlationId: string;
 }
 
-export interface ProjectFreshnessStatus {
-  projectId: string;
-  projectName: string;
-  products: {
-    id: string;
-    name: string;
-    needsScraping: boolean;
-    lastSnapshot?: Date;
-    daysSinceLastSnapshot?: number;
-    reason: string;
-  }[];
-  competitors: {
-    id: string;
-    name: string;
-    needsScraping: boolean;
-    lastSnapshot?: Date;
-    daysSinceLastSnapshot?: number;
-    reason: string;
-  }[];
-  overallStatus: 'FRESH' | 'STALE' | 'MISSING_DATA';
+export interface ScrapingStatus {
+  triggered: boolean;
+  tasksExecuted: number;
+  results: ScrapingTaskResult[];
+}
+
+export interface NeedsScrapingCheck {
+  required: boolean;
+  reason: string;
+  priority: 'HIGH' | 'MEDIUM' | 'LOW';
+}
+
+interface ProjectSnapshot {
+  id: string;
+  createdAt: Date;
+  updatedAt?: Date;
+}
+
+interface FreshnessStatus {
+  overallStatus: 'FRESH' | 'STALE' | 'CRITICAL';
+  productCount: number;
+  competitorCount: number;
+  stalePsroductCount: number;
+  staleCompetitorCount: number;
+  lastChecked: Date;
+  nextRecommendedCheck: Date;
+  summary: string;
   recommendedActions: string[];
 }
 
@@ -75,6 +73,7 @@ export class SmartSchedulingService {
   private readonly HIGH_PRIORITY_THRESHOLD_DAYS = 14;
   private readonly TASK_EXECUTION_DELAY = 2000; // 2 seconds between tasks
   
+  // Legacy service instances
   private productScrapingService: ProductScrapingService;
   private webScraperService: WebScraperService;
 
@@ -85,14 +84,17 @@ export class SmartSchedulingService {
 
   /**
    * Main smart scheduling method - checks and triggers scraping based on freshness
-   * Phase 1.2 core implementation
+   * Phase 1.2 core implementation with Task 1.3.5 DataService integration
    */
   public async checkAndTriggerScraping(projectId: string): Promise<ScrapingStatus> {
     const correlationId = generateCorrelationId();
     const context = { projectId, correlationId, operation: 'smartScheduling' };
 
     try {
-      logger.info('Smart scheduling check started', context);
+      logger.info('Smart scheduling check started', {
+        ...context,
+        useUnifiedDataService: dataServiceFeatureFlags.isEnabledForSmartScheduling()
+      });
 
       // Get project details
       const project = await prisma.project.findUnique({
@@ -190,93 +192,178 @@ export class SmartSchedulingService {
       return { triggered: false, tasksExecuted: 0, results: [] };
 
     } catch (error) {
-      trackErrorWithCorrelation(
-        error as Error,
-        'checkAndTriggerScraping',
-        correlationId,
-        {
-          ...context,
-          service: 'SmartSchedulingService',
-          method: 'checkAndTriggerScraping',
-          isRecoverable: false,
-          suggestedAction: 'Check project data and database connectivity'
+      logger.error('Smart scheduling failed', error as Error, context);
+      trackErrorWithCorrelation(error as Error, correlationId, 'smartScheduling');
+      
+      return {
+        triggered: false,
+        tasksExecuted: 0,
+        results: [{
+          taskType: 'PRODUCT',
+          targetId: projectId,
+          success: false,
+          error: (error as Error).message,
+          duration: 0,
+          correlationId
+        }]
+      };
+    }
+  }
+
+  /**
+   * Get freshness status for a project - used by SmartAIService integration
+   * CRITICAL: This method must be preserved for AnalysisService integration
+   */
+  public async getFreshnessStatus(projectId: string): Promise<FreshnessStatus> {
+    const correlationId = generateCorrelationId();
+    const context = { projectId, correlationId, operation: 'getFreshnessStatus' };
+
+    try {
+      logger.info('Checking project freshness status', context);
+
+      const freshnessThreshold = new Date();
+      freshnessThreshold.setDate(freshnessThreshold.getDate() - this.FRESHNESS_THRESHOLD_DAYS);
+
+      // Get product snapshots
+      const products = await prisma.product.findMany({
+        where: { projectId },
+        include: {
+          snapshots: {
+            orderBy: { createdAt: 'desc' },
+            take: 1
+          }
         }
-      );
+      });
+
+      // Get competitor snapshots
+      const competitors = await prisma.competitor.findMany({
+        where: { 
+          projects: {
+            some: { id: projectId }
+          }
+        },
+        include: {
+          snapshots: {
+            orderBy: { createdAt: 'desc' },
+            take: 1
+          }
+        }
+      });
+
+      const productCount = products.length;
+      const competitorCount = competitors.length;
+
+             const staleProducts = products.filter(p => 
+         !p.snapshots?.length || (p.snapshots[0] && p.snapshots[0].createdAt < freshnessThreshold)
+       );
+
+       const staleCompetitors = competitors.filter(c => 
+         !c.snapshots?.length || (c.snapshots[0] && c.snapshots[0].createdAt < freshnessThreshold)
+       );
+
+      const stalePsroductCount = staleProducts.length;
+      const staleCompetitorCount = staleCompetitors.length;
+
+      let overallStatus: 'FRESH' | 'STALE' | 'CRITICAL';
+      if (stalePsroductCount === 0 && staleCompetitorCount === 0) {
+        overallStatus = 'FRESH';
+      } else if (stalePsroductCount < productCount * 0.5 && staleCompetitorCount < competitorCount * 0.5) {
+        overallStatus = 'STALE';
+      } else {
+        overallStatus = 'CRITICAL';
+      }
+
+      const summary = `${productCount} products, ${competitorCount} competitors. ${stalePsroductCount} stale products, ${staleCompetitorCount} stale competitors.`;
+      
+      const recommendedActions: string[] = [];
+      if (stalePsroductCount > 0) {
+        recommendedActions.push(`Update ${stalePsroductCount} product snapshots`);
+      }
+      if (staleCompetitorCount > 0) {
+        recommendedActions.push(`Update ${staleCompetitorCount} competitor snapshots`);
+      }
+
+      const nextRecommendedCheck = new Date();
+      nextRecommendedCheck.setHours(nextRecommendedCheck.getHours() + 6); // Check every 6 hours
+
+      const status: FreshnessStatus = {
+        overallStatus,
+        productCount,
+        competitorCount,
+        stalePsroductCount,
+        staleCompetitorCount,
+        lastChecked: new Date(),
+        nextRecommendedCheck,
+        summary,
+        recommendedActions
+      };
+
+      logger.info('Freshness status checked', { ...context, status });
+      return status;
+
+    } catch (error) {
+      logger.error('Failed to get freshness status', error as Error, context);
       throw error;
     }
   }
 
   /**
-   * Evaluates whether scraping is needed based on snapshot age and existence
-   * Core intelligence for smart scheduling
-   */
-  private needsScrapingCheck(latestSnapshot: any, type: 'PRODUCT' | 'COMPETITOR'): ScrapingNeed {
-    // No snapshot exists - immediate scraping required
-    if (!latestSnapshot) {
-      return {
-        required: true,
-        reason: `No ${type} snapshot exists`,
-        priority: 'HIGH'
-      };
-    }
-
-    // Check freshness based on 7-day threshold
-    const snapshotAge = Date.now() - new Date(latestSnapshot.createdAt).getTime();
-    const daysSinceSnapshot = snapshotAge / (1000 * 60 * 60 * 24);
-
-    if (daysSinceSnapshot > this.FRESHNESS_THRESHOLD_DAYS) {
-      return {
-        required: true,
-        reason: `${type} snapshot is ${Math.round(daysSinceSnapshot)} days old (exceeds ${this.FRESHNESS_THRESHOLD_DAYS} day threshold)`,
-        priority: daysSinceSnapshot > this.HIGH_PRIORITY_THRESHOLD_DAYS ? 'HIGH' : 'MEDIUM'
-      };
-    }
-
-    return {
-      required: false,
-      reason: `${type} snapshot is fresh (${Math.round(daysSinceSnapshot)} days old)`,
-      priority: 'LOW'
-    };
-  }
-
-  /**
-   * Executes scraping tasks with priority ordering and error handling
-   * Implements optimized resource usage with delays between tasks
+   * Execute scraping tasks with unified DataService integration
+   * Uses feature flags to determine which service to use
    */
   private async executeScrapingTasks(
     tasks: ScrapingTask[], 
     correlationId: string
   ): Promise<ScrapingTaskResult[]> {
     const results: ScrapingTaskResult[] = [];
-    
-    // Sort tasks by priority: HIGH -> MEDIUM -> LOW
-    const priorityOrder = { 'HIGH': 0, 'MEDIUM': 1, 'LOW': 2 };
-    const sortedTasks = tasks.sort((a, b) => priorityOrder[a.priority] - priorityOrder[b.priority]);
+    const sortedTasks = this.prioritizeTasks(tasks);
+    const useUnifiedService = dataServiceFeatureFlags.isEnabledForSmartScheduling();
+
+    logger.info('Executing scraping tasks', {
+      correlationId,
+      taskCount: sortedTasks.length,
+      useUnifiedService,
+      operation: 'executeScrapingTasks'
+    });
 
     for (const [index, task] of sortedTasks.entries()) {
+      const startTime = Date.now();
       const taskContext = {
         correlationId,
         taskType: task.type,
         targetId: task.targetId,
         targetName: task.targetName,
         priority: task.priority,
-        operation: 'executeScrapingTask'
+        taskIndex: index + 1,
+        totalTasks: sortedTasks.length,
+        useUnifiedService
       };
-
-      const startTime = Date.now();
 
       try {
         logger.info(`Executing scraping task ${index + 1}/${sortedTasks.length}`, taskContext);
 
         let snapshotId: string | undefined;
 
-        if (task.type === 'PRODUCT') {
-          // Use enhanced ProductScrapingService from Phase 1.1
-          const snapshot = await this.productScrapingService.scrapeProductById(task.targetId);
-          snapshotId = snapshot.id;
+        if (useUnifiedService) {
+          // Use unified DataService
+          await dataService.initialize();
+          
+          if (task.type === 'PRODUCT') {
+            const productScraper = dataService.getProductScraper();
+            const snapshot = await productScraper.scrapeProductById(task.targetId);
+            snapshotId = snapshot.id;
+          } else {
+            const webScraper = dataService.getWebScraper();
+            snapshotId = await webScraper.scrapeCompetitor(task.targetId);
+          }
         } else {
-          // Use WebScraperService for competitors
-          snapshotId = await this.webScraperService.scrapeCompetitor(task.targetId);
+          // Use legacy services
+          if (task.type === 'PRODUCT') {
+            const snapshot = await this.productScrapingService.scrapeProductById(task.targetId);
+            snapshotId = snapshot.id;
+          } else {
+            snapshotId = await this.webScraperService.scrapeCompetitor(task.targetId);
+          }
         }
 
         const duration = Date.now() - startTime;
@@ -305,204 +392,110 @@ export class SmartSchedulingService {
 
       } catch (error) {
         const duration = Date.now() - startTime;
+        const errorMessage = (error as Error).message;
+
+        logger.error('Scraping task failed', error as Error, taskContext);
 
         const result: ScrapingTaskResult = {
           taskType: task.type,
           targetId: task.targetId,
           success: false,
-          error: (error as Error).message,
+          error: errorMessage,
           duration,
           correlationId
         };
 
         results.push(result);
 
-        trackErrorWithCorrelation(
-          error as Error,
-          'executeScrapingTask',
-          correlationId,
-          {
-            ...taskContext,
-            service: 'SmartSchedulingService',
-            method: 'executeScrapingTasks',
-            retryAttempt: 1,
-            maxRetries: 1,
-            isRecoverable: true,
-            suggestedAction: 'Individual task failed but processing continues'
-          }
-        );
-
-        logger.error('Scraping task failed', {
-          ...taskContext,
-          error: (error as Error).message,
-          duration
-        });
+        // Continue with next task even if current one fails
       }
     }
+
+    // Cleanup unified service if used
+    if (useUnifiedService) {
+      try {
+        await dataService.close();
+      } catch (error) {
+        logger.error('Failed to cleanup unified DataService', error as Error, { correlationId });
+      }
+    } else {
+      // Cleanup legacy services
+      try {
+        await this.productScrapingService.cleanup();
+        await this.webScraperService.close();
+      } catch (error) {
+        logger.error('Failed to cleanup legacy services', error as Error, { correlationId });
+      }
+    }
+
+    logger.info('Scraping tasks execution completed', {
+      correlationId,
+      totalTasks: sortedTasks.length,
+      successfulTasks: results.filter(r => r.success).length,
+      failedTasks: results.filter(r => !r.success).length,
+      totalDuration: results.reduce((sum, r) => sum + r.duration, 0),
+      useUnifiedService
+    });
 
     return results;
   }
 
   /**
-   * Gets comprehensive freshness status for a project
-   * Useful for monitoring and manual checks
+   * Check if snapshot needs scraping based on age and type
    */
-  public async getFreshnessStatus(projectId: string): Promise<ProjectFreshnessStatus> {
-    const correlationId = generateCorrelationId();
-    const context = { projectId, correlationId, operation: 'getFreshnessStatus' };
-
-    try {
-      logger.info('Getting project freshness status', context);
-
-      const project = await prisma.project.findUnique({
-        where: { id: projectId },
-        include: {
-          products: {
-            include: {
-              snapshots: {
-                orderBy: { createdAt: 'desc' },
-                take: 1
-              }
-            }
-          },
-          competitors: {
-            include: {
-              snapshots: {
-                orderBy: { createdAt: 'desc' },
-                take: 1
-              }
-            }
-          }
-        }
-      });
-
-      if (!project) {
-        throw new Error(`Project ${projectId} not found`);
-      }
-
-      const status: ProjectFreshnessStatus = {
-        projectId: project.id,
-        projectName: project.name,
-        products: [],
-        competitors: [],
-        overallStatus: 'FRESH',
-        recommendedActions: []
+  private needsScrapingCheck(snapshot: ProjectSnapshot | null, type: 'PRODUCT' | 'COMPETITOR'): NeedsScrapingCheck {
+    if (!snapshot) {
+      return {
+        required: true,
+        reason: `No ${type.toLowerCase()} snapshot exists`,
+        priority: 'HIGH'
       };
-
-      let hasStaleData = false;
-      let hasMissingData = false;
-
-      // Analyze product freshness
-      for (const product of project.products) {
-        const latestSnapshot = product.snapshots[0];
-        const needsScraping = this.needsScrapingCheck(latestSnapshot, 'PRODUCT');
-        
-        let daysSinceLastSnapshot: number | undefined;
-        if (latestSnapshot) {
-          const snapshotAge = Date.now() - new Date(latestSnapshot.createdAt).getTime();
-          daysSinceLastSnapshot = snapshotAge / (1000 * 60 * 60 * 24);
-        }
-
-        status.products.push({
-          id: product.id,
-          name: product.name,
-          needsScraping: needsScraping.required,
-          lastSnapshot: latestSnapshot?.createdAt,
-          daysSinceLastSnapshot,
-          reason: needsScraping.reason
-        });
-
-        if (needsScraping.required) {
-          if (!latestSnapshot) {
-            hasMissingData = true;
-          } else {
-            hasStaleData = true;
-          }
-        }
-      }
-
-      // Analyze competitor freshness
-      for (const competitor of project.competitors) {
-        const latestSnapshot = competitor.snapshots[0];
-        const needsScraping = this.needsScrapingCheck(latestSnapshot, 'COMPETITOR');
-        
-        let daysSinceLastSnapshot: number | undefined;
-        if (latestSnapshot) {
-          const snapshotAge = Date.now() - new Date(latestSnapshot.createdAt).getTime();
-          daysSinceLastSnapshot = snapshotAge / (1000 * 60 * 60 * 24);
-        }
-
-        status.competitors.push({
-          id: competitor.id,
-          name: competitor.name,
-          needsScraping: needsScraping.required,
-          lastSnapshot: latestSnapshot?.createdAt,
-          daysSinceLastSnapshot,
-          reason: needsScraping.reason
-        });
-
-        if (needsScraping.required) {
-          if (!latestSnapshot) {
-            hasMissingData = true;
-          } else {
-            hasStaleData = true;
-          }
-        }
-      }
-
-      // Determine overall status and recommendations
-      if (hasMissingData) {
-        status.overallStatus = 'MISSING_DATA';
-        status.recommendedActions.push('Immediate scraping required for missing snapshots');
-      } else if (hasStaleData) {
-        status.overallStatus = 'STALE';
-        status.recommendedActions.push('Scheduled scraping recommended for stale data');
-      } else {
-        status.overallStatus = 'FRESH';
-        status.recommendedActions.push('All data is fresh - no action needed');
-      }
-
-      const needsScrapingCount = status.products.filter(p => p.needsScraping).length + 
-                               status.competitors.filter(c => c.needsScraping).length;
-
-      if (needsScrapingCount > 0) {
-        status.recommendedActions.push(`Run smart scheduling to update ${needsScrapingCount} stale snapshots`);
-      }
-
-      logger.info('Project freshness status completed', {
-        ...context,
-        overallStatus: status.overallStatus,
-        productsNeedingScraping: status.products.filter(p => p.needsScraping).length,
-        competitorsNeedingScraping: status.competitors.filter(c => c.needsScraping).length
-      });
-
-      return status;
-
-    } catch (error) {
-      trackErrorWithCorrelation(
-        error as Error,
-        'getFreshnessStatus',
-        correlationId,
-        {
-          ...context,
-          service: 'SmartSchedulingService',
-          method: 'getFreshnessStatus',
-          isRecoverable: false
-        }
-      );
-      throw error;
     }
+
+    const now = new Date();
+    const ageInDays = (now.getTime() - snapshot.createdAt.getTime()) / (1000 * 60 * 60 * 24);
+
+    if (ageInDays > this.HIGH_PRIORITY_THRESHOLD_DAYS) {
+      return {
+        required: true,
+        reason: `${type} snapshot is ${Math.round(ageInDays)} days old (high priority threshold: ${this.HIGH_PRIORITY_THRESHOLD_DAYS} days)`,
+        priority: 'HIGH'
+      };
+    }
+
+    if (ageInDays > this.FRESHNESS_THRESHOLD_DAYS) {
+      return {
+        required: true,
+        reason: `${type} snapshot is ${Math.round(ageInDays)} days old (freshness threshold: ${this.FRESHNESS_THRESHOLD_DAYS} days)`,
+        priority: 'MEDIUM'
+      };
+    }
+
+    return {
+      required: false,
+      reason: `${type} snapshot is fresh (${Math.round(ageInDays)} days old)`,
+      priority: 'LOW'
+    };
   }
 
   /**
-   * Cleanup method to close resources
+   * Prioritize tasks based on priority and type
    */
-  public async cleanup(): Promise<void> {
-    await this.productScrapingService.cleanup();
-    await this.webScraperService.close();
-    logger.info('SmartSchedulingService cleanup completed');
+  private prioritizeTasks(tasks: ScrapingTask[]): ScrapingTask[] {
+    const priorityOrder = { 'HIGH': 1, 'MEDIUM': 2, 'LOW': 3 };
+    
+    return tasks.sort((a, b) => {
+      // First sort by priority
+      const priorityDiff = priorityOrder[a.priority] - priorityOrder[b.priority];
+      if (priorityDiff !== 0) return priorityDiff;
+      
+      // Then by type (products first, then competitors)
+      if (a.type !== b.type) {
+        return a.type === 'PRODUCT' ? -1 : 1;
+      }
+      
+      // Finally by name for consistency
+      return (a.targetName || '').localeCompare(b.targetName || '');
+    });
   }
 }
-
-// Add default export for compatibility with import statements
-export default SmartSchedulingService;
