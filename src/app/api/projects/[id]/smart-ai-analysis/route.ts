@@ -6,11 +6,15 @@
  * - Fresh data-guaranteed AI analysis
  * - Smart scheduling integration
  * - Enhanced context with freshness metadata
+ * 
+ * UPDATED: Now uses consolidated AnalysisService (Task 7.2)
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { logger, generateCorrelationId, trackErrorWithCorrelation } from '@/lib/logger';
-import { smartAIService, SmartAIAnalysisRequest } from '@/services/smartAIService';
+// Updated to use consolidated AnalysisService
+import { AnalysisService } from '@/services/domains/AnalysisService';
+import { AnalysisRequest } from '@/services/domains/types/analysisTypes';
 
 export async function POST(
   request: NextRequest,
@@ -41,32 +45,46 @@ export async function POST(
       }, { status: 400 });
     }
 
-    // Build analysis request
-    const analysisRequest: SmartAIAnalysisRequest = {
+    // Build unified analysis request for consolidated service
+    const unifiedAnalysisRequest: AnalysisRequest = {
+      analysisType: 'ai_comprehensive', // Map to unified analysis type
       projectId,
-      analysisType,
       forceFreshData,
       dataCutoff: dataCutoff ? new Date(dataCutoff) : undefined,
-      context: additionalContext
+      context: additionalContext || {},
+      correlationId,
+      priority: 'medium',
+      options: {
+        analysisType, // Preserve original analysis type in options
+        includeRecommendations: true
+      }
     };
 
-    // Execute smart AI analysis
-    const result = await smartAIService.analyzeWithSmartScheduling(analysisRequest);
+    // Execute analysis using consolidated service
+    const analysisService = new AnalysisService();
+    const result = await analysisService.analyzeProduct(unifiedAnalysisRequest);
+
+    // Extract smart AI analysis from unified response for backward compatibility
+    const smartAnalysis = result.smartAnalysis;
+    if (!smartAnalysis) {
+      throw new Error('Smart AI analysis data not found in response');
+    }
 
     logger.info('Smart AI analysis completed successfully', {
       ...logContext,
       analysisType,
-      dataFreshGuaranteed: result.analysisMetadata.dataFreshGuaranteed,
-      scrapingTriggered: result.analysisMetadata.scrapingTriggered,
-      analysisLength: result.analysis.length
+      dataFreshGuaranteed: smartAnalysis.analysisMetadata.dataFreshGuaranteed,
+      scrapingTriggered: smartAnalysis.analysisMetadata.scrapingTriggered,
+      analysisLength: smartAnalysis.analysis.length
     });
 
+    // Return response in original format for backward compatibility
     return NextResponse.json({
       success: true,
-      analysis: result.analysis,
-      dataFreshness: result.dataFreshness,
-      metadata: result.analysisMetadata,
-      recommendations: result.recommendations,
+      analysis: smartAnalysis.analysis,
+      dataFreshness: smartAnalysis.dataFreshness,
+      metadata: smartAnalysis.analysisMetadata,
+      recommendations: smartAnalysis.recommendations,
       correlationId
     });
 
