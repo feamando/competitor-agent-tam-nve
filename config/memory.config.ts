@@ -1,160 +1,223 @@
-// Memory Management Configuration
-// Implementation for Task 1.1 - Address Memory Pressure Issues
-// Date: July 29, 2025
+/**
+ * Task 4.1: Node.js Memory Configuration
+ * Environment-specific memory limits and garbage collection optimization
+ */
 
 export interface MemoryConfig {
-  // Memory thresholds (percentages)
-  warningThreshold: number;
-  criticalThreshold: number;
-  
-  // Garbage collection settings
-  gcEnabled: boolean;
-  gcCooldownMs: number;
-  proactiveGcThreshold: number;
-  proactiveGcIntervalMs: number;
-  
-  // Monitoring settings
-  monitorIntervalMs: number;
-  alertHistoryLimit: number;
-  
-  // Node.js memory settings
   maxOldSpaceSize: number;
-  exposeGc: boolean;
-  
-  // Emergency actions
-  emergencyRestartThreshold: number;
-  enableEmergencyActions: boolean;
+  maxSemiSpaceSize?: number;
+  gcOptimizations: string[];
+  performanceFlags: string[];
+  healthCheckThresholds: {
+    warning: number;
+    critical: number;
+  };
+  environment: string;
 }
 
-export const defaultMemoryConfig: MemoryConfig = {
-  // Task 1.1 requirement: 85% warning threshold
-  warningThreshold: 0.85,
-  criticalThreshold: 0.95,
-  
-  // Garbage collection configuration
-  gcEnabled: true,
-  gcCooldownMs: 30000, // 30 seconds between forced GC
-  proactiveGcThreshold: 0.70, // Start proactive GC at 70%
-  proactiveGcIntervalMs: 300000, // 5 minutes
-  
-  // Monitoring configuration
-  monitorIntervalMs: 30000, // 30 seconds
-  alertHistoryLimit: 100,
-  
-  // Node.js memory settings per task 1.1
-  maxOldSpaceSize: 8192, // 8GB
-  exposeGc: true,
-  
-  // Emergency settings
-  emergencyRestartThreshold: 0.98, // 98%
-  enableEmergencyActions: false // Disabled by default for safety
-};
+// Environment-specific memory configurations
+export const MEMORY_CONFIGS: Record<string, MemoryConfig> = {
+  development: {
+    maxOldSpaceSize: 4096, // 4GB - As requested in task 4.1
+    maxSemiSpaceSize: 128,
+    gcOptimizations: [
+      '--expose-gc',
+      '--gc-interval=100',
+      '--optimize-for-size'
+    ],
+    performanceFlags: [
+      '--max-http-header-size=16384',
+      '--enable-source-maps'
+    ],
+    healthCheckThresholds: {
+      warning: 0.75, // 75%
+      critical: 0.85 // 85%
+    },
+    environment: 'development'
+  },
 
-export const productionMemoryConfig: MemoryConfig = {
-  ...defaultMemoryConfig,
-  // Production-specific overrides
-  enableEmergencyActions: true,
-  proactiveGcThreshold: 0.75, // More conservative in production
-};
+  production: {
+    maxOldSpaceSize: 8192, // 8GB for production
+    maxSemiSpaceSize: 256,
+    gcOptimizations: [
+      '--expose-gc',
+      '--gc-interval=100',
+      '--optimize-for-size',
+      '--no-compilation-cache',
+      '--stack-trace-limit=50'
+    ],
+    performanceFlags: [
+      '--max-http-header-size=16384',
+      '--max-old-space-size=8192'
+    ],
+    healthCheckThresholds: {
+      warning: 0.80, // 80%
+      critical: 0.90 // 90%
+    },
+    environment: 'production'
+  },
 
-export const developmentMemoryConfig: MemoryConfig = {
-  ...defaultMemoryConfig,
-  // Development-specific overrides
-  warningThreshold: 0.80, // Earlier warnings in dev
-  monitorIntervalMs: 15000, // More frequent monitoring
+  staging: {
+    maxOldSpaceSize: 6144, // 6GB for staging
+    maxSemiSpaceSize: 192,
+    gcOptimizations: [
+      '--expose-gc',
+      '--gc-interval=100',
+      '--optimize-for-size',
+      '--stack-trace-limit=100'
+    ],
+    performanceFlags: [
+      '--max-http-header-size=16384',
+      '--enable-source-maps'
+    ],
+    healthCheckThresholds: {
+      warning: 0.75, // 75%
+      critical: 0.85 // 85%
+    },
+    environment: 'staging'
+  },
+
+  test: {
+    maxOldSpaceSize: 2048, // 2GB for testing
+    maxSemiSpaceSize: 64,
+    gcOptimizations: [
+      '--expose-gc',
+      '--gc-interval=50'
+    ],
+    performanceFlags: [
+      '--max-http-header-size=8192',
+      '--enable-source-maps'
+    ],
+    healthCheckThresholds: {
+      warning: 0.70, // 70%
+      critical: 0.80 // 80%
+    },
+    environment: 'test'
+  }
 };
 
 /**
- * Get memory configuration based on environment
+ * Get memory configuration for current environment
  */
 export function getMemoryConfig(): MemoryConfig {
   const env = process.env.NODE_ENV || 'development';
-  
-  switch (env) {
-    case 'production':
-      return productionMemoryConfig;
-    case 'development':
-      return developmentMemoryConfig;
-    default:
-      return defaultMemoryConfig;
+  const config = MEMORY_CONFIGS[env];
+  if (!config) {
+    return MEMORY_CONFIGS.development;
   }
+  return config;
 }
 
 /**
- * Generate Node.js options string from config
+ * Generate Node.js memory flags for the current environment
  */
-export function generateNodeOptions(config: MemoryConfig = getMemoryConfig()): string {
-  const options: string[] = [];
+export function getNodeMemoryFlags(): string[] {
+  const config = getMemoryConfig();
   
-  if (config.exposeGc) {
-    options.push('--expose-gc');
+  const flags = [
+    `--max-old-space-size=${config.maxOldSpaceSize}`,
+    ...config.gcOptimizations,
+    ...config.performanceFlags
+  ];
+
+  if (config.maxSemiSpaceSize) {
+    flags.push(`--max-semi-space-size=${config.maxSemiSpaceSize}`);
   }
-  
-  if (config.maxOldSpaceSize > 0) {
-    options.push(`--max-old-space-size=${config.maxOldSpaceSize}`);
-  }
-  
-  return options.join(' ');
+
+  return flags;
 }
 
 /**
- * Memory configuration validation
+ * Generate NODE_OPTIONS string for package.json scripts
  */
-export function validateMemoryConfig(config: MemoryConfig): string[] {
-  const errors: string[] = [];
-  
-  if (config.warningThreshold >= config.criticalThreshold) {
-    errors.push('Warning threshold must be less than critical threshold');
-  }
-  
-  if (config.warningThreshold <= 0 || config.warningThreshold >= 1) {
-    errors.push('Warning threshold must be between 0 and 1');
-  }
-  
-  if (config.criticalThreshold <= 0 || config.criticalThreshold >= 1) {
-    errors.push('Critical threshold must be between 0 and 1');
-  }
-  
-  if (config.maxOldSpaceSize < 512) {
-    errors.push('Max old space size should be at least 512MB');
-  }
-  
-  if (config.gcCooldownMs < 5000) {
-    errors.push('GC cooldown should be at least 5 seconds');
-  }
-  
-  return errors;
+export function generateNodeOptions(): string {
+  return getNodeMemoryFlags().join(' ');
 }
 
 /**
- * Memory recommendations based on system specs
+ * Get memory health check thresholds for current environment
  */
-export function getMemoryRecommendations(): {
-  recommendedMaxOldSpace: number;
-  recommendedWarningThreshold: number;
-  notes: string[];
+export function getMemoryThresholds() {
+  const config = getMemoryConfig();
+  return config.healthCheckThresholds;
+}
+
+/**
+ * Validate current memory settings against configuration
+ */
+export function validateMemorySettings(): {
+  valid: boolean;
+  issues: string[];
+  recommendations: string[];
 } {
-  const totalMemoryGB = require('os').totalmem() / (1024 * 1024 * 1024);
-  const notes: string[] = [];
-  
-  let recommendedMaxOldSpace = 4096; // Default 4GB
-  let recommendedWarningThreshold = 0.85;
-  
-  if (totalMemoryGB < 8) {
-    recommendedMaxOldSpace = Math.floor(totalMemoryGB * 0.5 * 1024); // 50% of system memory
-    recommendedWarningThreshold = 0.75; // More conservative
-    notes.push('Low system memory detected - using conservative settings');
-  } else if (totalMemoryGB >= 16) {
-    recommendedMaxOldSpace = 8192; // Task 1.1 requirement
-    notes.push('High system memory available - using task 1.1 optimized settings');
-  } else {
-    recommendedMaxOldSpace = Math.floor(totalMemoryGB * 0.4 * 1024); // 40% of system memory
-    notes.push('Medium system memory - using balanced settings');
+  const config = getMemoryConfig();
+  const issues: string[] = [];
+  const recommendations: string[] = [];
+
+  // Check if garbage collection is available
+  if (!global.gc) {
+    issues.push('Garbage collection not exposed - app not started with --expose-gc');
+    recommendations.push('Add --expose-gc to NODE_OPTIONS');
   }
-  
+
+  // Check current heap size against configuration
+  const memoryUsage = process.memoryUsage();
+  const currentMaxHeap = memoryUsage.heapTotal;
+  const configuredMax = config.maxOldSpaceSize * 1024 * 1024; // Convert MB to bytes
+
+  if (currentMaxHeap > configuredMax * 0.9) {
+    issues.push(`Heap usage approaching configured limit: ${Math.round(currentMaxHeap / 1024 / 1024)}MB of ${config.maxOldSpaceSize}MB`);
+    recommendations.push('Consider increasing --max-old-space-size or optimizing memory usage');
+  }
+
+  // Check environment-specific recommendations
+  const env = process.env.NODE_ENV || 'development';
+  if (env === 'production' && config.maxOldSpaceSize < 4096) {
+    recommendations.push('Consider increasing memory limit for production environment');
+  }
+
   return {
-    recommendedMaxOldSpace,
-    recommendedWarningThreshold,
-    notes
+    valid: issues.length === 0,
+    issues,
+    recommendations
   };
-} 
+}
+
+/**
+ * Get memory optimization suggestions based on current usage
+ */
+export function getMemoryOptimizationSuggestions(): string[] {
+  const config = getMemoryConfig();
+  const memoryUsage = process.memoryUsage();
+  const suggestions: string[] = [];
+
+  const heapUsedMB = Math.round(memoryUsage.heapUsed / 1024 / 1024);
+  const heapTotalMB = Math.round(memoryUsage.heapTotal / 1024 / 1024);
+  const heapPercentage = (memoryUsage.heapUsed / memoryUsage.heapTotal);
+
+  if (heapPercentage > config.healthCheckThresholds.critical) {
+    suggestions.push('CRITICAL: Memory usage exceeds critical threshold - immediate action required');
+    suggestions.push('Consider running garbage collection: global.gc()');
+    suggestions.push('Review memory leaks in recent code changes');
+  } else if (heapPercentage > config.healthCheckThresholds.warning) {
+    suggestions.push('WARNING: Memory usage above warning threshold');
+    suggestions.push('Consider proactive garbage collection');
+    suggestions.push('Monitor memory growth patterns');
+  }
+
+  // Environment-specific suggestions
+  if (config.environment === 'production') {
+    suggestions.push('Enable memory profiling: NODE_OPTIONS="--prof"');
+    suggestions.push('Monitor with external APM tools');
+  }
+
+  if (config.environment === 'development') {
+    suggestions.push('Use heap snapshots for memory leak analysis');
+    suggestions.push('Enable memory profiler: ENABLE_MEMORY_PROFILER=true');
+  }
+
+  return suggestions;
+}
+
+// Export current environment configuration for easy access
+export const currentMemoryConfig = getMemoryConfig(); 

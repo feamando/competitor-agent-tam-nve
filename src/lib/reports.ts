@@ -22,6 +22,8 @@ import {
 } from './logger';
 import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
+import { StreamingDataProcessor, streamingReportUtils } from './reports/streamingProcessor';
+import { MemoryOptimizedReportGenerator } from './reports/memoryOptimizedReports';
 
 // Validation schemas
 const reportSectionSchema = z.object({
@@ -67,6 +69,8 @@ export class ReportGenerator {
   private prisma = prisma;
   private bedrock: BedrockRuntimeClient;
   private trendAnalyzer: TrendAnalyzer;
+  private streamingProcessor: StreamingDataProcessor;
+  private memoryOptimizedGenerator: MemoryOptimizedReportGenerator;
   private readonly defaultOptions: ReportGenerationOptions = {
     maxRetries: 3,
     retryDelay: 1000,
@@ -95,10 +99,13 @@ export class ReportGenerator {
 
       this.bedrock = new BedrockRuntimeClient(awsConfig);
       this.trendAnalyzer = new TrendAnalyzer();
+      this.streamingProcessor = new StreamingDataProcessor();
+      this.memoryOptimizedGenerator = new MemoryOptimizedReportGenerator();
       
       logger.info('ReportGenerator initialized successfully', {
         region: process.env.AWS_REGION || 'us-east-1',
-        usingExplicitCredentials: !!(process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY)
+        usingExplicitCredentials: !!(process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY),
+        memoryOptimizationEnabled: true
       });
     } catch (error) {
       logger.error('Failed to initialize ReportGenerator', error as Error);
@@ -1501,5 +1508,188 @@ Format the summary in 2-3 sentences, highlighting the most important findings an
     markdown += `*This report was generated automatically by the Competitor Research Agent.*\n`;
 
     return markdown;
+  }
+
+  /**
+   * Memory-optimized comparative report generation
+   */
+  async generateMemoryOptimizedComparativeReport(
+    projectId: string,
+    options?: {
+      reportName?: string;
+      template?: 'comprehensive' | 'executive' | 'technical' | 'strategic';
+      focusArea?: 'user_experience' | 'pricing' | 'features' | 'marketing' | 'overall';
+      includeRecommendations?: boolean;
+      userId?: string;
+    }
+  ): Promise<APIResponse<ReportData>> {
+    // Delegate to memory-optimized generator
+    return this.memoryOptimizedGenerator.generateOptimizedComparativeReport(projectId, options);
+  }
+
+  /**
+   * Replace large JSON.stringify operations with selective serialization
+   */
+  private serializeSelectively(obj: any, maxDepth: number = 3, maxStringLength: number = 1000): string {
+    return StreamingDataProcessor.selectiveSerialize(obj, {
+      maxDepth,
+      maxStringLength,
+      excludeFields: ['snapshots', 'analyses', 'content'] // Exclude heavy fields
+    });
+  }
+
+  /**
+   * Process competitors in chunks to limit memory usage
+   */
+  private async processCompetitorsInChunks<T>(
+    competitors: T[],
+    processor: (chunk: T[]) => Promise<any>,
+    chunkSize: number = 2
+  ): Promise<any[]> {
+    const results: any[] = [];
+    const chunks = this.chunkArray(competitors, chunkSize);
+
+    logger.info('Processing competitors in memory-optimized chunks', {
+      totalCompetitors: competitors.length,
+      chunksCount: chunks.length,
+      chunkSize
+    });
+
+    for (let i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i];
+      
+      // Process chunk
+      const chunkResult = await processor(chunk);
+      results.push(chunkResult);
+      
+      // Memory cleanup after each chunk
+      await this.cleanupMemoryAfterChunk();
+      
+      // Progress logging
+      logger.debug('Processed competitor chunk', {
+        chunkIndex: i + 1,
+        totalChunks: chunks.length,
+        competitorsInChunk: chunk.length
+      });
+    }
+
+    logger.info('All competitor chunks processed', {
+      totalChunks: chunks.length,
+      totalResults: results.length
+    });
+
+    return results;
+  }
+
+  /**
+   * Chunk array utility
+   */
+  private chunkArray<T>(array: T[], chunkSize: number): T[][] {
+    const chunks: T[][] = [];
+    for (let i = 0; i < array.length; i += chunkSize) {
+      chunks.push(array.slice(i, i + chunkSize));
+    }
+    return chunks;
+  }
+
+  /**
+   * Memory cleanup after processing chunks
+   */
+  private async cleanupMemoryAfterChunk(): Promise<void> {
+    // Force garbage collection if available
+    if (global.gc) {
+      global.gc();
+    }
+    
+    // Small delay to allow cleanup
+    await new Promise(resolve => setTimeout(resolve, 50));
+    
+    logger.debug('Memory cleanup completed after chunk processing');
+  }
+
+  /**
+   * Enhanced buildComparativeAnalysisPrompt with size limits
+   */
+  private buildOptimizedPrompt(product: any, competitors: any[], options: any): string {
+    // Limit competitors to max 2 per prompt to prevent memory bloat
+    const limitedCompetitors = competitors.slice(0, 2);
+    
+    // Use selective serialization for prompt content
+    const productData = this.serializeSelectively(product, 2, 500);
+    const competitorData = limitedCompetitors.map(c => this.serializeSelectively(c, 2, 500));
+    
+    const focusArea = options.focusArea || 'overall';
+    const template = options.template || 'comprehensive';
+
+    return `
+As a competitive analysis expert, analyze the following product against its competitors with a focus on ${focusArea}.
+
+PRODUCT BEING ANALYZED:
+${productData}
+
+COMPETITORS (Limited to ${limitedCompetitors.length} for memory efficiency):
+${competitorData.map((data, index) => `
+Competitor ${index + 1}:
+${data}
+`).join('\n')}
+
+Please provide a ${template} competitive analysis focusing on ${focusArea} with the following structure:
+
+EXECUTIVE_SUMMARY:
+[2-3 sentence overview of competitive position]
+
+PRODUCT_STRENGTHS:
+- [Strength 1]
+- [Strength 2]
+- [Strength 3]
+
+AREAS_FOR_IMPROVEMENT:
+- [Weakness 1]
+- [Weakness 2]
+- [Weakness 3]
+
+COMPETITOR_COMPARISONS:
+[Detailed comparison paragraph highlighting key differences and positioning]
+
+STRATEGIC_RECOMMENDATIONS:
+- [Recommendation 1]
+- [Recommendation 2]
+- [Recommendation 3]
+
+MARKET_OPPORTUNITIES:
+- [Opportunity 1]
+- [Opportunity 2]
+
+Focus on actionable insights and specific improvements based on the competitive landscape.
+IMPORTANT: Keep response under 2000 words for memory efficiency.
+`;
+  }
+
+  /**
+   * Monitor memory usage during report generation
+   */
+  private logMemoryUsage(operation: string): void {
+    try {
+      const usage = process.memoryUsage();
+      const memoryMB = {
+        heapUsed: Math.round(usage.heapUsed / 1024 / 1024),
+        heapTotal: Math.round(usage.heapTotal / 1024 / 1024),
+        external: Math.round(usage.external / 1024 / 1024),
+        rss: Math.round(usage.rss / 1024 / 1024)
+      };
+
+      logger.info(`Memory usage during ${operation}`, memoryMB);
+
+      // Warn if memory usage is high
+      if (memoryMB.heapUsed > 400) {
+        logger.warn('High memory usage detected', {
+          operation,
+          heapUsedMB: memoryMB.heapUsed,
+          threshold: 400
+        });
+      }
+    } catch (error) {
+      logger.debug('Could not log memory usage', { operation });
+    }
   }
 } 

@@ -1,0 +1,103 @@
+---
+description: Rules for standardized document classification and naming convention
+globs: 
+alwaysApply: true
+---
+# Rule: Document Classification and Naming Convention
+
+## Goal
+To enforce a standardized naming convention for all documentation and reporting documents to maintain organization and easy identification across the project.
+
+## Naming Convention Format
+**ALL documents must follow this format:**
+```
+[[type]]-[[number]]-[[date]]-[[name]]
+```
+
+### Document Types
+- **TP**: Task Plan
+- **CR**: Completion Report  
+- **S**: Strategy
+- **TH**: Thought Process
+- **D**: Project Documentation
+
+### Components
+- **Type**: Use the appropriate two-letter code from above
+- **Number**: Sequential number (always check existing documents for highest number)
+- **Date**: Current date in YYYYMMDD format
+- **Name**: Descriptive name using kebab-case (lowercase with hyphens)
+
+## Process
+
+### Step 1: Determine Document Type
+Before creating any document, classify it according to the five types above.
+
+### Step 2: Check Sequential Numbering
+**CRITICAL**: Always search existing documents to find the highest number for the document type being created.
+
+Use these search patterns:
+- Task Plans: Search for `TP-\d+` pattern
+- Completion Reports: Search for `CR-\d+` pattern  
+- Strategy: Search for `S-\d+` pattern
+- Thought Process: Search for `TH-\d+` pattern
+- Documentation: Search for `D-\d+` pattern
+
+### Step 3: Generate Current Date
+Use current date in YYYYMMDD format (e.g., 20250730)
+
+### Step 4: Create Descriptive Name
+- Use kebab-case (lowercase with hyphens)
+- Be descriptive but concise
+- Avoid special characters except hyphens
+
+## Examples
+
+### Valid Document Names:
+- `TP-001-20250730-memory-optimization-implementation`
+- `CR-023-20250730-queue-recovery-system-completion`
+- `S-005-20250730-aws-integration-strategy`
+- `TH-012-20250730-performance-bottleneck-analysis`
+- `D-008-20250730-api-reference-guide`
+
+### Directory Structure
+Place documents in appropriate directories:
+- Task Plans: `.documents/task-plan/`
+- Completion Reports: `.documents/completion-reports/`
+- Strategy: `.documents/strategy/`
+- Thought Process: `.cursor/rules/rapid-prototyping/tasks/`
+- Documentation: `docs/`
+
+## Implementation Requirements
+
+### For AI Assistant:
+1. **Always apply this rule** when creating any documentation
+2. **Always check existing numbers** before assigning a new number
+3. **Never skip the numbering validation step**
+4. **Use parallel tool calls** to check multiple document types if uncertain
+5. **Create directories if they don't exist**
+
+### Required Actions Before Document Creation:
+1. Search for existing documents of the same type
+2. Identify the highest sequential number
+3. Increment by 1 for the new document
+4. Apply the full naming convention
+5. Verify the path exists or create it
+
+## Validation Checklist
+Before finalizing any document name, verify:
+- [ ] Correct document type code used
+- [ ] Sequential number is properly incremented
+- [ ] Date is in YYYYMMDD format
+- [ ] Name uses kebab-case
+- [ ] Full format follows [[type]]-[[number]]-[[date]]-[[name]]
+- [ ] Document is placed in correct directory
+
+## Migration Note
+Existing documents that don't follow this convention should be gradually renamed when they are next modified, but this is not a blocking requirement for new document creation.
+
+## Final Instructions
+1. This rule MUST be applied to ALL new documentation
+2. No exceptions - always use the naming convention
+3. Always validate sequential numbering
+4. When in doubt, search existing documents first
+5. This rule takes precedence over any conflicting naming preferences

@@ -1,11 +1,13 @@
 /**
  * Task 5.1: Comprehensive Memory Monitoring System
+ * Enhanced for Task 3.1: Memory Alerting System with request rejection and gradual degradation
  * Implements real-time memory usage tracking, multi-threshold alerting,
  * and automatic memory cleanup triggers with historical trends
  */
 
 import { logger, generateCorrelationId, createCorrelationLogger, trackBusinessEvent } from '@/lib/logger';
 import { createId } from '@paralleldrive/cuid2';
+import { memoryProfiler } from '@/lib/debug/memoryProfiler';
 
 // Memory monitoring interfaces
 export interface MemoryThreshold {
@@ -17,7 +19,7 @@ export interface MemoryThreshold {
 }
 
 export interface MemoryAction {
-  type: 'log' | 'gc' | 'alert' | 'emergency' | 'throttle' | 'cleanup';
+  type: 'log' | 'gc' | 'alert' | 'emergency' | 'throttle' | 'cleanup' | 'reject_requests' | 'degrade_features';
   priority: 'low' | 'medium' | 'high' | 'critical';
   config?: any;
 }
@@ -68,6 +70,17 @@ export interface MemoryMetrics {
   healthStatus: 'healthy' | 'warning' | 'critical' | 'emergency';
   nextCleanupAt: Date;
   autoCleanupEnabled: boolean;
+  requestsRejected: boolean;
+  featuresDisabled: string[];
+}
+
+// Enhanced memory degradation state
+export interface MemoryDegradationState {
+  requestRejectionActive: boolean;
+  disabledFeatures: Set<string>;
+  lastRejectionAt?: Date;
+  rejectionCount: number;
+  degradationLevel: 'none' | 'light' | 'moderate' | 'severe';
 }
 
 /**
@@ -80,15 +93,27 @@ export class ComprehensiveMemoryMonitor {
   private gcStats = { count: 0, totalDuration: 0 };
   private monitoringInterval: NodeJS.Timeout | null = null;
   private cleanupInterval: NodeJS.Timeout | null = null;
+  private preemptiveCleanupInterval: NodeJS.Timeout | null = null;
   private isInitialized = false;
+  
+  // Memory degradation state
+  private degradationState: MemoryDegradationState = {
+    requestRejectionActive: false,
+    disabledFeatures: new Set(),
+    rejectionCount: 0,
+    degradationLevel: 'none'
+  };
 
   // Configuration
   private readonly SNAPSHOT_INTERVAL = 5000; // 5 seconds
   private readonly CLEANUP_INTERVAL = 300000; // 5 minutes
+  private readonly PREEMPTIVE_CLEANUP_INTERVAL = 60000; // 1 minute for preemptive cleanup
   private readonly MAX_SNAPSHOTS = 2880; // 24 hours at 30s intervals
   private readonly MAX_ALERTS = 1000;
+  private readonly REQUEST_REJECTION_THRESHOLD = 0.85; // 85%
+  private readonly FEATURE_DEGRADATION_THRESHOLD = 0.80; // 80%
 
-  // Memory thresholds with comprehensive actions
+  // Memory thresholds with comprehensive actions - Enhanced for task 3.1
   private readonly THRESHOLDS: MemoryThreshold[] = [
     {
       level: 'normal',
@@ -101,41 +126,46 @@ export class ComprehensiveMemoryMonitor {
     },
     {
       level: 'warning',
-      percentage: 0.85, // 85%
-      heapPercentage: 85,
+      percentage: 0.80, // 80% - Enhanced for gradual degradation
+      heapPercentage: 80,
       actions: [
         { type: 'log', priority: 'medium' },
         { type: 'gc', priority: 'medium' },
-        { type: 'alert', priority: 'medium' }
+        { type: 'alert', priority: 'medium' },
+        { type: 'degrade_features', priority: 'low' }
       ],
-      description: 'Memory usage approaching high levels - monitoring closely'
+      description: 'Memory usage approaching high levels - beginning preventive measures'
     },
     {
       level: 'high',
-      percentage: 0.90, // 90%
-      heapPercentage: 90,
+      percentage: 0.85, // 85% - Enhanced for request rejection
+      heapPercentage: 85,
       actions: [
         { type: 'log', priority: 'high' },
         { type: 'gc', priority: 'high' },
         { type: 'alert', priority: 'high' },
         { type: 'cleanup', priority: 'high' },
-        { type: 'throttle', priority: 'medium' }
+        { type: 'throttle', priority: 'medium' },
+        { type: 'reject_requests', priority: 'high' },
+        { type: 'degrade_features', priority: 'medium' }
       ],
-      description: 'High memory usage detected - active intervention required'
+      description: 'High memory usage detected - active intervention and request rejection'
     },
     {
       level: 'critical',
-      percentage: 0.95, // 95%
-      heapPercentage: 95,
+      percentage: 0.90, // 90% - Lowered from 95% as per task 3.1
+      heapPercentage: 90,
       actions: [
         { type: 'log', priority: 'critical' },
         { type: 'gc', priority: 'critical' },
         { type: 'alert', priority: 'critical' },
         { type: 'cleanup', priority: 'critical' },
         { type: 'throttle', priority: 'high' },
+        { type: 'reject_requests', priority: 'critical' },
+        { type: 'degrade_features', priority: 'high' },
         { type: 'emergency', priority: 'critical' }
       ],
-      description: 'Critical memory usage - immediate action required'
+      description: 'Critical memory usage - emergency measures activated'
     }
   ];
 
@@ -167,6 +197,9 @@ export class ComprehensiveMemoryMonitor {
     // Start cleanup processes
     this.startAutoCleanup();
 
+    // Start preemptive cleanup - Enhanced for task 3.1
+    this.startPreemptiveCleanup();
+
     // Setup process handlers
     this.setupProcessHandlers();
 
@@ -192,6 +225,59 @@ export class ComprehensiveMemoryMonitor {
     logger.info('Real-time memory monitoring started', {
       interval: this.SNAPSHOT_INTERVAL,
       maxSnapshots: this.MAX_SNAPSHOTS
+    });
+  }
+
+  /**
+   * Start preemptive cleanup - Enhanced for task 3.1
+   */
+  private startPreemptiveCleanup(): void {
+    this.preemptiveCleanupInterval = setInterval(() => {
+      try {
+        const snapshot = this.getCurrentSnapshot();
+        if (snapshot) {
+          // Preemptive cleanup when memory usage exceeds 75%
+          if (snapshot.systemPercentage >= 0.75 || snapshot.heapPercentage >= 75) {
+            this.performPreemptiveCleanup(snapshot);
+          }
+        }
+      } catch (error) {
+        logger.error('Error in preemptive cleanup cycle', error as Error);
+      }
+    }, this.PREEMPTIVE_CLEANUP_INTERVAL);
+
+    logger.info('Preemptive memory cleanup started', {
+      interval: this.PREEMPTIVE_CLEANUP_INTERVAL,
+      threshold: '75%'
+    });
+  }
+
+  /**
+   * Perform preemptive cleanup - New for task 3.1
+   */
+  private performPreemptiveCleanup(snapshot: MemorySnapshot): void {
+    logger.info('Performing preemptive memory cleanup', {
+      systemMemory: `${(snapshot.systemPercentage * 100).toFixed(1)}%`,
+      heapMemory: `${snapshot.heapPercentage.toFixed(1)}%`
+    });
+
+    // Gentle garbage collection
+    this.performGarbageCollection();
+
+    // Clean older snapshots more aggressively
+    const keepCount = Math.floor(this.MAX_SNAPSHOTS * 0.7); // Keep only 70%
+    this.snapshots = this.snapshots.slice(-keepCount);
+
+    // Clear resolved alerts older than 30 minutes
+    const cutoff = Date.now() - (30 * 60 * 1000);
+    this.alerts = this.alerts.filter(alert => 
+      !alert.resolved || alert.timestamp.getTime() > cutoff
+    );
+
+    trackBusinessEvent('preemptive_memory_cleanup', {
+      systemPercentage: snapshot.systemPercentage * 100,
+      heapPercentage: snapshot.heapPercentage,
+      timestamp: new Date().toISOString()
     });
   }
 
@@ -239,6 +325,9 @@ export class ComprehensiveMemoryMonitor {
     if (activeThreshold.level !== 'normal') {
       this.triggerMemoryAlert(activeThreshold, snapshot);
       this.executeMemoryActions(activeThreshold.actions, snapshot);
+    } else {
+      // Try to recover from degradation when memory usage is normal
+      this.recoverFromDegradation(snapshot);
     }
 
     // Check for memory leaks (continuous growth over time)
@@ -264,6 +353,8 @@ export class ComprehensiveMemoryMonitor {
    * Trigger memory alert based on threshold
    */
   private triggerMemoryAlert(threshold: MemoryThreshold, snapshot: MemorySnapshot): void {
+    if (!threshold) return;
+    
     const correlationId = generateCorrelationId();
     const correlatedLogger = createCorrelationLogger(correlationId);
 
@@ -308,7 +399,7 @@ export class ComprehensiveMemoryMonitor {
         correlatedLogger.warn('High memory usage detected', logContext);
         break;
       case 'critical':
-        correlatedLogger.error('CRITICAL: Memory usage at dangerous levels', logContext);
+        correlatedLogger.error('CRITICAL: Memory usage at dangerous levels', logContext as any);
         break;
     }
 
@@ -342,12 +433,196 @@ export class ComprehensiveMemoryMonitor {
           case 'throttle':
             this.activateMemoryThrottling(action.priority);
             break;
+          case 'reject_requests':
+            this.activateRequestRejection(action.priority);
+            break;
+          case 'degrade_features':
+            this.activateFeatureDegradation(action.priority);
+            break;
           case 'emergency':
             this.activateEmergencyMode(snapshot);
             break;
         }
       } catch (error) {
         logger.error(`Failed to execute memory action: ${action.type}`, error as Error);
+      }
+    }
+  }
+
+  /**
+   * Activate request rejection - New for task 3.1
+   */
+  private activateRequestRejection(priority: MemoryAction['priority']): void {
+    if (!this.degradationState.requestRejectionActive) {
+      this.degradationState.requestRejectionActive = true;
+      this.degradationState.lastRejectionAt = new Date();
+      
+      logger.warn('Request rejection activated due to high memory usage', { 
+        priority,
+        threshold: `${this.REQUEST_REJECTION_THRESHOLD * 100}%`
+      });
+
+      trackBusinessEvent('memory_request_rejection_activated', {
+        priority,
+        threshold: this.REQUEST_REJECTION_THRESHOLD * 100,
+        timestamp: new Date().toISOString()
+      });
+    }
+  }
+
+  /**
+   * Activate feature degradation - New for task 3.1
+   */
+  private activateFeatureDegradation(priority: MemoryAction['priority']): void {
+    const featuresToDisable = this.getFeaturesToDisable(priority);
+    
+    for (const feature of featuresToDisable) {
+      if (!this.degradationState.disabledFeatures.has(feature)) {
+        this.degradationState.disabledFeatures.add(feature);
+        
+        logger.warn(`Feature degradation: ${feature} disabled`, { 
+          priority,
+          totalDisabled: this.degradationState.disabledFeatures.size
+        });
+      }
+    }
+
+    // Update degradation level
+    this.updateDegradationLevel();
+
+    trackBusinessEvent('memory_feature_degradation_activated', {
+      priority,
+      disabledFeatures: Array.from(this.degradationState.disabledFeatures),
+      degradationLevel: this.degradationState.degradationLevel,
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  /**
+   * Get features to disable based on priority - New for task 3.1
+   */
+  private getFeaturesToDisable(priority: MemoryAction['priority']): string[] {
+    const features: string[] = [];
+
+    switch (priority) {
+      case 'low':
+        features.push('background_analytics', 'non_critical_logging');
+        break;
+      case 'medium':
+        features.push('background_analytics', 'non_critical_logging', 'advanced_caching', 'detailed_metrics');
+        break;
+      case 'high':
+        features.push('background_analytics', 'non_critical_logging', 'advanced_caching', 'detailed_metrics', 'historical_data_processing', 'concurrent_analysis');
+        break;
+      case 'critical':
+        features.push('background_analytics', 'non_critical_logging', 'advanced_caching', 'detailed_metrics', 'historical_data_processing', 'concurrent_analysis', 'non_essential_apis', 'bulk_operations');
+        break;
+    }
+
+    return features;
+  }
+
+  /**
+   * Update degradation level based on disabled features - New for task 3.1
+   */
+  private updateDegradationLevel(): void {
+    const disabledCount = this.degradationState.disabledFeatures.size;
+    
+    if (disabledCount === 0) {
+      this.degradationState.degradationLevel = 'none';
+    } else if (disabledCount <= 2) {
+      this.degradationState.degradationLevel = 'light';
+    } else if (disabledCount <= 4) {
+      this.degradationState.degradationLevel = 'moderate';
+    } else {
+      this.degradationState.degradationLevel = 'severe';
+    }
+  }
+
+  /**
+   * Check if requests should be rejected - New for task 3.1
+   */
+  public shouldRejectRequest(): boolean {
+    const snapshot = this.getCurrentSnapshot();
+    if (!snapshot) return false;
+
+    // Check if memory usage exceeds rejection threshold
+    const shouldReject = snapshot.systemPercentage >= this.REQUEST_REJECTION_THRESHOLD || 
+                        snapshot.heapPercentage >= (this.REQUEST_REJECTION_THRESHOLD * 100);
+
+    if (shouldReject && !this.degradationState.requestRejectionActive) {
+      this.activateRequestRejection('high');
+    }
+
+    if (shouldReject) {
+      this.degradationState.rejectionCount++;
+    }
+
+    return shouldReject || this.degradationState.requestRejectionActive;
+  }
+
+  /**
+   * Check if a feature is currently disabled - New for task 3.1
+   */
+  public isFeatureDisabled(featureName: string): boolean {
+    return this.degradationState.disabledFeatures.has(featureName);
+  }
+
+  /**
+   * Get current memory degradation state - New for task 3.1
+   */
+  public getDegradationState(): MemoryDegradationState {
+    return {
+      ...this.degradationState,
+      disabledFeatures: new Set(this.degradationState.disabledFeatures)
+    };
+  }
+
+  /**
+   * Recover from degradation when memory improves - New for task 3.1
+   */
+  private recoverFromDegradation(snapshot: MemorySnapshot): void {
+    const recoveryThreshold = 0.75; // 75% - below normal warning level
+    
+    if (snapshot.systemPercentage < recoveryThreshold && snapshot.heapPercentage < (recoveryThreshold * 100)) {
+      let recovered = false;
+
+      // Re-enable request processing
+      if (this.degradationState.requestRejectionActive) {
+        this.degradationState.requestRejectionActive = false;
+        recovered = true;
+        
+        logger.info('Request rejection deactivated - memory usage improved');
+      }
+
+      // Re-enable features gradually
+      if (this.degradationState.disabledFeatures.size > 0) {
+        // Re-enable non-critical features first
+        const featurePriority = ['background_analytics', 'non_critical_logging', 'advanced_caching'];
+        
+        for (const feature of featurePriority) {
+          if (this.degradationState.disabledFeatures.has(feature)) {
+            this.degradationState.disabledFeatures.delete(feature);
+            recovered = true;
+            
+            logger.info(`Feature re-enabled: ${feature}`, {
+              remainingDisabled: this.degradationState.disabledFeatures.size
+            });
+            break; // Only re-enable one feature per cycle
+          }
+        }
+      }
+
+      if (recovered) {
+        this.updateDegradationLevel();
+        
+        trackBusinessEvent('memory_degradation_recovery', {
+          systemPercentage: snapshot.systemPercentage * 100,
+          heapPercentage: snapshot.heapPercentage,
+          degradationLevel: this.degradationState.degradationLevel,
+          remainingDisabledFeatures: Array.from(this.degradationState.disabledFeatures),
+          timestamp: new Date().toISOString()
+        });
       }
     }
   }
@@ -436,7 +711,10 @@ export class ComprehensiveMemoryMonitor {
       systemMemory: `${(snapshot.systemPercentage * 100).toFixed(1)}%`,
       heapMemory: `${snapshot.heapPercentage.toFixed(1)}%`,
       rss: `${snapshot.rss}MB`
-    });
+    } as any);
+
+    // Generate heap dump for analysis
+    this.generateHeapDumpOnThresholdBreach(snapshot, 'Emergency mode activation');
 
     // Perform aggressive cleanup
     this.performMemoryCleanup('critical');
@@ -448,6 +726,23 @@ export class ComprehensiveMemoryMonitor {
       rss: snapshot.rss,
       timestamp: new Date().toISOString()
     });
+  }
+
+  /**
+   * Generate heap dump when memory threshold is breached - Task 3.2
+   */
+  private generateHeapDumpOnThresholdBreach(snapshot: MemorySnapshot, reason: string): void {
+    try {
+      memoryProfiler.generateHeapDump(`Memory Monitor: ${reason} - System: ${(snapshot.systemPercentage * 100).toFixed(1)}%`);
+      
+      logger.info('Heap dump triggered by memory monitor', {
+        reason,
+        systemMemory: `${(snapshot.systemPercentage * 100).toFixed(1)}%`,
+        heapMemory: `${snapshot.heapPercentage.toFixed(1)}%`
+      });
+    } catch (error) {
+      logger.error('Failed to generate heap dump from memory monitor', error as Error);
+    }
   }
 
   /**
@@ -548,6 +843,9 @@ export class ComprehensiveMemoryMonitor {
       if (this.cleanupInterval) {
         clearInterval(this.cleanupInterval);
       }
+      if (this.preemptiveCleanupInterval) {
+        clearInterval(this.preemptiveCleanupInterval);
+      }
       
       // Final cleanup
       this.performGarbageCollection();
@@ -565,6 +863,21 @@ export class ComprehensiveMemoryMonitor {
    */
   public getMemoryMetrics(): MemoryMetrics {
     const currentSnapshot = this.snapshots[this.snapshots.length - 1];
+    if (!currentSnapshot) {
+      // Return default metrics if no snapshot available
+      return {
+        currentSnapshot: this.takeSnapshot(),
+        trends: {},
+        recentAlerts: [],
+        recommendations: [],
+        healthStatus: 'warning',
+        nextCleanupAt: new Date(Date.now() + this.CLEANUP_INTERVAL),
+        autoCleanupEnabled: this.cleanupInterval !== null,
+        requestsRejected: this.degradationState.requestRejectionActive,
+        featuresDisabled: Array.from(this.degradationState.disabledFeatures)
+      };
+    }
+
     const recentAlerts = this.alerts.filter(a => 
       Date.now() - a.timestamp.getTime() < 3600000 // Last hour
     ).slice(-10);
@@ -579,7 +892,9 @@ export class ComprehensiveMemoryMonitor {
       recommendations,
       healthStatus,
       nextCleanupAt: new Date(Date.now() + this.CLEANUP_INTERVAL),
-      autoCleanupEnabled: this.cleanupInterval !== null
+      autoCleanupEnabled: this.cleanupInterval !== null,
+      requestsRejected: this.degradationState.requestRejectionActive,
+      featuresDisabled: Array.from(this.degradationState.disabledFeatures)
     };
   }
 
@@ -589,13 +904,13 @@ export class ComprehensiveMemoryMonitor {
   private determineHealthStatus(snapshot: MemorySnapshot): MemoryMetrics['healthStatus'] {
     if (!snapshot) return 'warning';
 
-    if (snapshot.systemPercentage >= 0.95 || snapshot.heapPercentage >= 95) {
+    if (snapshot.systemPercentage >= 0.90 || snapshot.heapPercentage >= 90) { // Lowered from 95% to 90%
       return 'emergency';
     }
-    if (snapshot.systemPercentage >= 0.90 || snapshot.heapPercentage >= 90) {
+    if (snapshot.systemPercentage >= 0.85 || snapshot.heapPercentage >= 85) { // Enhanced threshold
       return 'critical';
     }
-    if (snapshot.systemPercentage >= 0.85 || snapshot.heapPercentage >= 85) {
+    if (snapshot.systemPercentage >= 0.80 || snapshot.heapPercentage >= 80) { // Enhanced threshold
       return 'warning';
     }
     return 'healthy';
