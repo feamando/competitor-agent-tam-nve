@@ -27,11 +27,11 @@
   - Add queue size limits (max 3 concurrent AI requests)
   - Implement request timeout handling (2-minute max per analysis)
   - Add queue status monitoring and logging
-- [ ] 1.2 **Fix BedrockService Instance Management** (Medium)
-  - Modify `src/services/bedrock/bedrockServiceFactory.ts` to add TTL-based cleanup
-  - Implement instance disposal method with connection cleanup
-  - Add periodic cleanup scheduler (every 10 minutes)
-  - Clear cached instances after 30 minutes of inactivity
+- [x] 1.2 **Fix BedrockService Instance Management** (Medium) ✅ COMPLETED
+  - ✅ Modified `src/services/bedrock/bedrockServiceFactory.ts` to add TTL-based cleanup
+  - ✅ Implemented instance disposal method with connection cleanup
+  - ✅ Added periodic cleanup scheduler (every 5 minutes)  
+  - ✅ Clear cached instances after 30 minutes of inactivity
 - [ ] 1.3 **Optimize Chat Conversation Memory** (Medium)
   - Update `src/lib/chat/conversation.ts` to limit conversation history size
   - Implement LRU cache with maximum 10 active conversations
@@ -75,7 +75,7 @@
   - Add memory usage monitoring to health checks
 - [ ] 4.2 **Implement Request Rate Limiting** (Medium)
   - Create `src/middleware/rateLimiting.ts` for analysis endpoints
-  - Limit concurrent report generation to 2 per user
+  - Limit concurrent report generation to 3 per user
   - Add cooldown periods between large analysis requests
   - Implement user-specific request queuing
 
