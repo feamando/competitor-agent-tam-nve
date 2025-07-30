@@ -10,6 +10,7 @@ import { prisma } from './prisma';
 import { promises as fs } from 'fs';
 import { join } from 'path';
 import { logger } from './logger';
+import { getMemoryStatus } from './monitoring/memoryInitializer';
 
 export interface HealthCheckResult {
   status: 'pass' | 'warn' | 'fail';
@@ -228,18 +229,26 @@ export class HealthCheckService {
 
   private checkMemory(): HealthCheckResult {
     try {
-      const memoryUsage = process.memoryUsage();
-      const heapUsedPercentage = (memoryUsage.heapUsed / memoryUsage.heapTotal) * 100;
+      // Use enhanced memory monitoring from task 1.1
+      const memoryStatus = getMemoryStatus();
       
+      // Map memory status to health check status
       let status: 'pass' | 'warn' | 'fail' = 'pass';
       let message = 'Memory usage normal';
       
-      if (heapUsedPercentage > 95) {
-        status = 'fail';
-        message = 'Critical memory usage';
-      } else if (heapUsedPercentage > 85) {
-        status = 'warn';
-        message = 'High memory usage';
+      switch (memoryStatus.status) {
+        case 'critical':
+          status = 'fail';
+          message = 'Critical memory usage - action required';
+          break;
+        case 'warning':
+          status = 'warn';
+          message = 'High memory usage - monitoring closely';
+          break;
+        case 'healthy':
+          status = 'pass';
+          message = 'Memory usage normal';
+          break;
       }
       
       return {
@@ -247,20 +256,43 @@ export class HealthCheckService {
         message,
         timestamp: new Date().toISOString(),
         details: {
-          heapUsed: Math.round(memoryUsage.heapUsed / 1024 / 1024) + 'MB',
-          heapTotal: Math.round(memoryUsage.heapTotal / 1024 / 1024) + 'MB',
-          heapUsedPercentage: Math.round(heapUsedPercentage) + '%',
-          rss: Math.round(memoryUsage.rss / 1024 / 1024) + 'MB',
-          external: Math.round(memoryUsage.external / 1024 / 1024) + 'MB'
+          // Enhanced details from task 1.1 memory monitoring
+          heapUsed: memoryStatus.stats.heapUsedMB + 'MB',
+          heapTotal: memoryStatus.stats.heapTotalMB + 'MB',
+          heapUsedPercentage: Math.round(memoryStatus.stats.heapUsagePercent) + '%',
+          rss: memoryStatus.stats.rssMB + 'MB',
+          systemMemoryUsage: Math.round(memoryStatus.stats.systemMemoryUsagePercent) + '%',
+          gcAvailable: global.gc ? 'Yes' : 'No (start with --expose-gc)',
+          recommendations: memoryStatus.recommendations,
+          enhanced: 'Task 1.1 Memory Monitoring Active'
         }
       };
     } catch (error) {
-      return {
-        status: 'warn',
-        message: 'Could not check memory usage',
-        timestamp: new Date().toISOString(),
-        details: { error: error instanceof Error ? error.message : 'Unknown error' }
-      };
+      // Fallback to basic memory check if enhanced monitoring fails
+      try {
+        const memoryUsage = process.memoryUsage();
+        const heapUsedPercentage = (memoryUsage.heapUsed / memoryUsage.heapTotal) * 100;
+        
+        return {
+          status: 'warn',
+          message: 'Basic memory check (enhanced monitoring unavailable)',
+          timestamp: new Date().toISOString(),
+          details: {
+            heapUsed: Math.round(memoryUsage.heapUsed / 1024 / 1024) + 'MB',
+            heapTotal: Math.round(memoryUsage.heapTotal / 1024 / 1024) + 'MB',
+            heapUsedPercentage: Math.round(heapUsedPercentage) + '%',
+            error: error instanceof Error ? error.message : 'Unknown error',
+            fallback: true
+          }
+        };
+      } catch (fallbackError) {
+        return {
+          status: 'warn',
+          message: 'Could not check memory usage',
+          timestamp: new Date().toISOString(),
+          details: { error: fallbackError instanceof Error ? fallbackError.message : 'Unknown error' }
+        };
+      }
     }
   }
 

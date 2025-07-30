@@ -74,6 +74,8 @@ ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
+# Memory optimization flags for task 1.1
+ENV NODE_OPTIONS="--expose-gc --max-old-space-size=8192"
 
 # Security: Switch to non-root user
 USER nextjs

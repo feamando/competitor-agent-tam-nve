@@ -1,9 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAutoReportService } from '@/services/autoReportGenerationService';
-// Updated to use consolidated ReportingService
-import { ReportingService } from '@/services/domains/ReportingService';
-import { AnalysisService } from '@/services/domains/AnalysisService';
-import { InitialReportOptions } from '@/services/domains/reporting/types';
+// Task 3.2: Use consolidated service initialization patterns
+import { initializeAutoReportEndpoint, cleanupEndpointServices, validateServiceHealth } from '@/lib/service-initialization/endpoint-helpers';
 import { handleAPIError } from '@/lib/utils/errorHandler';
 import { prisma } from '@/lib/prisma';
 import { 
@@ -125,9 +122,29 @@ export async function POST(request: Request) {
       template
     });
 
-    // UPDATED: Use consolidated ReportingService
-    const analysisService = new AnalysisService();
-    const reportingService = new ReportingService(analysisService);
+    // Task 3.2: Use consolidated service initialization pattern
+    let services;
+    try {
+      services = await initializeAutoReportEndpoint(correlationId);
+      
+      // Validate service health before proceeding
+      const healthStatus = validateServiceHealth(services);
+      if (!healthStatus.isHealthy) {
+        logger.warn('Some services are unhealthy', {
+          ...context,
+          unhealthyServices: healthStatus.unhealthyServices,
+          healthyCount: healthStatus.healthyCount,
+          totalCount: healthStatus.totalCount
+        });
+      }
+      
+    } catch (serviceError) {
+      logger.error('Failed to initialize services for auto-report endpoint', serviceError as Error, context);
+      return NextResponse.json(
+        formatErrorResponse('SERVICE_INITIALIZATION_FAILED', 'Failed to initialize required services', (serviceError as Error).message),
+        { status: 503 }
+      );
+    }
     
     if (immediate) {
       try {
@@ -139,15 +156,19 @@ export async function POST(request: Request) {
           template
         });
 
-        const initialReportOptions: InitialReportOptions = {
+        const initialReportOptions = {
           template: template as 'comprehensive' | 'executive' | 'technical' | 'strategic',
-          priority: 'high',
+          priority: 'high' as const,
           timeout: 120000, // 2 minutes
           fallbackToPartialData: true,
           requireFreshSnapshots: true
         };
 
-        const initialReport = await reportingService.generateInitialReport(
+        if (!services.initialReportService) {
+          throw new Error('Initial report service not available');
+        }
+
+        const initialReport = await services.initialReportService.service.generateInitialComparativeReport(
           projectId,
           initialReportOptions
         );
@@ -155,28 +176,28 @@ export async function POST(request: Request) {
         trackBusinessEvent('initial_comparative_report_generated_successfully', {
           ...context,
           projectId,
-          reportId: initialReport.report?.id || 'unknown',
-          reportTitle: initialReport.report?.title || 'Initial Report',
+          reportId: initialReport.id || 'unknown',
+          reportTitle: initialReport.title || 'Initial Report',
           isComparative: true
         });
 
         logger.info('Initial comparative report generated successfully', {
           ...context,
           projectId,
-          reportId: initialReport.report?.id || 'unknown',
-          reportTitle: initialReport.report?.title || 'Initial Report'
+          reportId: initialReport.id || 'unknown',
+          reportTitle: initialReport.title || 'Initial Report'
         });
 
         const response = {
           success: true,
           projectId: project.id,
           projectName: project.name,
-          reportId: initialReport.report?.id,
-          reportTitle: initialReport.report?.title,
+          reportId: initialReport.id,
+          reportTitle: initialReport.title,
           reportType: 'comparative',
           competitorCount: project.competitors.length,
           template,
-          generatedAt: initialReport.generatedAt.toISOString(),
+          generatedAt: initialReport.createdAt.toISOString(),
           timestamp: new Date().toISOString(),
           correlationId
         };
@@ -184,7 +205,7 @@ export async function POST(request: Request) {
         trackCorrelation(correlationId, 'initial_report_generation_response_sent', {
           ...context,
           success: true,
-          reportId: initialReport.report?.id || 'unknown'
+          reportId: initialReport.id || 'unknown'
         });
 
         return NextResponse.json(response, { status: 200 });
@@ -202,7 +223,7 @@ export async function POST(request: Request) {
           userFriendlyMessage: friendlyError.message
         });
 
-        const autoReportService = getAutoReportService();
+        const autoReportService = services.autoReportService.service;
         const reportTask = await autoReportService.generateInitialReport(projectId, {
           reportTemplate: template,
           reportName: `Manual Report - ${project.name}`,
@@ -263,7 +284,7 @@ export async function POST(request: Request) {
       }
     } else {
       // Just check current status without generating new report
-      const autoReportService = getAutoReportService();
+      const autoReportService = services.autoReportService.service;
       const queueStatus = await autoReportService.getQueueStatus(projectId);
 
       const response = {
@@ -305,5 +326,12 @@ export async function POST(request: Request) {
     }
     
     return errorResponse;
+  } finally {
+    // Task 3.2: Clean up consolidated services
+    try {
+      cleanupEndpointServices(correlationId);
+    } catch (cleanupError) {
+      logger.warn('Service cleanup failed', { error: (cleanupError as Error).message, correlationId });
+    }
   }
 } 

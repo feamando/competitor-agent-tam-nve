@@ -14,6 +14,7 @@ import { ComparativeReportService } from './reports/comparativeReportService';
 import { ProductScrapingService } from './productScrapingService';
 import { featureFlags, productionConfig } from '@/lib/env';
 import { comparativeReportMonitoring } from '@/lib/monitoring/comparativeReportMonitoring';
+import { getCronJobManager } from './cronJobManager';
 
 // Types for the auto-report system
 export interface ReportGenerationTask {
@@ -98,7 +99,7 @@ export class AutoReportGenerationService {
   private reportQueue: Bull.Queue<ReportGenerationTask>;
   private comparativeReportQueue: Bull.Queue<ComparativeReportTask>;
   private reportGenerator: ReportGenerator;
-  private scheduledJobs: Map<string, cron.ScheduledTask> = new Map();
+  private cronJobManager = getCronJobManager();
   private comparativeReportService: ComparativeReportService;
   private productScrapingService: ProductScrapingService;
 
@@ -145,7 +146,22 @@ export class AutoReportGenerationService {
     // NEW: Handle comparative queue events
     this.setupComparativeQueueHandlers();
 
+    // Initialize enhanced cron job manager
+    this.initializeCronJobManager();
+
     logger.info('AutoReportGenerationService initialized successfully');
+  }
+
+  /**
+   * Initialize the enhanced cron job manager
+   */
+  private async initializeCronJobManager(): Promise<void> {
+    try {
+      await this.cronJobManager.initialize();
+      logger.info('Enhanced cron job manager initialized');
+    } catch (error) {
+      logger.error('Failed to initialize cron job manager', error as Error);
+    }
   }
 
   /**
@@ -240,7 +256,7 @@ export class AutoReportGenerationService {
   }
 
   /**
-   * Schedule periodic reports for a project
+   * Schedule periodic reports for a project using enhanced cron manager
    */
   async schedulePeriodicReports(
     projectId: string,
@@ -259,7 +275,7 @@ export class AutoReportGenerationService {
         reportTemplate: options?.reportTemplate || 'comprehensive'
       });
 
-      logger.info('Scheduling periodic reports for project', context);
+      logger.info('Scheduling periodic reports for project using enhanced cron manager', context);
 
       // Calculate next run time based on frequency
       const nextRunTime = this.calculateNextRunTime(frequency, options?.startDate);
@@ -276,8 +292,7 @@ export class AutoReportGenerationService {
         updatedAt: new Date()
       };
 
-      // Store schedule in database (extend Prisma schema as needed)
-      // For now, we'll store it in a simple JSON format in project parameters
+      // Store schedule in database
       await prisma.project.update({
         where: { id: projectId },
         data: {
@@ -287,28 +302,35 @@ export class AutoReportGenerationService {
         }
       });
 
-      // Set up cron job
-      const cronPattern = this.getCronPattern(frequency);
-      const cronJob = cron.schedule(cronPattern, async () => {
-        await this.executeScheduledReport(projectId, schedule);
-      }, {
-        scheduled: true,
-        timezone: 'UTC'
+      // Use enhanced cron job manager instead of basic cron
+      const cronJobId = `scheduled-report-${projectId}`;
+      await this.cronJobManager.scheduleJob({
+        id: cronJobId,
+        name: `Scheduled Report - ${projectId}`,
+        cronPattern: this.getCronPattern(frequency),
+        projectId: projectId,
+        jobType: 'SCHEDULED_REPORT',
+        isActive: true,
+        maxRetries: 3,
+        retryDelayMs: 60000, // 1 minute
+        timeoutMs: 600000,   // 10 minutes
+        metadata: {
+          reportTemplate: options?.reportTemplate || 'comprehensive',
+          scheduleId: schedule.id
+        }
       });
 
-      this.scheduledJobs.set(projectId, cronJob);
+      logger.info('Scheduled reports set up with enhanced cron manager', {
+        ...context,
+        scheduleId: schedule.id,
+        cronJobId,
+        cronPattern: this.getCronPattern(frequency)
+      });
 
       trackBusinessEvent('auto_report_schedule_created', {
         ...context,
         scheduleId: schedule.id,
-        nextRunTime: schedule.nextRunTime.toISOString(),
-        cronPattern
-      });
-
-      logger.info('Periodic reports scheduled successfully', {
-        ...context,
-        scheduleId: schedule.id,
-        nextRunTime: schedule.nextRunTime.toISOString()
+        cronJobId
       });
 
       return schedule;
@@ -1109,11 +1131,8 @@ export class AutoReportGenerationService {
   async cleanup(): Promise<void> {
     try {
       // Stop all cron jobs
-      for (const [projectId, cronJob] of this.scheduledJobs) {
-        cronJob.stop();
-        logger.info('Stopped scheduled job', { projectId });
-      }
-      this.scheduledJobs.clear();
+             await this.cronJobManager.cleanup();
+      logger.info('Enhanced cron job manager cleanup completed');
 
       // Close the queue
       await this.reportQueue.close();
