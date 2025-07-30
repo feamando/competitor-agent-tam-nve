@@ -581,6 +581,7 @@ export class ServiceRegistry {
     // Check for missing critical services
     const criticalServices = [
       'ComparativeAnalysisService',
+      'AnalysisService', // Unified Analysis Service - Task 3.1
       'ComparativeReportService',
       'ProjectService',
       'ProductRepository'

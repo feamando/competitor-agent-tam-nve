@@ -12,6 +12,8 @@
 import { logger, generateCorrelationId, trackErrorWithCorrelation, trackPerformance } from '@/lib/logger';
 import { SmartSchedulingService } from './smartSchedulingService';
 import { ComparativeAnalysisService } from './analysis/comparativeAnalysisService';
+import { AnalysisService } from './domains/AnalysisService';
+import { shouldUseUnifiedAnalysisService, featureFlags } from './migration/FeatureFlags';
 import { AutoReportGenerationService } from './autoReportGenerationService';
 import prisma from '@/lib/prisma';
 
@@ -72,6 +74,7 @@ export class AutomatedAnalysisService {
 
   private smartSchedulingService: SmartSchedulingService;
   private comparativeAnalysisService: ComparativeAnalysisService;
+  private unifiedAnalysisService: AnalysisService | null = null;
   private autoReportService: AutoReportGenerationService;
   private monitoringInterval?: NodeJS.Timeout;
 
@@ -79,6 +82,11 @@ export class AutomatedAnalysisService {
     this.smartSchedulingService = new SmartSchedulingService();
     this.comparativeAnalysisService = new ComparativeAnalysisService();
     this.autoReportService = new AutoReportGenerationService();
+    
+    // Initialize unified service if feature flag is enabled
+    if (featureFlags.isEnabledForScheduledJobs()) {
+      this.unifiedAnalysisService = new AnalysisService();
+    }
   }
 
   /**

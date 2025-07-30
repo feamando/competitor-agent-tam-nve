@@ -11,8 +11,10 @@
 
 import { logger, generateCorrelationId, trackErrorWithCorrelation, trackPerformance, trackBusinessEvent } from '@/lib/logger';
 import { SmartAIService, SmartAIAnalysisRequest, SmartAIAnalysisResponse } from './smartAIService';
+import { AnalysisService } from './domains/AnalysisService';
 import { SmartSchedulingService, ProjectFreshnessStatus } from './smartSchedulingService';
 import { getAutoReportService, AutoReportGenerationService } from './autoReportGenerationService';
+import { shouldUseUnifiedAnalysisService, featureFlags } from './migration/FeatureFlags';
 import prisma from '@/lib/prisma';
 
 // Intelligent Reporting interfaces
@@ -112,6 +114,7 @@ export interface IntelligentReportingRequest {
 
 export class IntelligentReportingService {
   private smartAIService: SmartAIService;
+  private unifiedAnalysisService: AnalysisService | null = null;
   private smartScheduler: SmartSchedulingService;
   private autoReportService: AutoReportGenerationService;
 
@@ -119,6 +122,11 @@ export class IntelligentReportingService {
     this.smartAIService = new SmartAIService();
     this.smartScheduler = new SmartSchedulingService();
     this.autoReportService = getAutoReportService();
+    
+    // Initialize unified service if feature flag is enabled
+    if (featureFlags.isEnabledForReporting()) {
+      this.unifiedAnalysisService = new AnalysisService();
+    }
   }
 
   /**
@@ -143,16 +151,29 @@ export class IntelligentReportingService {
       });
 
       // Step 1: Generate enhanced AI analysis with fresh data guarantee
-      const aiAnalysis = await this.smartAIService.analyzeWithSmartScheduling({
-        projectId: request.projectId,
-        analysisType: 'comprehensive',
-        forceFreshData: request.forceDataRefresh,
-        context: {
-          reportGeneration: true,
-          intelligentReporting: true,
-          requestType: request.reportType
-        }
-      });
+      // Use unified service if feature flag is enabled, otherwise fallback to legacy
+      const contextKey = `intelligent_reporting_${request.projectId}`;
+      const aiAnalysis = shouldUseUnifiedAnalysisService(contextKey) && this.unifiedAnalysisService ? 
+        await this.unifiedAnalysisService.analyzeWithSmartScheduling({
+          projectId: request.projectId,
+          analysisType: 'comprehensive',
+          forceFreshData: request.forceDataRefresh || false,
+          context: {
+            reportGeneration: true,
+            intelligentReporting: true,
+            requestType: request.reportType
+          }
+        }) :
+        await this.smartAIService.analyzeWithSmartScheduling({
+          projectId: request.projectId,
+          analysisType: 'comprehensive',
+          forceFreshData: request.forceDataRefresh || false,
+          context: {
+            reportGeneration: true,
+            intelligentReporting: true,
+            requestType: request.reportType
+          }
+        });
 
       // Step 2: Build data freshness indicators
       const dataFreshnessIndicators = await this.buildDataFreshnessIndicators(
