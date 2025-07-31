@@ -14,6 +14,9 @@ import { logger, generateCorrelationId, trackErrorWithCorrelation, trackPerforma
 import { ProductScrapingService } from './productScrapingService';
 import { WebScraperService } from './webScraper';
 import prisma from '@/lib/prisma';
+import { getCompetitorsWithoutSnapshots } from '@/utils/snapshotHelpers';
+import { CompetitorSnapshotTrigger } from './competitorSnapshotTrigger';
+import { SnapshotFreshnessService } from './snapshotFreshnessService';
 
 // Smart Scheduling interfaces
 export interface ScrapingTask {
@@ -491,6 +494,354 @@ export class SmartSchedulingService {
         }
       );
       throw error;
+    }
+  }
+
+  /**
+   * Task 4.4: Batch processing for multiple missing snapshots
+   * Efficiently handles multiple competitors without snapshots
+   */
+  public async triggerMissingSnapshotsBatch(projectId: string): Promise<{
+    triggered: boolean;
+    totalMissing: number;
+    processedCount: number;
+    results: Array<{ competitorId: string; success: boolean; error?: string }>;
+  }> {
+    const correlationId = generateCorrelationId();
+    const logContext = { projectId, correlationId, operation: 'triggerMissingSnapshotsBatch' };
+
+    try {
+      logger.info('Starting batch processing for missing snapshots', logContext);
+
+      // Task 4.2: Get competitors without snapshots
+      const missingCompetitors = await getCompetitorsWithoutSnapshots(projectId);
+
+      if (missingCompetitors.length === 0) {
+        logger.info('No competitors missing snapshots', logContext);
+        return {
+          triggered: false,
+          totalMissing: 0,
+          processedCount: 0,
+          results: []
+        };
+      }
+
+      logger.info('Found competitors missing snapshots', {
+        ...logContext,
+        totalMissing: missingCompetitors.length,
+        highPriority: missingCompetitors.filter(c => c.priority === 'high').length
+      });
+
+      // Task 4.4: Use CompetitorSnapshotTrigger for batch processing
+      const snapshotTrigger = CompetitorSnapshotTrigger.getInstance();
+      const competitorIds = missingCompetitors.map(c => c.competitorId);
+      
+      // Trigger batch snapshots with staggered execution
+      await snapshotTrigger.triggerBatchSnapshots(competitorIds, {
+        correlationId,
+        priority: 'high',
+        retryAttempts: 2
+      });
+
+      logger.info('Batch snapshot triggers initiated', {
+        ...logContext,
+        processedCount: competitorIds.length
+      });
+
+      return {
+        triggered: true,
+        totalMissing: missingCompetitors.length,
+        processedCount: competitorIds.length,
+        results: competitorIds.map(id => ({ competitorId: id, success: true }))
+      };
+
+    } catch (error) {
+      logger.error('Failed to trigger missing snapshots batch', error as Error, logContext);
+      trackErrorWithCorrelation(
+        error as Error,
+        'triggerMissingSnapshotsBatch',
+        correlationId,
+        logContext
+      );
+
+      return {
+        triggered: false,
+        totalMissing: 0,
+        processedCount: 0,
+        results: []
+      };
+    }
+  }
+
+  /**
+   * Task 4.1: Enhanced method to detect and trigger missing snapshots
+   * Extends existing functionality to specifically handle missing snapshots
+   */
+  public async checkAndTriggerMissingSnapshots(projectId: string): Promise<{
+    triggered: boolean;
+    missingSnapshotsFound: number;
+    triggeredCount: number;
+  }> {
+    const correlationId = generateCorrelationId();
+    const logContext = { projectId, correlationId, operation: 'checkAndTriggerMissingSnapshots' };
+
+    try {
+      logger.info('Checking for missing snapshots', logContext);
+
+      // Get competitors without snapshots
+      const missingCompetitors = await getCompetitorsWithoutSnapshots(projectId);
+
+      if (missingCompetitors.length === 0) {
+        logger.info('No missing snapshots found', logContext);
+        return {
+          triggered: false,
+          missingSnapshotsFound: 0,
+          triggeredCount: 0
+        };
+      }
+
+      // Filter high priority competitors for immediate processing
+      const highPriorityMissing = missingCompetitors.filter(c => c.priority === 'high');
+      const competitorsToProcess = highPriorityMissing.length > 0 ? highPriorityMissing : missingCompetitors.slice(0, 5);
+
+      logger.info('Triggering snapshots for missing competitors', {
+        ...logContext,
+        totalMissing: missingCompetitors.length,
+        processingCount: competitorsToProcess.length,
+        highPriorityCount: highPriorityMissing.length
+      });
+
+      // Use the existing CompetitorSnapshotTrigger for consistency
+      const snapshotTrigger = CompetitorSnapshotTrigger.getInstance();
+      
+      for (const competitor of competitorsToProcess) {
+        await snapshotTrigger.triggerImmediateSnapshot({
+          competitorId: competitor.competitorId,
+          priority: competitor.priority === 'high' ? 'high' : 'normal',
+          correlationId
+        });
+      }
+
+      logger.info('Missing snapshots triggered successfully', {
+        ...logContext,
+        triggeredCount: competitorsToProcess.length
+      });
+
+      return {
+        triggered: true,
+        missingSnapshotsFound: missingCompetitors.length,
+        triggeredCount: competitorsToProcess.length
+      };
+
+    } catch (error) {
+      logger.error('Failed to check and trigger missing snapshots', error as Error, logContext);
+      trackErrorWithCorrelation(
+        error as Error,
+        'checkAndTriggerMissingSnapshots',
+        correlationId,
+        logContext
+      );
+
+      return {
+        triggered: false,
+        missingSnapshotsFound: 0,
+        triggeredCount: 0
+      };
+    }
+  }
+
+  /**
+   * Task 5.3: Implement automatic refresh trigger for stale snapshots (>7 days)
+   * Task 5.4: Add configurable staleness threshold (defaulting to 7 days)
+   */
+  public async checkAndTriggerStaleSnapshots(
+    projectId: string, 
+    maxAgeInDays: number = 7
+  ): Promise<{
+    triggered: boolean;
+    staleSnapshotsFound: number;
+    triggeredCount: number;
+    results: Array<{ competitorId: string; competitorName: string; ageInDays: number; triggered: boolean }>;
+  }> {
+    const correlationId = generateCorrelationId();
+    const logContext = { projectId, maxAgeInDays, correlationId, operation: 'checkAndTriggerStaleSnapshots' };
+
+    try {
+      logger.info('Checking for stale snapshots', logContext);
+
+      // Use SnapshotFreshnessService to get stale snapshots
+      const freshnessService = SnapshotFreshnessService.getInstance();
+      const staleSnapshots = await freshnessService.getStaleSnapshots(projectId, maxAgeInDays);
+
+      if (staleSnapshots.length === 0) {
+        logger.info('No stale snapshots found', logContext);
+        return {
+          triggered: false,
+          staleSnapshotsFound: 0,
+          triggeredCount: 0,
+          results: []
+        };
+      }
+
+      logger.info('Found stale snapshots, triggering refresh', {
+        ...logContext,
+        staleSnapshotsCount: staleSnapshots.length,
+        averageAge: Math.round(staleSnapshots.reduce((sum, s) => sum + s.ageInDays, 0) / staleSnapshots.length)
+      });
+
+      // Trigger refresh for stale snapshots using batch processing
+      const snapshotTrigger = CompetitorSnapshotTrigger.getInstance();
+      const competitorIds = staleSnapshots.map(s => s.competitorId);
+      
+      // Use batch processing for efficiency
+      await snapshotTrigger.triggerBatchSnapshots(competitorIds, {
+        correlationId,
+        priority: 'normal', // Stale snapshots get normal priority (vs high for missing)
+        retryAttempts: 2
+      });
+
+      const results = staleSnapshots.map(stale => ({
+        competitorId: stale.competitorId,
+        competitorName: stale.competitorName,
+        ageInDays: stale.ageInDays,
+        triggered: true
+      }));
+
+      logger.info('Stale snapshots refresh triggered successfully', {
+        ...logContext,
+        triggeredCount: results.length
+      });
+
+      return {
+        triggered: true,
+        staleSnapshotsFound: staleSnapshots.length,
+        triggeredCount: results.length,
+        results
+      };
+
+    } catch (error) {
+      logger.error('Failed to check and trigger stale snapshots', error as Error, logContext);
+      trackErrorWithCorrelation(
+        error as Error,
+        'checkAndTriggerStaleSnapshots',
+        correlationId,
+        logContext
+      );
+
+      return {
+        triggered: false,
+        staleSnapshotsFound: 0,
+        triggeredCount: 0,
+        results: []
+      };
+    }
+  }
+
+  /**
+   * Task 5.1: Get comprehensive freshness analysis for report generation
+   * Returns detailed information about snapshot freshness for decision making
+   */
+  public async getSnapshotFreshnessAnalysis(
+    projectId: string, 
+    maxAgeInDays: number = 7
+  ): Promise<{
+    freshSnapshots: number;
+    staleSnapshots: number;
+    missingSnapshots: number;
+    totalCompetitors: number;
+    recommendations: Array<{
+      action: 'refresh' | 'capture' | 'none';
+      competitorId: string;
+      competitorName: string;
+      reason: string;
+      priority: 'high' | 'medium' | 'low';
+    }>;
+    overallFreshness: 'fresh' | 'partially_stale' | 'mostly_stale' | 'critical';
+  }> {
+    const correlationId = generateCorrelationId();
+    const logContext = { projectId, maxAgeInDays, correlationId, operation: 'getSnapshotFreshnessAnalysis' };
+
+    try {
+      logger.info('Analyzing snapshot freshness for project', logContext);
+
+      const freshnessService = SnapshotFreshnessService.getInstance();
+      
+      // Get comprehensive freshness summary
+      const summary = await freshnessService.getFreshnessSummary(projectId, maxAgeInDays);
+      
+      // Get detailed stale and missing snapshots
+      const [staleSnapshots, missingCompetitors] = await Promise.all([
+        freshnessService.getStaleSnapshots(projectId, maxAgeInDays),
+        getCompetitorsWithoutSnapshots(projectId)
+      ]);
+
+      // Build recommendations
+      const recommendations = [];
+
+      // Add missing snapshot recommendations
+      for (const missing of missingCompetitors) {
+        recommendations.push({
+          action: 'capture' as const,
+          competitorId: missing.competitorId,
+          competitorName: missing.competitorName,
+          reason: missing.reason,
+          priority: missing.priority
+        });
+      }
+
+      // Add stale snapshot recommendations
+      for (const stale of staleSnapshots) {
+        recommendations.push({
+          action: 'refresh' as const,
+          competitorId: stale.competitorId,
+          competitorName: stale.competitorName,
+          reason: stale.reason,
+          priority: stale.ageInDays > maxAgeInDays * 2 ? 'high' as const : 'medium' as const
+        });
+      }
+
+      // Determine overall freshness level
+      const stalenessRatio = (summary.staleSnapshots + summary.missingSnapshots) / summary.totalCompetitors;
+      let overallFreshness: 'fresh' | 'partially_stale' | 'mostly_stale' | 'critical';
+      
+      if (stalenessRatio === 0) {
+        overallFreshness = 'fresh';
+      } else if (stalenessRatio <= 0.25) {
+        overallFreshness = 'partially_stale';
+      } else if (stalenessRatio <= 0.75) {
+        overallFreshness = 'mostly_stale';
+      } else {
+        overallFreshness = 'critical';
+      }
+
+      const result = {
+        freshSnapshots: summary.freshSnapshots,
+        staleSnapshots: summary.staleSnapshots,
+        missingSnapshots: summary.missingSnapshots,
+        totalCompetitors: summary.totalCompetitors,
+        recommendations,
+        overallFreshness
+      };
+
+      logger.info('Snapshot freshness analysis completed', {
+        ...logContext,
+        ...result,
+        recommendationCount: recommendations.length
+      });
+
+      return result;
+
+    } catch (error) {
+      logger.error('Failed to analyze snapshot freshness', error as Error, logContext);
+      
+      return {
+        freshSnapshots: 0,
+        staleSnapshots: 0,
+        missingSnapshots: 0,
+        totalCompetitors: 0,
+        recommendations: [],
+        overallFreshness: 'critical'
+      };
     }
   }
 

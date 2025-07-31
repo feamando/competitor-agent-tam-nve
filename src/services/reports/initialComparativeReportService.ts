@@ -11,7 +11,10 @@ import { ComparativeReportService } from './comparativeReportService';
 import { ComparativeAnalysisService } from '../analysis/comparativeAnalysisService';
 import { AnalysisService } from '../domains/AnalysisService';
 import { shouldUseUnifiedAnalysisService, featureFlags } from '../migration/FeatureFlags';
-import { SmartDataCollectionService } from './smartDataCollectionService'; 
+import { SmartDataCollectionService } from './smartDataCollectionService';
+import { SmartSchedulingService } from '../smartSchedulingService';
+import { getCompetitorsWithoutSnapshots } from '@/utils/snapshotHelpers';
+import { SnapshotFreshnessService } from '../snapshotFreshnessService'; 
 import { PartialDataReportGenerator, PartialDataInfo, DataGap, PartialReportOptions } from './partialDataReportGenerator'; 
 import { realTimeStatusService } from '../realTimeStatusService'; 
 import { reportQualityService } from './reportQualityService'; 
@@ -351,6 +354,24 @@ export class InitialComparativeReportService {
 
       // 1. Validate project readiness
       const readinessResult = await this.validateProjectReadiness(projectId);
+      
+      // Task 4.3: Check for missing snapshots during report generation
+      // Task 7.1: Enhanced error handling for snapshot failures
+      await this.safelyExecuteSnapshotCheck(
+        () => this.checkAndTriggerMissingSnapshots(projectId, correlationId, reportLogger),
+        'missing snapshots check',
+        correlationId,
+        reportLogger
+      );
+      
+      // Task 5.1 & 5.2: Check for stale snapshots and trigger refresh before analysis
+      // Task 7.1: Enhanced error handling for snapshot failures
+      await this.safelyExecuteSnapshotCheck(
+        () => this.checkAndTriggerStaleSnapshots(projectId, options, correlationId, reportLogger),
+        'stale snapshots check',
+        correlationId,
+        reportLogger
+      );
       
       // PHASE 3.1: Send validation status update
       try {
@@ -898,6 +919,372 @@ export class InitialComparativeReportService {
   /**
    * Capture fresh competitor snapshots for the project
    */  
+  /**
+   * Task 4.3: Check for missing snapshots and trigger collection during report generation
+   */
+  private async checkAndTriggerMissingSnapshots(
+    projectId: string, 
+    correlationId: string, 
+    reportLogger: any
+  ): Promise<void> {
+    const context = { projectId, correlationId, operation: 'checkAndTriggerMissingSnapshots' };
+
+    try {
+      reportLogger.info('Checking for missing competitor snapshots', context);
+
+      // Get competitors without snapshots
+      const missingCompetitors = await getCompetitorsWithoutSnapshots(projectId);
+
+      if (missingCompetitors.length === 0) {
+        reportLogger.info('All competitors have snapshots', context);
+        return;
+      }
+
+      reportLogger.info('Found competitors missing snapshots, triggering collection', {
+        ...context,
+        missingCount: missingCompetitors.length,
+        highPriorityCount: missingCompetitors.filter(c => c.priority === 'high').length
+      });
+
+      // Use SmartSchedulingService to trigger missing snapshots
+      const smartSchedulingService = new SmartSchedulingService();
+      const result = await smartSchedulingService.checkAndTriggerMissingSnapshots(projectId);
+
+      if (result.triggered) {
+        reportLogger.info('Missing snapshots triggered successfully', {
+          ...context,
+          triggeredCount: result.triggeredCount,
+          totalMissing: result.missingSnapshotsFound
+        });
+
+        // Wait a moment for snapshots to begin processing
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      } else {
+        reportLogger.warn('No missing snapshots were triggered', context);
+      }
+
+    } catch (error) {
+      // Don't fail report generation if snapshot triggering fails
+      reportLogger.warn('Failed to check and trigger missing snapshots', {
+        ...context,
+        error: (error as Error).message
+      });
+    }
+  }
+
+  /**
+   * Task 5.1 & 5.2: Check for stale snapshots and trigger refresh before analysis
+   * Task 5.4: Uses configurable staleness threshold (defaulting to 7 days)
+   */
+  private async checkAndTriggerStaleSnapshots(
+    projectId: string, 
+    options: InitialReportOptions,
+    correlationId: string, 
+    reportLogger: any
+  ): Promise<void> {
+    const context = { projectId, correlationId, operation: 'checkAndTriggerStaleSnapshots' };
+
+    try {
+      // Task 5.4: Use configurable staleness threshold, default to 7 days
+      const maxAgeInDays = this.getConfigurableStalenessThreshold();
+      
+      reportLogger.info('Checking for stale competitor snapshots', {
+        ...context,
+        maxAgeInDays,
+        requireFreshSnapshots: options.requireFreshSnapshots
+      });
+
+      // Get comprehensive freshness analysis
+      const smartSchedulingService = new SmartSchedulingService();
+      const freshnessAnalysis = await smartSchedulingService.getSnapshotFreshnessAnalysis(projectId, maxAgeInDays);
+
+      reportLogger.info('Snapshot freshness analysis completed', {
+        ...context,
+        ...freshnessAnalysis,
+        overallFreshness: freshnessAnalysis.overallFreshness
+      });
+
+      // Determine if we need to trigger stale snapshot refresh
+      const shouldTriggerRefresh = this.shouldTriggerStaleRefresh(freshnessAnalysis, options);
+
+      if (!shouldTriggerRefresh) {
+        reportLogger.info('No stale snapshot refresh needed', {
+          ...context,
+          reason: freshnessAnalysis.overallFreshness === 'fresh' ? 'All snapshots are fresh' : 'Refresh not required by options'
+        });
+        return;
+      }
+
+      // Task 5.3: Trigger refresh for stale snapshots
+      const staleRefreshResult = await smartSchedulingService.checkAndTriggerStaleSnapshots(projectId, maxAgeInDays);
+
+      if (staleRefreshResult.triggered) {
+        reportLogger.info('Stale snapshots refresh triggered successfully', {
+          ...context,
+          triggeredCount: staleRefreshResult.triggeredCount,
+          staleSnapshotsFound: staleRefreshResult.staleSnapshotsFound
+        });
+
+        // Wait for refresh to begin processing before continuing with report generation
+        const waitTime = this.calculateRefreshWaitTime(staleRefreshResult.triggeredCount);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+        
+        reportLogger.info('Stale snapshot refresh wait completed', {
+          ...context,
+          waitTime
+        });
+      } else {
+        reportLogger.warn('No stale snapshots were refreshed', {
+          ...context,
+          staleSnapshotsFound: staleRefreshResult.staleSnapshotsFound
+        });
+      }
+
+    } catch (error) {
+      // Don't fail report generation if stale snapshot checking fails
+      reportLogger.warn('Failed to check and trigger stale snapshots', {
+        ...context,
+        error: (error as Error).message
+      });
+    }
+  }
+
+  /**
+   * Task 5.4: Get configurable staleness threshold with environment variable support
+   */
+  private getConfigurableStalenessThreshold(): number {
+    // Check environment variable first, then fall back to default
+    const envThreshold = process.env.SNAPSHOT_STALENESS_THRESHOLD_DAYS;
+    if (envThreshold) {
+      const parsed = parseInt(envThreshold, 10);
+      if (!isNaN(parsed) && parsed > 0) {
+        return parsed;
+      }
+    }
+    
+    // Default to 7 days as specified in the task plan
+    return 7;
+  }
+
+  /**
+   * Determine if stale snapshot refresh should be triggered based on analysis and options
+   */
+  private shouldTriggerStaleRefresh(
+    analysis: {
+      overallFreshness: 'fresh' | 'partially_stale' | 'mostly_stale' | 'critical';
+      staleSnapshots: number;
+      totalCompetitors: number;
+    },
+    options: InitialReportOptions
+  ): boolean {
+    // Always fresh = no refresh needed
+    if (analysis.overallFreshness === 'fresh') {
+      return false;
+    }
+
+    // If explicitly requiring fresh snapshots, always refresh stale ones
+    if (options.requireFreshSnapshots) {
+      return analysis.staleSnapshots > 0;
+    }
+
+    // For critical staleness, always refresh
+    if (analysis.overallFreshness === 'critical') {
+      return true;
+    }
+
+    // For mostly stale, refresh if we have time (not low priority)
+    if (analysis.overallFreshness === 'mostly_stale' && options.priority !== 'low') {
+      return true;
+    }
+
+    // For partially stale, only refresh if high priority
+    if (analysis.overallFreshness === 'partially_stale' && options.priority === 'high') {
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Calculate appropriate wait time based on number of snapshots being refreshed
+   */
+  private calculateRefreshWaitTime(triggeredCount: number): number {
+    // Base wait time of 2 seconds, plus 500ms per additional snapshot
+    const baseWaitTime = 2000;
+    const additionalWaitTime = Math.min(triggeredCount * 500, 10000); // Cap at 10 seconds
+    return baseWaitTime + additionalWaitTime;
+  }
+
+  /**
+   * Task 7.1: Safely execute snapshot-related operations with comprehensive error handling
+   * Ensures report generation continues even if snapshot operations fail
+   */
+  private async safelyExecuteSnapshotCheck(
+    operation: () => Promise<void>,
+    operationName: string,
+    correlationId: string,
+    reportLogger: any
+  ): Promise<void> {
+    const context = { 
+      operation: 'safelyExecuteSnapshotCheck', 
+      operationName, 
+      correlationId 
+    };
+
+    try {
+      reportLogger.info(`Starting ${operationName}`, context);
+      await operation();
+      reportLogger.info(`Successfully completed ${operationName}`, context);
+    } catch (error) {
+      // Task 7.1: Graceful error handling - don't fail report generation
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      
+      reportLogger.warn(`${operationName} failed but report generation will continue`, {
+        ...context,
+        error: errorMessage,
+        gracefulDegradation: true
+      });
+
+      // Track the error for monitoring but don't throw
+      this.trackSnapshotOperationFailure(operationName, error as Error, correlationId);
+    }
+  }
+
+  /**
+   * Task 7.3: Track snapshot operation failures for monitoring and alerting
+   */
+  private trackSnapshotOperationFailure(
+    operationName: string,
+    error: Error,
+    correlationId: string
+  ): void {
+    const context = {
+      operation: 'trackSnapshotOperationFailure',
+      operationName,
+      correlationId,
+      errorType: error.constructor.name,
+      errorMessage: error.message
+    };
+
+    try {
+      // Log the failure for monitoring systems
+      logger.error(`Snapshot operation failure tracked`, error, context);
+
+      // Track in correlation system for dashboard monitoring
+      trackCorrelation(correlationId, 'snapshot_operation_failure', {
+        ...context,
+        failureTracked: true,
+        severity: 'warning', // Not critical since report generation continues
+        timestamp: new Date().toISOString()
+      });
+
+      // Task 7.3: Increment failure counters for alerting
+      this.incrementFailureCounter(operationName);
+
+    } catch (trackingError) {
+      // Even tracking failures shouldn't break report generation
+      logger.error('Failed to track snapshot operation failure', trackingError as Error, {
+        originalError: error.message,
+        operationName,
+        correlationId
+      });
+    }
+  }
+
+  /**
+   * Task 7.3: Track failure counts for alerting thresholds
+   */
+  private static failureCounts = new Map<string, {
+    count: number;
+    lastFailure: Date;
+    firstFailure: Date;
+  }>();
+
+  private incrementFailureCounter(operationName: string): void {
+    const current = InitialComparativeReportService.failureCounts.get(operationName);
+    const now = new Date();
+
+    if (current) {
+      current.count++;
+      current.lastFailure = now;
+    } else {
+      InitialComparativeReportService.failureCounts.set(operationName, {
+        count: 1,
+        lastFailure: now,
+        firstFailure: now
+      });
+    }
+
+    // Task 7.3: Check if we've hit alerting thresholds
+    this.checkAlertingThresholds(operationName);
+  }
+
+  /**
+   * Task 7.3: Check if failure counts exceed alerting thresholds
+   */
+  private checkAlertingThresholds(operationName: string): void {
+    const failureInfo = InitialComparativeReportService.failureCounts.get(operationName);
+    if (!failureInfo) return;
+
+    const timeWindow = 30 * 60 * 1000; // 30 minutes
+    const now = Date.now();
+    const windowStart = now - timeWindow;
+
+    // Reset counter if failures are old
+    if (failureInfo.firstFailure.getTime() < windowStart) {
+      failureInfo.count = 1;
+      failureInfo.firstFailure = new Date();
+    }
+
+    // Alert thresholds
+    const criticalThreshold = 10; // 10 failures in 30 minutes
+    const warningThreshold = 5;   // 5 failures in 30 minutes
+
+    if (failureInfo.count >= criticalThreshold) {
+      this.triggerCriticalAlert(operationName, failureInfo);
+    } else if (failureInfo.count >= warningThreshold && failureInfo.count % warningThreshold === 0) {
+      this.triggerWarningAlert(operationName, failureInfo);
+    }
+  }
+
+  /**
+   * Task 7.3: Trigger critical alerts for persistent failures
+   */
+  private triggerCriticalAlert(operationName: string, failureInfo: { count: number; firstFailure: Date }): void {
+    const alertContext = {
+      alertType: 'CRITICAL',
+      operationName,
+      failureCount: failureInfo.count,
+      timeWindow: '30 minutes',
+      firstFailure: failureInfo.firstFailure.toISOString(),
+      severity: 'critical'
+    };
+
+    logger.error(`CRITICAL ALERT: Snapshot operation failing persistently`, new Error(`${operationName} has failed ${failureInfo.count} times`), alertContext);
+
+    // In a production system, this would integrate with alerting systems like PagerDuty, Slack, etc.
+    console.error(`🚨 CRITICAL ALERT: ${operationName} failing persistently (${failureInfo.count} failures)`);
+  }
+
+  /**
+   * Task 7.3: Trigger warning alerts for moderate failures
+   */
+  private triggerWarningAlert(operationName: string, failureInfo: { count: number; firstFailure: Date }): void {
+    const alertContext = {
+      alertType: 'WARNING',
+      operationName,
+      failureCount: failureInfo.count,
+      timeWindow: '30 minutes',
+      firstFailure: failureInfo.firstFailure.toISOString(),
+      severity: 'warning'
+    };
+
+    logger.warn(`WARNING ALERT: Snapshot operation experiencing issues`, alertContext);
+
+    // In a production system, this would send notifications to monitoring channels
+    console.warn(`⚠️  WARNING: ${operationName} experiencing issues (${failureInfo.count} failures)`);
+  }
+
   /**
    * PHASE 4.1: Capture fresh competitor snapshots for the project using optimized service
    */
