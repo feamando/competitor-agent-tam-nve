@@ -1,7 +1,5 @@
 ---
-description: Break down all work into smallest possible atomic tasks and execute them sequentially
-globs: "**/*"
-alwaysApply: false
+alwaysApply: true
 ---
 # Atomic Task Planning
 
