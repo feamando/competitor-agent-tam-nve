@@ -118,7 +118,7 @@ export async function GET(
 
       // Extract metadata from the latest report version
       if (initialReport.versions.length > 0) {
-        const reportContent = initialReport.versions[0].content as any;
+        const reportContent = initialReport.versions[0]?.content as any;
         if (reportContent?.metadata) {
           dataCompletenessScore = reportContent.metadata.dataCompletenessScore;
           dataFreshness = reportContent.metadata.dataFreshness || 'basic';
@@ -130,7 +130,7 @@ export async function GET(
     const response: InitialReportStatus = {
       projectId,
       reportExists: !!initialReport,
-      reportId: initialReport?.id,
+      ...(initialReport?.id && { reportId: initialReport.id }),
       status,
       dataCompletenessScore,
       generatedAt: initialReport?.createdAt?.toISOString(),
@@ -232,64 +232,99 @@ async function getCompetitorSnapshotsStatus(projectId: string, totalCompetitors:
   capturedAt?: string;
   failures?: string[];
 }> {
+  const logContext = {
+    operation: 'getCompetitorSnapshotsStatus',
+    projectId,
+    totalCompetitors
+  };
+
   try {
-    // Get recent competitor snapshots for this project
-    const recentSnapshots = await prisma.snapshot.findMany({
+    logger.info('Checking competitor snapshots status', logContext);
+
+    // Get all competitors for this project with their latest snapshots
+    const projectCompetitors = await prisma.competitor.findMany({
       where: {
-        competitor: {
-          projects: {
-            some: {
-              id: projectId
-            }
+        projects: {
+          some: {
+            id: projectId
           }
-        },
-        createdAt: {
-          // Consider snapshots from last 24 hours as recent
-          gte: new Date(Date.now() - 24 * 60 * 60 * 1000)
         }
       },
       select: {
         id: true,
-        createdAt: true,
-        metadata: true,
-        competitor: {
+        name: true,
+        snapshots: {
           select: {
-            name: true
-          }
+            id: true,
+            createdAt: true,
+            metadata: true,
+            captureSuccess: true,
+            errorMessage: true
+          },
+          orderBy: {
+            createdAt: 'desc'
+          },
+          take: 1 // Get only the latest snapshot for each competitor
         }
-      },
-      orderBy: {
-        createdAt: 'desc'
       }
     });
 
-    // Extract status from metadata since there's no direct status field
-    const capturedCount = recentSnapshots.filter((s: any) => {
-      const metadata = s.metadata as any;
-      return metadata?.status === 'completed' || metadata?.status === 'success';
-    }).length;
-
-    const failedSnapshots = recentSnapshots.filter((s: any) => {
-      const metadata = s.metadata as any;
-      return metadata?.status === 'failed' || metadata?.status === 'error';
-    });
-    
-    const failures = failedSnapshots.map((s: any) => {
-      const metadata = s.metadata as any;
-      return `${s.competitor.name}: ${metadata?.error || 'Unknown error'}`;
+    logger.debug('Retrieved project competitors', {
+      ...logContext,
+      competitorsFound: projectCompetitors.length,
+      competitorsWithSnapshots: projectCompetitors.filter(c => c.snapshots.length > 0).length
     });
 
-    const latestSnapshot = recentSnapshots[0];
+    // Count successfully captured snapshots
+    let capturedCount = 0;
+    const failures: string[] = [];
+    let latestSnapshotDate: Date | null = null;
 
-    return {
+    for (const competitor of projectCompetitors) {
+      const latestSnapshot = competitor.snapshots[0];
+      
+      if (!latestSnapshot) {
+        // No snapshot exists for this competitor
+        failures.push(`${competitor.name}: No snapshot captured`);
+        continue;
+      }
+
+      // Check if snapshot was successful using multiple indicators
+      const isSuccessful = isSnapshotSuccessful(latestSnapshot);
+
+      if (isSuccessful) {
+        capturedCount++;
+        
+        // Track the latest successful snapshot date
+        if (!latestSnapshotDate || latestSnapshot.createdAt > latestSnapshotDate) {
+          latestSnapshotDate = latestSnapshot.createdAt;
+        }
+      } else {
+        // Extract error message from various sources
+        const errorMsg = latestSnapshot.errorMessage || 
+                        extractErrorFromMetadata(latestSnapshot.metadata) || 
+                        'Capture failed';
+        failures.push(`${competitor.name}: ${errorMsg}`);
+      }
+    }
+
+    const result = {
       captured: capturedCount,
       total: totalCompetitors,
-      capturedAt: latestSnapshot?.createdAt?.toISOString(),
+      capturedAt: latestSnapshotDate?.toISOString(),
       failures: failures.length > 0 ? failures : undefined
     };
 
+    logger.info('Competitor snapshots status calculated', {
+      ...logContext,
+      ...result,
+      failureCount: failures.length
+    });
+
+    return result;
+
   } catch (error) {
-    logger.error('Failed to get competitor snapshots status', error as Error, { projectId });
+    logger.error('Failed to get competitor snapshots status', error as Error, logContext);
     
     return {
       captured: 0,
@@ -298,4 +333,68 @@ async function getCompetitorSnapshotsStatus(projectId: string, totalCompetitors:
       failures: ['Failed to check snapshot status']
     };
   }
+}
+
+/**
+ * Determine if a snapshot was captured successfully
+ */
+function isSnapshotSuccessful(snapshot: {
+  captureSuccess?: boolean;
+  errorMessage?: string | null;
+  metadata: any;
+}): boolean {
+  // Check explicit success flag first
+  if (snapshot.captureSuccess === false) {
+    return false;
+  }
+
+  // Check for explicit error message
+  if (snapshot.errorMessage) {
+    return false;
+  }
+
+  // Check metadata for success indicators
+  if (snapshot.metadata) {
+    const metadata = snapshot.metadata as any;
+    
+    // Check explicit status in metadata
+    if (metadata.status) {
+      return metadata.status === 'completed' || 
+             metadata.status === 'success' || 
+             metadata.status === 'ok';
+    }
+
+    // Check for content indicators (from WebsiteScraper)
+    if (metadata.html || metadata.text || metadata.title) {
+      // Has meaningful content, likely successful
+      return true;
+    }
+
+    // Check for scraping indicators (from WebScraperService)  
+    if (metadata.content || metadata.textContent || metadata.htmlContent) {
+      return true;
+    }
+
+    // Check status code if available
+    if (metadata.statusCode) {
+      return metadata.statusCode >= 200 && metadata.statusCode < 400;
+    }
+  }
+
+  // Default to successful if captureSuccess is not explicitly false
+  return snapshot.captureSuccess !== false;
+}
+
+/**
+ * Extract error message from snapshot metadata
+ */
+function extractErrorFromMetadata(metadata: any): string | null {
+  if (!metadata) return null;
+  
+  // Check various error fields that might exist in metadata
+  return metadata.error || 
+         metadata.errorMessage || 
+         metadata.errorDetails || 
+         metadata.lastError || 
+         null;
 } 

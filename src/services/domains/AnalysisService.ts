@@ -22,6 +22,7 @@ import { dataIntegrityValidator } from '@/lib/validation/dataIntegrity';
 import { logger, generateCorrelationId, trackErrorWithCorrelation, trackPerformance, trackBusinessEvent } from '@/lib/logger';
 import { createId } from '@paralleldrive/cuid2';
 import { registerService } from '@/services/serviceRegistry';
+import { getAnalysisMemoryCleanup, analysisMemoryUtils } from '@/lib/analysis/memoryCleanup';
 
 // Import unified types from Task 1.3
 import {
@@ -519,7 +520,25 @@ export class AnalysisService implements IAnalysisService {
     }
 
     const context = AnalysisCorrelationManager.createContext(request.analysisType, request.projectId);
+    const memoryCleanup = getAnalysisMemoryCleanup();
     const startTime = Date.now();
+    
+    // Start memory tracking
+    memoryCleanup.startAnalysisTracking(
+      context.correlationId,
+      request.analysisType,
+      {
+        projectId: request.projectId,
+        correlationId: context.correlationId,
+        timeoutMs: 5 * 60 * 1000 // 5 minutes
+      }
+    );
+    
+    // Log memory usage before analysis
+    memoryCleanup.logMemoryUsage('analysis_start', context.correlationId, {
+      analysisType: request.analysisType,
+      projectId: request.projectId
+    });
 
     try {
       AnalysisCorrelationManager.logWithCorrelation('info', 'Unified analysis started', context.correlationId, {
@@ -557,6 +576,38 @@ export class AnalysisService implements IAnalysisService {
       const processingTime = Date.now() - startTime;
       this.trackAnalysisPerformance(request.analysisType, true, processingTime, context);
 
+      // Register large objects for cleanup
+      if (result.smartAnalysis) {
+        memoryCleanup.registerLargeObject(context.correlationId, result.smartAnalysis);
+      }
+      if (result.uxAnalysis) {
+        memoryCleanup.registerLargeObject(context.correlationId, result.uxAnalysis);
+      }
+      if (result.comparativeAnalysis) {
+        memoryCleanup.registerLargeObject(context.correlationId, result.comparativeAnalysis);
+      }
+
+      // Log memory usage after analysis
+      memoryCleanup.logMemoryUsage('analysis_complete', context.correlationId, {
+        analysisType: request.analysisType,
+        processingTime,
+        qualityScore: result.quality?.overallScore
+      });
+
+      // Complete analysis and cleanup
+      await memoryCleanup.completeAnalysis(context.correlationId, result, {
+        preserveResult: true, // Keep the result for return
+        customCleanup: async () => {
+          // Clear large temporary objects that might have been created during analysis
+          if (result.metadata) {
+            // Clear metadata arrays that might be large
+            if ((result.metadata as any).rawData) {
+              (result.metadata as any).rawData = null;
+            }
+          }
+        }
+      });
+
       AnalysisCorrelationManager.logWithCorrelation('info', 'Unified analysis completed successfully', context.correlationId, {
         analysisId: result.analysisId,
         processingTime,
@@ -569,6 +620,16 @@ export class AnalysisService implements IAnalysisService {
       // Update performance metrics
       const processingTime = Date.now() - startTime;
       this.trackAnalysisPerformance(request.analysisType, false, processingTime, context);
+
+      // Log memory usage on error
+      memoryCleanup.logMemoryUsage('analysis_error', context.correlationId, {
+        analysisType: request.analysisType,
+        processingTime,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+
+      // Cleanup stalled analysis
+      await memoryCleanup.cleanupStalledAnalysis(context.correlationId, 'analysis_error');
 
       // Handle and transform error
       const analysisError = AnalysisErrorHandler.handleAnalysisError(error as Error, context, 'analyzeProduct');
@@ -894,6 +955,10 @@ export class AnalysisService implements IAnalysisService {
   async cleanup(): Promise<void> {
     logger.info('Cleaning up AnalysisService resources');
 
+    // Cleanup memory manager
+    const memoryCleanup = getAnalysisMemoryCleanup();
+    await memoryCleanup.emergencyCleanupAll();
+
     if (this.aiAnalyzer) {
       await this.aiAnalyzer.cleanup();
     }
@@ -903,9 +968,24 @@ export class AnalysisService implements IAnalysisService {
     }
 
     BedrockServiceManager.resetInstance();
+    
+    // Clear all large objects and null out references
+    this.aiAnalyzer = null;
+    this.uxAnalyzer = null;
+    this.comparativeAnalyzer = null;
+    this.bedrockService = null;
+
+    // Clear performance metrics arrays
+    this.performanceMetrics.aiAnalyses.lastError = null;
+    this.performanceMetrics.uxAnalyses.lastError = null;
+    this.performanceMetrics.comparativeAnalyses.lastError = null;
+    
     this.isInitialized = false;
 
-    logger.info('AnalysisService cleanup completed');
+    logger.info('AnalysisService cleanup completed', {
+      memoryStats: memoryCleanup.getMemoryStats(),
+      cleanupStats: memoryCleanup.getCleanupStats()
+    });
   }
 
   // ============================================================================

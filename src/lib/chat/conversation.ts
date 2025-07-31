@@ -12,12 +12,14 @@ import { productRepository } from '@/lib/repositories';
 import { getAutoReportService } from '@/services/autoReportGenerationService';
 import { dataIntegrityValidator } from '@/lib/validation/dataIntegrity';
 import { registerService } from '@/services/serviceRegistry';
+import { ConversationMemoryOptimizer, MAX_MESSAGES_PER_CONVERSATION } from './memoryOptimization';
 
 export class ConversationManager {
   private chatState: ChatState;
   private messages: Message[] = [];
   private reportGenerator: MarkdownReportGenerator;
   private comprehensiveCollector: ComprehensiveRequirementsCollector;
+  private conversationId?: string;
   
   // Implement standardized error templates
   private errorTemplates = {
@@ -31,7 +33,7 @@ export class ConversationManager {
     authorization: 'Authorization failed: {reason}'
   };
 
-  constructor(initialState?: Partial<ChatState>) {
+  constructor(initialState?: Partial<ChatState>, conversationId?: string) {
     // Check for environment variable to control flow type
     const enableComprehensiveFlow = process.env.ENABLE_COMPREHENSIVE_FLOW !== 'false';
     
@@ -44,6 +46,7 @@ export class ConversationManager {
     };
     this.reportGenerator = new MarkdownReportGenerator();
     this.comprehensiveCollector = new ComprehensiveRequirementsCollector();
+    this.conversationId = conversationId;
   }
 
   public getChatState(): ChatState {
@@ -55,10 +58,93 @@ export class ConversationManager {
   }
 
   public addMessage(message: Message): void {
+    // Add message with timestamp
     this.messages.push({
       ...message,
       timestamp: message.timestamp || new Date(),
     });
+
+        // Apply memory optimization to limit message history
+    this.messages = ConversationMemoryOptimizer.limitMessageHistory(this.messages);
+  }
+
+  // Static method to get or create conversation with memory management
+  public static getConversation(conversationId: string, initialState?: Partial<ChatState>): ConversationManager {
+    const cachedData = ConversationMemoryOptimizer.getConversation(conversationId);
+    
+    if (cachedData) {
+      const conversation = new ConversationManager(cachedData.chatState, conversationId);
+      cachedData.messages.forEach(message => conversation.addMessage(message));
+      
+      logger.info('Conversation restored from cache', {
+        conversationId,
+        messageCount: cachedData.messages.length,
+        cacheStats: ConversationMemoryOptimizer.getCacheStats()
+      });
+      
+      return conversation;
+    }
+    
+    const conversation = new ConversationManager(initialState, conversationId);
+    
+    // Store in cache
+    ConversationMemoryOptimizer.setConversation(conversationId, {
+      chatState: conversation.getChatState(),
+      messages: conversation.getMessages()
+    });
+    
+    logger.info('New conversation created and cached', {
+      conversationId,
+      cacheStats: ConversationMemoryOptimizer.getCacheStats()
+    });
+    
+    return conversation;
+  }
+
+  // Static method to cleanup specific conversation
+  public static cleanupConversation(conversationId: string): boolean {
+    const deleted = ConversationMemoryOptimizer.deleteConversation(conversationId);
+    if (deleted) {
+      logger.info('Conversation manually cleaned up', { conversationId });
+    }
+    return deleted;
+  }
+
+  // Static method to get cache statistics
+  public static getCacheStats(): { activeConversations: number; serializedConversations: number; totalMemoryKB: number } {
+    return ConversationMemoryOptimizer.getCacheStats();
+  }
+
+  // Static method to force cleanup of inactive conversations
+  public static forceCleanup(): void {
+    ConversationMemoryOptimizer.forceCleanup();
+  }
+
+  // Method to update conversation in cache
+  public updateCache(): void {
+    if (this.conversationId) {
+      ConversationMemoryOptimizer.setConversation(this.conversationId, {
+        chatState: this.getChatState(),
+        messages: this.getMessages()
+      });
+    }
+  }
+
+  // Helper method to generate project ID
+  private generateProjectId(projectName: string): string {
+    const timestamp = Date.now();
+    const sanitized = projectName.toLowerCase().replace(/[^a-z0-9]/g, '-');
+    return `${sanitized}-${timestamp}`;
+  }
+
+  // Helper method to create project without scraping (fallback)
+  private async createProjectWithoutScraping(projectName: string, userEmail: string): Promise<any> {
+    return {
+      id: this.generateProjectId(projectName),
+      name: projectName,
+      userEmail: userEmail,
+      competitors: []
+    };
   }
 
   public async processUserMessage(content: string): Promise<ChatResponse> {
@@ -96,6 +182,9 @@ export class ConversationManager {
         this.chatState.expectedInputType = response.expectedInputType;
       }
 
+      // Update conversation in cache after processing
+      this.updateCache();
+      
       return response;
     } catch (error) {
       const errorMessage = 'I apologize, but I encountered an error processing your request. Please try again.';
@@ -105,6 +194,9 @@ export class ConversationManager {
         content: errorMessage,
         timestamp: new Date(),
       });
+
+      // Update cache even on error
+      this.updateCache();
 
       return {
         message: errorMessage,
@@ -216,12 +308,12 @@ Please tell me:
         userEmail: extractedData.userEmail,
         reportFrequency: extractedData.reportFrequency,
         reportName: extractedData.projectName,
-        productName: extractedData.productName || undefined,
-        productUrl: extractedData.productUrl || undefined,
-        industry: extractedData.industry || undefined,
-        positioning: extractedData.positioning || undefined,
-        customerData: extractedData.customerData || undefined,
-        userProblem: extractedData.userProblem || undefined,
+        ...(extractedData.productName && { productName: extractedData.productName }),
+        ...(extractedData.productUrl && { productUrl: extractedData.productUrl }),
+        ...(extractedData.industry && { industry: extractedData.industry }),
+        ...(extractedData.positioning && { positioning: extractedData.positioning }),
+        ...(extractedData.customerData && { customerData: extractedData.customerData }),
+        ...(extractedData.userProblem && { userProblem: extractedData.userProblem }),
       };
 
       // Set legacy fallback flag for this session

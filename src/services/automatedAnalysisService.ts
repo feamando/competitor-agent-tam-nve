@@ -16,6 +16,7 @@ import { AnalysisService } from './domains/AnalysisService';
 import { shouldUseUnifiedAnalysisService, featureFlags } from './migration/FeatureFlags';
 import { AutoReportGenerationService } from './autoReportGenerationService';
 import prisma from '@/lib/prisma';
+import { getAnalysisMemoryCleanup } from '@/lib/analysis/memoryCleanup';
 
 export interface AnalysisTask {
   id: string;

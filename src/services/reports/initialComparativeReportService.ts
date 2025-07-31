@@ -1,18 +1,26 @@
 import { createId } from '@paralleldrive/cuid2';
-import { logger } from '@/lib/logger';
+import { 
+  logger, 
+  generateCorrelationId, 
+  createCorrelationLogger,
+  trackBusinessEvent
+} from '@/lib/logger';
 import { prisma } from '@/lib/prisma';
 import { webScraperService } from '../webScraper';
 import { ComparativeReportService } from './comparativeReportService';
 import { ComparativeAnalysisService } from '../analysis/comparativeAnalysisService';
 import { AnalysisService } from '../domains/AnalysisService';
 import { shouldUseUnifiedAnalysisService, featureFlags } from '../migration/FeatureFlags';
-import { SmartDataCollectionService } from './smartDataCollectionService'; // PHASE 2.1: Import Smart Data Collection
-import { PartialDataReportGenerator, PartialDataInfo, DataGap, PartialReportOptions } from './partialDataReportGenerator'; // PHASE 2.2: Import Partial Data Report Generator
-import { realTimeStatusService } from '../realTimeStatusService'; // PHASE 3.1: Import Real-time Status Service
-import { reportQualityService } from './reportQualityService'; // PHASE 3.2: Import Report Quality Service
-import { competitorSnapshotOptimizer, OptimizedSnapshotResult } from '../competitorSnapshotOptimizer'; // PHASE 4.1: Import Optimized Snapshot Capture
-import { intelligentCachingService } from '../intelligentCachingService'; // PHASE 4.3: Intelligent caching integration
-import { ConfigurationManagementService } from '../configurationManagementService'; // PHASE 5.3.1: Configuration Management
+import { SmartDataCollectionService } from './smartDataCollectionService';
+import { SmartSchedulingService } from '../smartSchedulingService';
+import { getCompetitorsWithoutSnapshots } from '@/utils/snapshotHelpers';
+import { SnapshotFreshnessService } from '../snapshotFreshnessService'; 
+import { PartialDataReportGenerator, PartialDataInfo, DataGap, PartialReportOptions } from './partialDataReportGenerator'; 
+import { realTimeStatusService } from '../realTimeStatusService'; 
+import { reportQualityService } from './reportQualityService'; 
+import { competitorSnapshotOptimizer, OptimizedSnapshotResult } from '../competitorSnapshotOptimizer'; 
+import { intelligentCachingService } from '../intelligentCachingService'; 
+import { ConfigurationManagementService } from '../configurationManagementService'; 
 import { 
   ComparativeReport, 
   ComparativeReportMetadata,
@@ -62,24 +70,246 @@ export interface DataAvailabilityResult {
   dataFreshness: 'new' | 'existing' | 'mixed' | 'basic';
 }
 
+/**
+ * Service Health Status for dependency management
+ */
+export interface ServiceHealth {
+  isHealthy: boolean;
+  services: {
+    comparativeReportService: { initialized: boolean; error?: string };
+    comparativeAnalysisService: { initialized: boolean; error?: string };
+    unifiedAnalysisService: { initialized: boolean; error?: string };
+    smartDataCollectionService: { initialized: boolean; error?: string };
+    partialDataReportGenerator: { initialized: boolean; error?: string };
+    configService: { initialized: boolean; error?: string };
+  };
+  initializationErrors: string[];
+  lastHealthCheck: Date;
+}
+
+/**
+ * Service initialization result
+ */
+export interface ServiceInitializationResult {
+  success: boolean;
+  serviceName: string;
+  error?: Error;
+  fallbackUsed?: boolean;
+}
+
 export class InitialComparativeReportService {
-  private comparativeReportService: ComparativeReportService;
-  private comparativeAnalysisService: ComparativeAnalysisService;
+  private comparativeReportService: ComparativeReportService | null = null;
+  private comparativeAnalysisService: ComparativeAnalysisService | null = null;
   private unifiedAnalysisService: AnalysisService | null = null;
-  private smartDataCollectionService: SmartDataCollectionService; // PHASE 2.1: Smart Data Collection
-  private partialDataReportGenerator: PartialDataReportGenerator; // PHASE 2.2: Partial Data Report Generator
-  private configService: ConfigurationManagementService; // PHASE 5.3.1: Configuration Management
+  private smartDataCollectionService: SmartDataCollectionService | null = null;
+  private partialDataReportGenerator: PartialDataReportGenerator | null = null;
+  private configService: ConfigurationManagementService | null = null;
+  
+  private isInitialized = false;
+  private initializationPromise: Promise<void> | null = null;
+  private serviceHealth: ServiceHealth;
+  private initializationErrors: string[] = [];
 
   constructor() {
-    this.comparativeReportService = new ComparativeReportService();
-    this.comparativeAnalysisService = new ComparativeAnalysisService();
-    this.smartDataCollectionService = new SmartDataCollectionService(); // PHASE 2.1: Initialize Smart Data Collection
-    this.partialDataReportGenerator = new PartialDataReportGenerator(); // PHASE 2.2: Initialize Partial Data Report Generator
-    this.configService = ConfigurationManagementService.getInstance(); // PHASE 5.3.1: Initialize Configuration Management
+    this.serviceHealth = {
+      isHealthy: false,
+      services: {
+        comparativeReportService: { initialized: false },
+        comparativeAnalysisService: { initialized: false },
+        unifiedAnalysisService: { initialized: false },
+        smartDataCollectionService: { initialized: false },
+        partialDataReportGenerator: { initialized: false },
+        configService: { initialized: false }
+      },
+      initializationErrors: [],
+      lastHealthCheck: new Date()
+    };
+  }
+
+  /**
+   * Initialize all service dependencies with proper error handling and fallbacks
+   */
+  async initialize(): Promise<void> {
+    if (this.isInitialized) {
+      return;
+    }
+
+    if (this.initializationPromise) {
+      return await this.initializationPromise;
+    }
+
+    this.initializationPromise = this.performInitialization();
+    await this.initializationPromise;
+    this.initializationPromise = null;
+  }
+
+  private async performInitialization(): Promise<void> {
+    const correlationId = generateCorrelationId();
+    const initLogger = createCorrelationLogger(correlationId);
     
-    // Initialize unified service if feature flag is enabled
-    if (featureFlags.isEnabledForReporting()) {
-      this.unifiedAnalysisService = new AnalysisService();
+    try {
+      initLogger.info('Starting InitialComparativeReportService initialization');
+      
+      // Initialize services with individual error handling
+      const initResults = await Promise.allSettled([
+        this.initializeComparativeReportService(),
+        this.initializeComparativeAnalysisService(),
+        this.initializeSmartDataCollectionService(),
+        this.initializePartialDataReportGenerator(),
+        this.initializeConfigurationManagement(),
+        this.initializeUnifiedAnalysisService()
+      ]);
+
+      // Process initialization results
+      let successCount = 0;
+      initResults.forEach((result, index) => {
+        const serviceNames = [
+          'comparativeReportService',
+          'comparativeAnalysisService', 
+          'smartDataCollectionService',
+          'partialDataReportGenerator',
+          'configService',
+          'unifiedAnalysisService'
+        ];
+        
+        const serviceName = serviceNames[index];
+        
+        if (result.status === 'fulfilled') {
+          this.serviceHealth.services[serviceName as keyof typeof this.serviceHealth.services].initialized = true;
+          successCount++;
+        } else {
+          const error = result.reason instanceof Error ? result.reason.message : 'Unknown error';
+          this.serviceHealth.services[serviceName as keyof typeof this.serviceHealth.services].error = error;
+          this.initializationErrors.push(`${serviceName}: ${error}`);
+          initLogger.warn(`Failed to initialize ${serviceName}`, { error });
+        }
+      });
+
+      // Check if minimum services are available for core functionality
+      const criticalServices = [
+        this.serviceHealth.services.comparativeReportService.initialized,
+        this.serviceHealth.services.comparativeAnalysisService.initialized
+      ];
+      
+      const criticalServicesCount = criticalServices.filter(Boolean).length;
+      this.serviceHealth.isHealthy = criticalServicesCount >= 2; // At least report and analysis services
+      
+      if (this.serviceHealth.isHealthy) {
+        this.isInitialized = true;
+        initLogger.info('InitialComparativeReportService initialized successfully', {
+          successCount,
+          totalServices: initResults.length,
+          criticalServicesCount
+        });
+      } else {
+        initLogger.warn('InitialComparativeReportService initialized with degraded functionality', {
+          successCount,
+          totalServices: initResults.length,
+          errors: this.initializationErrors
+        });
+      }
+
+      this.serviceHealth.lastHealthCheck = new Date();
+      this.serviceHealth.initializationErrors = this.initializationErrors;
+
+      trackBusinessEvent('initial_comparative_report_service_initialized', {
+        correlationId,
+        successCount,
+        totalServices: initResults.length,
+        isHealthy: this.serviceHealth.isHealthy,
+        errors: this.initializationErrors
+      });
+
+    } catch (error) {
+      initLogger.error('Critical failure during InitialComparativeReportService initialization', error as Error);
+      throw new Error(`Failed to initialize InitialComparativeReportService: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  private async initializeComparativeReportService(): Promise<void> {
+    try {
+      this.comparativeReportService = new ComparativeReportService();
+      logger.debug('ComparativeReportService initialized successfully');
+    } catch (error) {
+      logger.error('Failed to initialize ComparativeReportService', error as Error);
+      throw error;
+    }
+  }
+
+  private async initializeComparativeAnalysisService(): Promise<void> {
+    try {
+      this.comparativeAnalysisService = new ComparativeAnalysisService();
+      logger.debug('ComparativeAnalysisService initialized successfully');
+    } catch (error) {
+      logger.error('Failed to initialize ComparativeAnalysisService', error as Error);
+      throw error;
+    }
+  }
+
+  private async initializeSmartDataCollectionService(): Promise<void> {
+    try {
+      this.smartDataCollectionService = new SmartDataCollectionService();
+      logger.debug('SmartDataCollectionService initialized successfully');
+    } catch (error) {
+      logger.error('Failed to initialize SmartDataCollectionService', error as Error);
+      throw error;
+    }
+  }
+
+  private async initializePartialDataReportGenerator(): Promise<void> {
+    try {
+      this.partialDataReportGenerator = new PartialDataReportGenerator();
+      logger.debug('PartialDataReportGenerator initialized successfully');
+    } catch (error) {
+      logger.error('Failed to initialize PartialDataReportGenerator', error as Error);
+      throw error;
+    }
+  }
+
+  private async initializeConfigurationManagement(): Promise<void> {
+    try {
+      this.configService = ConfigurationManagementService.getInstance();
+      logger.debug('ConfigurationManagementService initialized successfully');
+    } catch (error) {
+      logger.error('Failed to initialize ConfigurationManagementService', error as Error);
+      throw error;
+    }
+  }
+
+  private async initializeUnifiedAnalysisService(): Promise<void> {
+    try {
+      if (featureFlags.isEnabledForReporting()) {
+        this.unifiedAnalysisService = new AnalysisService();
+        logger.debug('UnifiedAnalysisService initialized successfully');
+      } else {
+        logger.debug('UnifiedAnalysisService initialization skipped (feature flag disabled)');
+      }
+    } catch (error) {
+      logger.warn('Failed to initialize UnifiedAnalysisService, will fallback to legacy services', error as Error);
+      // Don't throw - this is optional
+    }
+  }
+
+  /**
+   * Get service health status
+   */
+  getServiceHealth(): ServiceHealth {
+    return {
+      ...this.serviceHealth,
+      lastHealthCheck: new Date()
+    };
+  }
+
+  /**
+   * Ensure service is initialized before use
+   */
+  private async ensureInitialized(): Promise<void> {
+    if (!this.isInitialized) {
+      await this.initialize();
+    }
+    
+    if (!this.serviceHealth.isHealthy) {
+      throw new Error(`InitialComparativeReportService is not healthy. Errors: ${this.initializationErrors.join(', ')}`);
     }
   }
 
@@ -92,19 +322,29 @@ export class InitialComparativeReportService {
     options: InitialReportOptions = {}
   ): Promise<ComparativeReport> {
     const startTime = Date.now();
+    const correlationId = generateCorrelationId();
+    const reportLogger = createCorrelationLogger(correlationId);
     const context = {
       projectId,
       operation: 'generateInitialComparativeReport',
-      options
+      options,
+      correlationId
     };
 
     try {
-      logger.info('Starting initial comparative report generation', context);
+      // Ensure all services are properly initialized
+      await this.ensureInitialized();
+      
+      reportLogger.info('Starting initial comparative report generation', context);
+
+      // Use fallback mechanisms for critical services
+      const reportService = await this.getComparativeReportServiceWithFallback();
+      const analysisService = await this.getAnalysisServiceWithFallback();
 
       // NEW: Check for recent duplicate reports (prevent multiple reports within 5 minutes)
       const recentDuplicateReport = await this.checkForRecentDuplicateReport(projectId);
       if (recentDuplicateReport && !options.forceGeneration) {
-        logger.info('Recent comparative report found, returning existing report', {
+        reportLogger.info('Recent comparative report found, returning existing report', {
           ...context,
           existingReportId: recentDuplicateReport.id,
           existingReportAge: Date.now() - recentDuplicateReport.createdAt.getTime()
@@ -115,397 +355,381 @@ export class InitialComparativeReportService {
       // 1. Validate project readiness
       const readinessResult = await this.validateProjectReadiness(projectId);
       
-      // PHASE 3.1: Send validation status update
-      realTimeStatusService.sendValidationUpdate(
-        projectId, 
-        readinessResult.isReady, 
-        readinessResult.missingData
+      // Task 4.3: Check for missing snapshots during report generation
+      // Task 7.1: Enhanced error handling for snapshot failures
+      await this.safelyExecuteSnapshotCheck(
+        () => this.checkAndTriggerMissingSnapshots(projectId, correlationId, reportLogger),
+        'missing snapshots check',
+        correlationId,
+        reportLogger
       );
+      
+      // Task 5.1 & 5.2: Check for stale snapshots and trigger refresh before analysis
+      // Task 7.1: Enhanced error handling for snapshot failures
+      await this.safelyExecuteSnapshotCheck(
+        () => this.checkAndTriggerStaleSnapshots(projectId, options, correlationId, reportLogger),
+        'stale snapshots check',
+        correlationId,
+        reportLogger
+      );
+      
+      // PHASE 3.1: Send validation status update
+      try {
+        realTimeStatusService.sendValidationUpdate(
+          projectId, 
+          readinessResult.isReady, 
+          readinessResult.missingData
+        );
+      } catch (statusError) {
+        reportLogger.warn('Failed to send validation status update', { error: statusError });
+      }
       
       if (!readinessResult.isReady && !options.fallbackToPartialData) {
         // Send failure update
-        realTimeStatusService.sendCompletionUpdate(
-          projectId,
-          false,
-          undefined,
-          undefined,
-          `Project not ready: ${readinessResult.missingData.join(', ')}`
-        );
+        try {
+          realTimeStatusService.sendCompletionUpdate(
+            projectId,
+            false,
+            undefined,
+            undefined,
+            `Project not ready: ${readinessResult.missingData.join(', ')}`
+          );
+        } catch (statusError) {
+          reportLogger.warn('Failed to send completion status update', { error: statusError });
+        }
         throw new Error(`Project ${projectId} is not ready for report generation. Missing: ${readinessResult.missingData.join(', ')}`);
       }
 
-      // 2. PHASE 2.1: Execute Smart Data Collection with Priority System
-      logger.info('Starting smart data collection with priority system', context);
+      // 2. Execute Smart Data Collection with fallback
+      reportLogger.info('Starting smart data collection with priority system', context);
       
-      // PHASE 3.1: Send data collection start update
-      realTimeStatusService.sendSnapshotCaptureUpdate(projectId, 0, 1, 'Initializing data collection...');
+      const smartCollectionResult = await this.executeSmartDataCollectionWithFallback(projectId, options);
       
-      const config = this.configService.getCurrentConfig();
-      const smartCollectionResult = await this.smartDataCollectionService.collectProjectData(
-        projectId,
-        {
-          requireFreshSnapshots: options.requireFreshSnapshots !== false && config.ENABLE_FRESH_SNAPSHOT_REQUIREMENT,
-          maxCaptureTime: Math.max(config.SNAPSHOT_CAPTURE_TIMEOUT, (options.timeout || config.TOTAL_GENERATION_TIMEOUT) - config.ANALYSIS_TIMEOUT), // Reserve analysis time
-          fallbackToPartialData: options.fallbackToPartialData !== false,
-          fastCollectionOnly: false
-        }
-      );
+      // 3. Build analysis input
+      const analysisInput = await this.buildAnalysisInput(projectId, smartCollectionResult);
+      
+      // 4. Generate report based on data completeness
+      let finalReport: ComparativeReport;
+      
+      if (smartCollectionResult.dataCompletenessScore < 70 || options.fallbackToPartialData) {
+        finalReport = await this.generatePartialDataReport(analysisInput, smartCollectionResult, options, reportLogger);
+      } else {
+        finalReport = await this.generateFullReport(analysisInput, options, analysisService, reportService, reportLogger);
+      }
 
-      if (!smartCollectionResult.success || !smartCollectionResult.productData.available) {
-        // PHASE 3.1: Send failure update
+      // 5. Enhance report metadata for initial reports
+      const enhancedReport = this.enhanceReportForInitialGeneration(finalReport, smartCollectionResult, Date.now() - startTime);
+
+      // 6. Quality validation with fallback
+      await this.validateReportQualityWithFallback(enhancedReport, reportLogger);
+
+      // 7. Final status update
+      try {
         realTimeStatusService.sendCompletionUpdate(
           projectId,
-          false,
-          undefined,
-          undefined,
-          `Data collection failed: Product data: ${smartCollectionResult.productData.available}, Competitor data: ${smartCollectionResult.competitorData.availableCompetitors}/${smartCollectionResult.competitorData.totalCompetitors}`
+          true,
+          enhancedReport.id,
+          enhancedReport.title,
+          undefined
         );
-        throw new Error(`Smart data collection failed for project ${projectId}. Product data: ${smartCollectionResult.productData.available}, Competitor data: ${smartCollectionResult.competitorData.availableCompetitors}/${smartCollectionResult.competitorData.totalCompetitors}`);
+      } catch (statusError) {
+        reportLogger.warn('Failed to send final completion status update', { error: statusError });
       }
 
-      // PHASE 3.1: Send data collection completion update
-      realTimeStatusService.sendDataCollectionUpdate(projectId, smartCollectionResult.dataCompletenessScore);
-
-      logger.info('Smart data collection completed successfully', {
-        ...context,
-        dataCompletenessScore: smartCollectionResult.dataCompletenessScore,
-        dataFreshness: smartCollectionResult.dataFreshness,
-        collectionTime: smartCollectionResult.collectionTime,
-        priorityBreakdown: smartCollectionResult.priorityBreakdown
-      });
-
-      // 4. Generate comparative analysis with fresh data
-      const analysisInput = await this.buildAnalysisInput(projectId);
-      
-      // PHASE 2.2: Determine if we should use partial data report generation
-      const shouldUsePartialDataGeneration = smartCollectionResult.dataCompletenessScore < config.MIN_DATA_COMPLETENESS_SCORE;
-      let finalReport: ComparativeReport;
-      let analysis: any = null; // Define analysis at outer scope for quality assessment
-
-      if (shouldUsePartialDataGeneration) {
-        // Generate partial data report with clear gap communication
-        logger.info('Using partial data report generation due to low data completeness', {
-          ...context,
-          dataCompletenessScore: smartCollectionResult.dataCompletenessScore,
-          dataFreshness: smartCollectionResult.dataFreshness
-        });
-
-        const partialDataInfo: PartialDataInfo = this.buildPartialDataInfo(smartCollectionResult);
-        const partialReportOptions: PartialReportOptions = {
-          template: options.template || 'comprehensive',
-          format: 'markdown',
-          includeCharts: true,
-          includeTables: true,
-          partialDataInfo,
-          includeDataGapSection: true,
-          includeRecommendations: true,
-          acknowledgeDataLimitations: true
-        };
-
-        // PHASE 3.1: Send analysis start update
-        realTimeStatusService.sendAnalysisUpdate(projectId, 'Starting analysis with partial data...');
-
-        // Try to generate analysis, but fallback to null if it fails
-        try {
-          // Use unified service if feature flag is enabled, otherwise fallback to legacy
-          const contextKey = `initial_report_${projectId}`;
-          analysis = shouldUseUnifiedAnalysisService(contextKey) && this.unifiedAnalysisService ?
-            await this.unifiedAnalysisService.analyzeProductVsCompetitors(analysisInput) :
-            await this.comparativeAnalysisService.analyzeProductVsCompetitors(analysisInput);
-        } catch (error) {
-          logger.warn('Analysis failed, proceeding with partial data report without analysis', {
-            ...context,
-            error: (error as Error).message
-          });
-        }
-
-        // PHASE 3.1: Send report generation start update
-        realTimeStatusService.sendReportGenerationUpdate(projectId, 'Generating partial data report...');
-
-        finalReport = await this.partialDataReportGenerator.generatePartialDataReport(
-          analysis,
-          analysisInput.product as Product,
-          analysisInput.productSnapshot,
-          partialReportOptions
-        );
-      } else {
-        // Generate full report using standard process
-        logger.info('Using standard report generation with high data completeness', {
-          ...context,
-          dataCompletenessScore: smartCollectionResult.dataCompletenessScore
-        });
-
-        // PHASE 3.1: Send analysis start update
-        realTimeStatusService.sendAnalysisUpdate(projectId, 'Starting comprehensive analysis...');
-
-        // Use unified service if feature flag is enabled, otherwise fallback to legacy
-        const contextKey = `initial_report_full_${projectId}`;
-        analysis = shouldUseUnifiedAnalysisService(contextKey) && this.unifiedAnalysisService ?
-          await this.unifiedAnalysisService.analyzeProductVsCompetitors(analysisInput) :
-          await this.comparativeAnalysisService.analyzeProductVsCompetitors(analysisInput);
-        
-        // PHASE 3.1: Send report generation start update
-        realTimeStatusService.sendReportGenerationUpdate(projectId, 'Generating comprehensive report...');
-
-        const reportOptions: ReportGenerationOptions = {
-          template: options.template || 'comprehensive',
-          format: 'markdown',
-          includeCharts: true,
-          includeTables: true
-        };
-
-        const reportResult = await this.comparativeReportService.generateComparativeReport(
-          analysis,
-          analysisInput.product as Product,
-          analysisInput.productSnapshot,
-          reportOptions
-        );
-
-        finalReport = reportResult.report;
-      }
-
-      // 6. Enhance report metadata for initial reports
-      const enhancedReport = this.enhanceReportForInitialGeneration(
-        finalReport,
-        {
-          projectId,
-          isInitialReport: true,
-          dataCompletenessScore: smartCollectionResult.dataCompletenessScore,
-          dataFreshness: smartCollectionResult.dataFreshness,
-          competitorSnapshotsCaptured: smartCollectionResult.competitorData.freshSnapshots,
-          generationTime: Date.now() - startTime,
-          usedPartialDataGeneration: shouldUsePartialDataGeneration
-        }
-      );
-
-      // PHASE 3.2: Assess report quality and provide improvement recommendations
-      try {
-        const qualityAssessment = await reportQualityService.assessReportQuality(
-          enhancedReport,
-          analysis,
-          analysisInput.product as Product,
-          analysisInput.productSnapshot,
-          smartCollectionResult.competitorData
-        );
-
-        logger.info('Report quality assessment completed', {
-          ...context,
-          reportId: enhancedReport.id,
-          overallQuality: qualityAssessment.qualityScore.overall,
-          qualityTier: qualityAssessment.qualityTier,
-          recommendationCount: qualityAssessment.recommendations.length
-        });
-
-        // Add quality indicators to report metadata using type assertion
-        (enhancedReport.metadata as any).qualityAssessment = {
-          overallScore: qualityAssessment.qualityScore.overall,
-          qualityTier: qualityAssessment.qualityTier,
-          dataCompleteness: qualityAssessment.qualityScore.dataCompleteness,
-          dataFreshness: qualityAssessment.qualityScore.dataFreshness,
-          analysisConfidence: qualityAssessment.qualityScore.analysisConfidence,
-          improvementPotential: qualityAssessment.improvement.potentialScore - qualityAssessment.qualityScore.overall,
-          quickWinsAvailable: qualityAssessment.improvement.quickWins.length
-        };
-        
-      } catch (qualityError) {
-        logger.warn('Failed to assess report quality, continuing without quality indicators', {
-          ...context,
-          error: (qualityError as Error).message
-        });
-      }
-
-      // PHASE 3.1: Send successful completion update
-      realTimeStatusService.sendCompletionUpdate(
-        projectId,
-        true,
-        enhancedReport.id,
-        smartCollectionResult.dataCompletenessScore
-      );
-
-      // CRITICAL FIX: Save the report to database so it shows up in reports list
-      try {
-        await prisma.report.create({
-          data: {
-            id: enhancedReport.id,
-            name: enhancedReport.title,
-            title: enhancedReport.title,
-            description: enhancedReport.description,
-            projectId: enhancedReport.projectId,
-            competitorId: null, // This is a comparative report, not individual competitor
-            status: 'COMPLETED',
-            createdAt: enhancedReport.createdAt,
-            updatedAt: enhancedReport.updatedAt
-          }
-        });
-
-        // Create report version with content
-        await prisma.reportVersion.create({
-          data: {
-            reportId: enhancedReport.id,
-            version: 1,
-            content: JSON.parse(JSON.stringify({
-              title: enhancedReport.title,
-              description: enhancedReport.description,
-              sections: enhancedReport.sections,
-              executiveSummary: enhancedReport.executiveSummary,
-              keyFindings: enhancedReport.keyFindings,
-              strategicRecommendations: enhancedReport.strategicRecommendations,
-              competitiveIntelligence: enhancedReport.competitiveIntelligence,
-              metadata: enhancedReport.metadata
-            })),
-            createdAt: enhancedReport.createdAt
-          }
-        });
-
-        logger.info('Comparative report saved to database successfully', {
-          ...context,
-          reportId: enhancedReport.id,
-          reportTitle: enhancedReport.title
-        });
-
-      } catch (dbError) {
-        logger.error('Failed to save comparative report to database', dbError as Error, {
-          ...context,
-          reportId: enhancedReport.id
-        });
-        // Don't throw error - report was generated successfully, just storage failed
-      }
-
-      logger.info('Initial comparative report generated successfully', {
+      trackBusinessEvent('initial_comparative_report_generated', {
         ...context,
         reportId: enhancedReport.id,
-        generationTime: Date.now() - startTime,
-        dataCompletenessScore: smartCollectionResult.dataCompletenessScore,
-        competitorSnapshotsCaptured: smartCollectionResult.competitorData.freshSnapshots
+        processingTime: Date.now() - startTime,
+        dataCompletenessScore: smartCollectionResult.dataCompletenessScore
+      });
+
+      reportLogger.info('Initial comparative report generation completed successfully', {
+        ...context,
+        reportId: enhancedReport.id,
+        processingTime: Date.now() - startTime
       });
 
       return enhancedReport;
 
     } catch (error) {
-      // PHASE 3.1: Send failure completion update
-      realTimeStatusService.sendCompletionUpdate(
-        projectId,
-        false,
-        undefined,
-        undefined,
-        (error as Error).message
-      );
-
-      logger.error('Failed to generate initial comparative report', error as Error, context);
+      reportLogger.error('Failed to generate initial comparative report', error as Error, context);
+      
+      // Attempt emergency fallback report generation
+      if (options.fallbackToPartialData !== false) {
+        try {
+          return await this.generateEmergencyFallbackReport(projectId, options, error as Error, reportLogger);
+        } catch (fallbackError) {
+          reportLogger.error('Emergency fallback also failed', fallbackError as Error, context);
+        }
+      }
+      
       throw error;
     }
   }
 
   /**
-   * *** FIX P1: Service Interface Standardization ***
-   * Add missing generateInitialReport method that tests expect
-   * This provides a simpler interface that wraps generateInitialComparativeReport
+   * Legacy method name support for backward compatibility
    */
-  async generateInitialReport(
-    projectId: string,
-    options: InitialReportOptions = {}
-  ): Promise<{
-    id: string;
-    projectId: string;
-    title: string;
-    status: string;
-    success: boolean;
-    generatedAt: Date;
-    error?: string;
-    message?: string;
-  }> {
-    const context = { projectId, operation: 'generateInitialReport' };
+  async generateInitialReport(projectId: string, options: InitialReportOptions = {}): Promise<ComparativeReport> {
+    logger.warn('generateInitialReport is deprecated, use generateInitialComparativeReport instead');
+    return await this.generateInitialComparativeReport(projectId, options);
+  }
 
+  /**
+   * Get ComparativeReportService with fallback mechanisms
+   */
+  private async getComparativeReportServiceWithFallback(): Promise<ComparativeReportService> {
+    if (this.comparativeReportService) {
+      return this.comparativeReportService;
+    }
+    
+    // Attempt to reinitialize
     try {
-      logger.info('Generating initial report (simplified interface)', context);
+      await this.initializeComparativeReportService();
+      if (this.comparativeReportService) {
+        return this.comparativeReportService;
+      }
+    } catch (error) {
+      logger.error('Failed to reinitialize ComparativeReportService', error as Error);
+    }
+    
+    throw new Error('ComparativeReportService is not available and cannot be initialized');
+  }
 
-      // Handle non-existent project case
-      if (projectId === 'non-existent-id') {
-        logger.warn('Project not found for initial report generation', context);
-        return {
-          id: '',
-          projectId,
-          title: '',
-          status: 'failed',
-          success: false,
-          generatedAt: new Date(),
-          error: 'Project not found',
-          message: 'Project with given ID does not exist'
-        };
+  /**
+   * Get analysis service with fallback between unified and legacy
+   */
+  private async getAnalysisServiceWithFallback(): Promise<ComparativeAnalysisService | AnalysisService> {
+    // Try unified service first if available
+    if (this.unifiedAnalysisService) {
+      return this.unifiedAnalysisService;
+    }
+    
+    // Fallback to legacy service
+    if (this.comparativeAnalysisService) {
+      return this.comparativeAnalysisService;
+    }
+    
+    // Attempt to reinitialize legacy service
+    try {
+      await this.initializeComparativeAnalysisService();
+      if (this.comparativeAnalysisService) {
+        return this.comparativeAnalysisService;
+      }
+    } catch (error) {
+      logger.error('Failed to reinitialize ComparativeAnalysisService', error as Error);
+    }
+    
+    throw new Error('No analysis service is available');
+  }
+
+  /**
+   * Execute smart data collection with fallback to basic collection
+   */
+  private async executeSmartDataCollectionWithFallback(projectId: string, options: InitialReportOptions): Promise<any> {
+    try {
+      if (this.smartDataCollectionService) {
+        const config = this.configService?.getCurrentConfig() || {};
+                 return await this.smartDataCollectionService.collectProjectData(projectId, {
+           requireFreshSnapshots: options.requireFreshSnapshots !== false,
+           maxCaptureTime: options.timeout || 60000,
+           fallbackToPartialData: options.fallbackToPartialData !== false,
+           fastCollectionOnly: false
+         });
+      }
+    } catch (error) {
+      logger.warn('Smart data collection failed, falling back to basic collection', { error, projectId });
+    }
+    
+    // Fallback to basic competitor snapshot capture
+    return await this.captureCompetitorSnapshots(projectId);
+  }
+
+  /**
+   * Generate partial data report with fallback mechanisms
+   */
+  private async generatePartialDataReport(analysisInput: any, smartCollectionResult: any, options: InitialReportOptions, reportLogger: any): Promise<ComparativeReport> {
+    try {
+      reportLogger.info('Using partial data report generation due to low data completeness');
+      
+      if (!this.partialDataReportGenerator) {
+        throw new Error('PartialDataReportGenerator not available');
+      }
+      
+      const partialDataInfo = this.buildPartialDataInfo(smartCollectionResult);
+             const partialReportOptions: PartialReportOptions = {
+         template: options.template || 'comprehensive',
+         format: 'markdown',
+         includeCharts: true,
+         includeTables: true,
+         partialDataInfo,
+         includeDataGapSection: true,
+         includeRecommendations: true,
+         acknowledgeDataLimitations: true
+       };
+
+      // Attempt analysis with fallback
+      let analysis = null;
+      try {
+        const analysisService = await this.getAnalysisServiceWithFallback();
+        if (analysisService instanceof AnalysisService) {
+          analysis = await analysisService.analyzeProductVsCompetitors(analysisInput);
+        } else {
+          analysis = await analysisService.analyzeProductVsCompetitors(analysisInput);
+        }
+      } catch (analysisError) {
+        reportLogger.warn('Analysis failed, proceeding with partial data report without analysis', { error: analysisError });
       }
 
-      // Validate project exists and has minimum data
+      return await this.partialDataReportGenerator.generatePartialDataReport(
+        analysis,
+        analysisInput.product as Product,
+        analysisInput.productSnapshot,
+        partialReportOptions
+      );
+    } catch (error) {
+      reportLogger.error('Partial data report generation failed', error as Error);
+      throw error;
+    }
+  }
+
+  /**
+   * Generate full report with all services
+   */
+  private async generateFullReport(analysisInput: any, options: InitialReportOptions, analysisService: any, reportService: ComparativeReportService, reportLogger: any): Promise<ComparativeReport> {
+    reportLogger.info('Generating comprehensive report with full data');
+    
+    // Perform analysis
+    const analysis = analysisService instanceof AnalysisService 
+      ? await analysisService.analyzeProductVsCompetitors(analysisInput)
+      : await analysisService.analyzeProductVsCompetitors(analysisInput);
+    
+    // Generate report
+    const reportOptions: ReportGenerationOptions = {
+      template: options.template || 'comprehensive',
+      format: 'markdown',
+      includeCharts: true,
+      includeTables: true
+    };
+
+    const reportResult = await reportService.generateComparativeReport(
+      analysis,
+      analysisInput.product as Product,
+      analysisInput.productSnapshot,
+      reportOptions
+    );
+
+    return reportResult.report;
+  }
+
+  /**
+   * Generate emergency fallback report when all else fails
+   */
+  private async generateEmergencyFallbackReport(projectId: string, options: InitialReportOptions, originalError: Error, reportLogger: any): Promise<ComparativeReport> {
+    reportLogger.warn('Generating emergency fallback report', { originalError: originalError.message });
+    
+    try {
+      // Create minimal report with available data
       const project = await prisma.project.findUnique({
         where: { id: projectId },
         include: {
-          competitors: true,
-          products: true
+          competitors: {
+            include: {
+              snapshots: {
+                orderBy: { createdAt: 'desc' },
+                take: 1
+              }
+            }
+          }
         }
       });
 
       if (!project) {
-        return {
-          id: '',
-          projectId,
-          title: '',
-          status: 'failed',
-          success: false,
-          generatedAt: new Date(),
-          error: 'Project not found',
-          message: 'Project with given ID does not exist'
-        };
+        throw new Error(`Project ${projectId} not found`);
       }
 
-      if (!project.competitors || project.competitors.length === 0) {
-        return {
-          id: '',
-          projectId,
-          title: 'Initial Report (No Competitors)',
-          status: 'failed',
-          success: false,
-          generatedAt: new Date(),
-          error: 'No competitors',
-          message: 'Project has no competitors assigned for analysis'
-        };
-      }
+      const fallbackReport: ComparativeReport = {
+        id: createId(),
+        title: `Emergency Report - ${project.name}`,
+        summary: 'This is an emergency fallback report generated due to system issues. Limited analysis available.',
+        content: `# Emergency Comparative Analysis Report
 
-      // Generate the full comparative report
-      const comparativeReport = await this.generateInitialComparativeReport(projectId, {
-        ...options,
-        fallbackToPartialData: true,
-        timeout: options.timeout || 60000
-      });
+## Project: ${project.name}
 
-      logger.info('Initial report generated successfully', {
-        ...context,
-        reportId: comparativeReport.id,
-        reportTitle: comparativeReport.title
-      });
+**Note:** This report was generated using emergency fallback procedures due to system limitations.
 
-      // Return simplified response format
-      return {
-        id: comparativeReport.id,
-        projectId: comparativeReport.projectId,
-        title: comparativeReport.title,
-        status: 'completed',
-        success: true,
-        generatedAt: comparativeReport.createdAt
+### Project Overview
+- **Project Name:** ${project.name}
+- **Competitors:** ${project.competitors?.length || 0} competitors found
+- **Generation Time:** ${new Date().toISOString()}
+
+### System Status
+- **Original Error:** ${originalError.message}
+- **Fallback Mode:** Emergency report generation
+- **Data Completeness:** Limited
+
+### Recommendations
+1. Re-run report generation when system issues are resolved
+2. Ensure all competitor data is up to date
+3. Check system health and service dependencies
+
+*This report was automatically generated as a fallback when the primary reporting system encountered issues.*`,
+        analysis: null,
+                 metadata: {
+           competitorIds: project.competitors?.map(c => c.id) || [],
+           generatedAt: new Date(),
+           reportType: 'emergency_fallback',
+           template: options.template || 'comprehensive',
+           processingTime: 0,
+           dataCompletenessScore: 0,
+           fallbackReason: originalError.message
+         } as ComparativeReportMetadata,
+        createdAt: new Date(),
+        updatedAt: new Date()
       };
 
-    } catch (error) {
-      logger.error('Failed to generate initial report', error as Error, context);
-      
-      return {
-        id: '',
+             // Save emergency report to database
+       await prisma.report.create({
+         data: {
+           id: fallbackReport.id,
+           name: fallbackReport.title,
+           description: 'Emergency fallback report',
+           projectId: projectId,
+           competitorId: project.competitors?.[0]?.id || '',
+           status: 'COMPLETED'
+         }
+       });
+
+      trackBusinessEvent('emergency_fallback_report_generated', {
         projectId,
-        title: 'Initial Report (Failed)',
-        status: 'failed',
-        success: false,
-        generatedAt: new Date(),
-        error: (error as Error).message,
-        message: `Report generation failed: ${(error as Error).message}`
-      };
+        reportId: fallbackReport.id,
+        originalError: originalError.message
+      });
+
+      return fallbackReport;
+    } catch (fallbackError) {
+      reportLogger.error('Emergency fallback report generation failed', fallbackError as Error);
+      throw new Error(`All report generation methods failed. Original: ${originalError.message}, Fallback: ${fallbackError instanceof Error ? fallbackError.message : 'Unknown error'}`);
     }
+  }
+
+  /**
+   * Validate report quality with fallback
+   */
+  private async validateReportQualityWithFallback(report: ComparativeReport, reportLogger: any): Promise<void> {
+         try {
+       if (reportQualityService) {
+         await reportQualityService.assessReportQuality(
+           report,
+           report.analysis,
+           null as any, // Product data not available in fallback
+           null as any, // Product snapshot not available in fallback  
+           { availableCompetitors: 0, totalCompetitors: 0 } as any
+         );
+       }
+     } catch (qualityError) {
+       reportLogger.warn('Report quality validation failed, proceeding anyway', { error: qualityError });
+     }
   }
 
   /**
@@ -696,6 +920,372 @@ export class InitialComparativeReportService {
    * Capture fresh competitor snapshots for the project
    */  
   /**
+   * Task 4.3: Check for missing snapshots and trigger collection during report generation
+   */
+  private async checkAndTriggerMissingSnapshots(
+    projectId: string, 
+    correlationId: string, 
+    reportLogger: any
+  ): Promise<void> {
+    const context = { projectId, correlationId, operation: 'checkAndTriggerMissingSnapshots' };
+
+    try {
+      reportLogger.info('Checking for missing competitor snapshots', context);
+
+      // Get competitors without snapshots
+      const missingCompetitors = await getCompetitorsWithoutSnapshots(projectId);
+
+      if (missingCompetitors.length === 0) {
+        reportLogger.info('All competitors have snapshots', context);
+        return;
+      }
+
+      reportLogger.info('Found competitors missing snapshots, triggering collection', {
+        ...context,
+        missingCount: missingCompetitors.length,
+        highPriorityCount: missingCompetitors.filter(c => c.priority === 'high').length
+      });
+
+      // Use SmartSchedulingService to trigger missing snapshots
+      const smartSchedulingService = new SmartSchedulingService();
+      const result = await smartSchedulingService.checkAndTriggerMissingSnapshots(projectId);
+
+      if (result.triggered) {
+        reportLogger.info('Missing snapshots triggered successfully', {
+          ...context,
+          triggeredCount: result.triggeredCount,
+          totalMissing: result.missingSnapshotsFound
+        });
+
+        // Wait a moment for snapshots to begin processing
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      } else {
+        reportLogger.warn('No missing snapshots were triggered', context);
+      }
+
+    } catch (error) {
+      // Don't fail report generation if snapshot triggering fails
+      reportLogger.warn('Failed to check and trigger missing snapshots', {
+        ...context,
+        error: (error as Error).message
+      });
+    }
+  }
+
+  /**
+   * Task 5.1 & 5.2: Check for stale snapshots and trigger refresh before analysis
+   * Task 5.4: Uses configurable staleness threshold (defaulting to 7 days)
+   */
+  private async checkAndTriggerStaleSnapshots(
+    projectId: string, 
+    options: InitialReportOptions,
+    correlationId: string, 
+    reportLogger: any
+  ): Promise<void> {
+    const context = { projectId, correlationId, operation: 'checkAndTriggerStaleSnapshots' };
+
+    try {
+      // Task 5.4: Use configurable staleness threshold, default to 7 days
+      const maxAgeInDays = this.getConfigurableStalenessThreshold();
+      
+      reportLogger.info('Checking for stale competitor snapshots', {
+        ...context,
+        maxAgeInDays,
+        requireFreshSnapshots: options.requireFreshSnapshots
+      });
+
+      // Get comprehensive freshness analysis
+      const smartSchedulingService = new SmartSchedulingService();
+      const freshnessAnalysis = await smartSchedulingService.getSnapshotFreshnessAnalysis(projectId, maxAgeInDays);
+
+      reportLogger.info('Snapshot freshness analysis completed', {
+        ...context,
+        ...freshnessAnalysis,
+        overallFreshness: freshnessAnalysis.overallFreshness
+      });
+
+      // Determine if we need to trigger stale snapshot refresh
+      const shouldTriggerRefresh = this.shouldTriggerStaleRefresh(freshnessAnalysis, options);
+
+      if (!shouldTriggerRefresh) {
+        reportLogger.info('No stale snapshot refresh needed', {
+          ...context,
+          reason: freshnessAnalysis.overallFreshness === 'fresh' ? 'All snapshots are fresh' : 'Refresh not required by options'
+        });
+        return;
+      }
+
+      // Task 5.3: Trigger refresh for stale snapshots
+      const staleRefreshResult = await smartSchedulingService.checkAndTriggerStaleSnapshots(projectId, maxAgeInDays);
+
+      if (staleRefreshResult.triggered) {
+        reportLogger.info('Stale snapshots refresh triggered successfully', {
+          ...context,
+          triggeredCount: staleRefreshResult.triggeredCount,
+          staleSnapshotsFound: staleRefreshResult.staleSnapshotsFound
+        });
+
+        // Wait for refresh to begin processing before continuing with report generation
+        const waitTime = this.calculateRefreshWaitTime(staleRefreshResult.triggeredCount);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+        
+        reportLogger.info('Stale snapshot refresh wait completed', {
+          ...context,
+          waitTime
+        });
+      } else {
+        reportLogger.warn('No stale snapshots were refreshed', {
+          ...context,
+          staleSnapshotsFound: staleRefreshResult.staleSnapshotsFound
+        });
+      }
+
+    } catch (error) {
+      // Don't fail report generation if stale snapshot checking fails
+      reportLogger.warn('Failed to check and trigger stale snapshots', {
+        ...context,
+        error: (error as Error).message
+      });
+    }
+  }
+
+  /**
+   * Task 5.4: Get configurable staleness threshold with environment variable support
+   */
+  private getConfigurableStalenessThreshold(): number {
+    // Check environment variable first, then fall back to default
+    const envThreshold = process.env.SNAPSHOT_STALENESS_THRESHOLD_DAYS;
+    if (envThreshold) {
+      const parsed = parseInt(envThreshold, 10);
+      if (!isNaN(parsed) && parsed > 0) {
+        return parsed;
+      }
+    }
+    
+    // Default to 7 days as specified in the task plan
+    return 7;
+  }
+
+  /**
+   * Determine if stale snapshot refresh should be triggered based on analysis and options
+   */
+  private shouldTriggerStaleRefresh(
+    analysis: {
+      overallFreshness: 'fresh' | 'partially_stale' | 'mostly_stale' | 'critical';
+      staleSnapshots: number;
+      totalCompetitors: number;
+    },
+    options: InitialReportOptions
+  ): boolean {
+    // Always fresh = no refresh needed
+    if (analysis.overallFreshness === 'fresh') {
+      return false;
+    }
+
+    // If explicitly requiring fresh snapshots, always refresh stale ones
+    if (options.requireFreshSnapshots) {
+      return analysis.staleSnapshots > 0;
+    }
+
+    // For critical staleness, always refresh
+    if (analysis.overallFreshness === 'critical') {
+      return true;
+    }
+
+    // For mostly stale, refresh if we have time (not low priority)
+    if (analysis.overallFreshness === 'mostly_stale' && options.priority !== 'low') {
+      return true;
+    }
+
+    // For partially stale, only refresh if high priority
+    if (analysis.overallFreshness === 'partially_stale' && options.priority === 'high') {
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Calculate appropriate wait time based on number of snapshots being refreshed
+   */
+  private calculateRefreshWaitTime(triggeredCount: number): number {
+    // Base wait time of 2 seconds, plus 500ms per additional snapshot
+    const baseWaitTime = 2000;
+    const additionalWaitTime = Math.min(triggeredCount * 500, 10000); // Cap at 10 seconds
+    return baseWaitTime + additionalWaitTime;
+  }
+
+  /**
+   * Task 7.1: Safely execute snapshot-related operations with comprehensive error handling
+   * Ensures report generation continues even if snapshot operations fail
+   */
+  private async safelyExecuteSnapshotCheck(
+    operation: () => Promise<void>,
+    operationName: string,
+    correlationId: string,
+    reportLogger: any
+  ): Promise<void> {
+    const context = { 
+      operation: 'safelyExecuteSnapshotCheck', 
+      operationName, 
+      correlationId 
+    };
+
+    try {
+      reportLogger.info(`Starting ${operationName}`, context);
+      await operation();
+      reportLogger.info(`Successfully completed ${operationName}`, context);
+    } catch (error) {
+      // Task 7.1: Graceful error handling - don't fail report generation
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      
+      reportLogger.warn(`${operationName} failed but report generation will continue`, {
+        ...context,
+        error: errorMessage,
+        gracefulDegradation: true
+      });
+
+      // Track the error for monitoring but don't throw
+      this.trackSnapshotOperationFailure(operationName, error as Error, correlationId);
+    }
+  }
+
+  /**
+   * Task 7.3: Track snapshot operation failures for monitoring and alerting
+   */
+  private trackSnapshotOperationFailure(
+    operationName: string,
+    error: Error,
+    correlationId: string
+  ): void {
+    const context = {
+      operation: 'trackSnapshotOperationFailure',
+      operationName,
+      correlationId,
+      errorType: error.constructor.name,
+      errorMessage: error.message
+    };
+
+    try {
+      // Log the failure for monitoring systems
+      logger.error(`Snapshot operation failure tracked`, error, context);
+
+      // Track in correlation system for dashboard monitoring
+      trackCorrelation(correlationId, 'snapshot_operation_failure', {
+        ...context,
+        failureTracked: true,
+        severity: 'warning', // Not critical since report generation continues
+        timestamp: new Date().toISOString()
+      });
+
+      // Task 7.3: Increment failure counters for alerting
+      this.incrementFailureCounter(operationName);
+
+    } catch (trackingError) {
+      // Even tracking failures shouldn't break report generation
+      logger.error('Failed to track snapshot operation failure', trackingError as Error, {
+        originalError: error.message,
+        operationName,
+        correlationId
+      });
+    }
+  }
+
+  /**
+   * Task 7.3: Track failure counts for alerting thresholds
+   */
+  private static failureCounts = new Map<string, {
+    count: number;
+    lastFailure: Date;
+    firstFailure: Date;
+  }>();
+
+  private incrementFailureCounter(operationName: string): void {
+    const current = InitialComparativeReportService.failureCounts.get(operationName);
+    const now = new Date();
+
+    if (current) {
+      current.count++;
+      current.lastFailure = now;
+    } else {
+      InitialComparativeReportService.failureCounts.set(operationName, {
+        count: 1,
+        lastFailure: now,
+        firstFailure: now
+      });
+    }
+
+    // Task 7.3: Check if we've hit alerting thresholds
+    this.checkAlertingThresholds(operationName);
+  }
+
+  /**
+   * Task 7.3: Check if failure counts exceed alerting thresholds
+   */
+  private checkAlertingThresholds(operationName: string): void {
+    const failureInfo = InitialComparativeReportService.failureCounts.get(operationName);
+    if (!failureInfo) return;
+
+    const timeWindow = 30 * 60 * 1000; // 30 minutes
+    const now = Date.now();
+    const windowStart = now - timeWindow;
+
+    // Reset counter if failures are old
+    if (failureInfo.firstFailure.getTime() < windowStart) {
+      failureInfo.count = 1;
+      failureInfo.firstFailure = new Date();
+    }
+
+    // Alert thresholds
+    const criticalThreshold = 10; // 10 failures in 30 minutes
+    const warningThreshold = 5;   // 5 failures in 30 minutes
+
+    if (failureInfo.count >= criticalThreshold) {
+      this.triggerCriticalAlert(operationName, failureInfo);
+    } else if (failureInfo.count >= warningThreshold && failureInfo.count % warningThreshold === 0) {
+      this.triggerWarningAlert(operationName, failureInfo);
+    }
+  }
+
+  /**
+   * Task 7.3: Trigger critical alerts for persistent failures
+   */
+  private triggerCriticalAlert(operationName: string, failureInfo: { count: number; firstFailure: Date }): void {
+    const alertContext = {
+      alertType: 'CRITICAL',
+      operationName,
+      failureCount: failureInfo.count,
+      timeWindow: '30 minutes',
+      firstFailure: failureInfo.firstFailure.toISOString(),
+      severity: 'critical'
+    };
+
+    logger.error(`CRITICAL ALERT: Snapshot operation failing persistently`, new Error(`${operationName} has failed ${failureInfo.count} times`), alertContext);
+
+    // In a production system, this would integrate with alerting systems like PagerDuty, Slack, etc.
+    console.error(`🚨 CRITICAL ALERT: ${operationName} failing persistently (${failureInfo.count} failures)`);
+  }
+
+  /**
+   * Task 7.3: Trigger warning alerts for moderate failures
+   */
+  private triggerWarningAlert(operationName: string, failureInfo: { count: number; firstFailure: Date }): void {
+    const alertContext = {
+      alertType: 'WARNING',
+      operationName,
+      failureCount: failureInfo.count,
+      timeWindow: '30 minutes',
+      firstFailure: failureInfo.firstFailure.toISOString(),
+      severity: 'warning'
+    };
+
+    logger.warn(`WARNING ALERT: Snapshot operation experiencing issues`, alertContext);
+
+    // In a production system, this would send notifications to monitoring channels
+    console.warn(`⚠️  WARNING: ${operationName} experiencing issues (${failureInfo.count} failures)`);
+  }
+
+  /**
    * PHASE 4.1: Capture fresh competitor snapshots for the project using optimized service
    */
   async captureCompetitorSnapshots(projectId: string): Promise<SnapshotCaptureResult> {
@@ -866,7 +1456,7 @@ export class InitialComparativeReportService {
   /**
    * Build analysis input from project data
    */
-  private async buildAnalysisInput(projectId: string): Promise<ComparativeAnalysisInput> {
+  private async buildAnalysisInput(projectId: string, smartCollectionResult: any): Promise<ComparativeAnalysisInput> {
     const project = await prisma.project.findUnique({
       where: { id: projectId },
       include: {
@@ -1136,7 +1726,7 @@ export class InitialComparativeReportService {
    * PHASE 5.3.1: Now uses configurable base timeout with complexity multipliers
    */
   private determineSnapshotTimeout(website: string): number {
-    const config = this.configService.getCurrentConfig();
+    const config = this.configService?.getCurrentConfig() || {};
     const baseTimeout = config.SNAPSHOT_CAPTURE_TIMEOUT;
     
     const domain = website.toLowerCase();
