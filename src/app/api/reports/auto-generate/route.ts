@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAutoReportService } from '@/services/autoReportGenerationService';
-import { InitialComparativeReportService } from '@/services/reports/initialComparativeReportService';
+// Task 3.2: Use consolidated service initialization patterns
+import { initializeAutoReportEndpoint, cleanupEndpointServices, validateServiceHealth } from '@/lib/service-initialization/endpoint-helpers';
 import { handleAPIError } from '@/lib/utils/errorHandler';
 import { prisma } from '@/lib/prisma';
 import { 
@@ -122,64 +122,90 @@ export async function POST(request: Request) {
       template
     });
 
-    // FIXED: Use InitialComparativeReportService for true comparative reports
-    const initialComparativeReportService = new InitialComparativeReportService();
+    // Task 3.2: Use consolidated service initialization pattern
+    let services;
+    try {
+      services = await initializeAutoReportEndpoint(correlationId);
+      
+      // Validate service health before proceeding
+      const healthStatus = validateServiceHealth(services);
+      if (!healthStatus.isHealthy) {
+        logger.warn('Some services are unhealthy', {
+          ...context,
+          unhealthyServices: healthStatus.unhealthyServices,
+          healthyCount: healthStatus.healthyCount,
+          totalCount: healthStatus.totalCount
+        });
+      }
+      
+    } catch (serviceError) {
+      logger.error('Failed to initialize services for auto-report endpoint', serviceError as Error, context);
+      return NextResponse.json(
+        formatErrorResponse('SERVICE_INITIALIZATION_FAILED', 'Failed to initialize required services', (serviceError as Error).message),
+        { status: 503 }
+      );
+    }
     
     if (immediate) {
       try {
-        // Generate comparative report directly (not queued)
-        logger.info('Generating comparative report immediately', {
+        // Generate initial comparative report using consolidated service
+        logger.info('Generating initial comparative report immediately', {
           ...context,
           projectId,
           projectName: project.name,
           template
         });
 
-        const comparativeReport = await initialComparativeReportService.generateInitialComparativeReport(
+        const initialReportOptions = {
+          template: template as 'comprehensive' | 'executive' | 'technical' | 'strategic',
+          priority: 'high' as const,
+          timeout: 120000, // 2 minutes
+          fallbackToPartialData: true,
+          requireFreshSnapshots: true
+        };
+
+        if (!services.initialReportService) {
+          throw new Error('Initial report service not available');
+        }
+
+        const initialReport = await services.initialReportService.service.generateInitialComparativeReport(
           projectId,
-          {
-            template: template as 'comprehensive' | 'executive' | 'technical' | 'strategic',
-            priority: 'high',
-            timeout: 120000, // 2 minutes
-            fallbackToPartialData: true,
-            notifyOnCompletion: notify,
-            requireFreshSnapshots: true
-          }
+          initialReportOptions
         );
 
-        trackBusinessEvent('comparative_report_generated_successfully', {
+        trackBusinessEvent('initial_comparative_report_generated_successfully', {
           ...context,
           projectId,
-          reportId: comparativeReport.id,
-          reportTitle: comparativeReport.title,
+          reportId: initialReport.id || 'unknown',
+          reportTitle: initialReport.title || 'Initial Report',
           isComparative: true
         });
 
-        logger.info('Comparative report generated successfully', {
+        logger.info('Initial comparative report generated successfully', {
           ...context,
           projectId,
-          reportId: comparativeReport.id,
-          reportTitle: comparativeReport.title
+          reportId: initialReport.id || 'unknown',
+          reportTitle: initialReport.title || 'Initial Report'
         });
 
         const response = {
           success: true,
           projectId: project.id,
           projectName: project.name,
-          reportId: comparativeReport.id,
-          reportTitle: comparativeReport.title,
+          reportId: initialReport.id,
+          reportTitle: initialReport.title,
           reportType: 'comparative',
           competitorCount: project.competitors.length,
           template,
-          generatedAt: comparativeReport.createdAt.toISOString(),
+          generatedAt: initialReport.createdAt.toISOString(),
           timestamp: new Date().toISOString(),
           correlationId
         };
 
-        trackCorrelation(correlationId, 'comparative_report_generation_response_sent', {
+        trackCorrelation(correlationId, 'initial_report_generation_response_sent', {
           ...context,
           success: true,
-          reportId: comparativeReport.id
+          reportId: initialReport.id || 'unknown'
         });
 
         return NextResponse.json(response, { status: 200 });
@@ -189,7 +215,7 @@ export async function POST(request: Request) {
         const errorMessage = (reportError as Error).message;
         const { error: friendlyError } = formatErrorResponse('AI_SERVICE_ERROR', errorMessage, correlationId);
         
-        logger.warn('Immediate comparative report generation failed, falling back to queue', {
+        logger.warn('Immediate initial report generation failed, falling back to queue', {
           ...context,
           projectId,
           error: errorMessage,
@@ -197,14 +223,14 @@ export async function POST(request: Request) {
           userFriendlyMessage: friendlyError.message
         });
 
-        const autoReportService = getAutoReportService();
+        const autoReportService = services.autoReportService.service;
         const reportTask = await autoReportService.generateInitialReport(projectId, {
           reportTemplate: template,
           reportName: `Manual Report - ${project.name}`,
           priority: 'high'
         });
 
-        trackBusinessEvent('comparative_report_fallback_queued', {
+        trackBusinessEvent('initial_report_fallback_queued', {
           ...context,
           projectId,
           taskId: reportTask.taskId,
@@ -213,7 +239,7 @@ export async function POST(request: Request) {
           friendlyReason: friendlyError.message
         });
 
-        logger.info('Comparative report fallback task queued', {
+        logger.info('Initial report fallback task queued', {
           ...context,
           projectId,
           taskId: reportTask.taskId,
@@ -247,7 +273,7 @@ export async function POST(request: Request) {
           correlationId
         };
 
-        trackCorrelation(correlationId, 'comparative_report_fallback_response_sent', {
+        trackCorrelation(correlationId, 'initial_report_fallback_response_sent', {
           ...context,
           success: true,
           taskId: reportTask.taskId,
@@ -258,7 +284,7 @@ export async function POST(request: Request) {
       }
     } else {
       // Just check current status without generating new report
-      const autoReportService = getAutoReportService();
+      const autoReportService = services.autoReportService.service;
       const queueStatus = await autoReportService.getQueueStatus(projectId);
 
       const response = {
@@ -300,5 +326,12 @@ export async function POST(request: Request) {
     }
     
     return errorResponse;
+  } finally {
+    // Task 3.2: Clean up consolidated services
+    try {
+      cleanupEndpointServices(correlationId);
+    } catch (cleanupError) {
+      logger.warn('Service cleanup failed', { error: (cleanupError as Error).message, correlationId });
+    }
   }
 } 

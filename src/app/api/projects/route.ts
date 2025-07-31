@@ -3,6 +3,7 @@ import { projectService } from '@/services/projectService';
 import { logger, generateCorrelationId, trackBusinessEvent } from '@/lib/logger';
 import { prisma } from '@/lib/prisma';
 import { productRepository } from '@/lib/repositories';
+import { getAutoReportService } from '@/services/autoReportGenerationService';
 
 // Default mock user for testing without authentication
 const DEFAULT_USER_EMAIL = 'mock@example.com';
@@ -52,13 +53,13 @@ export async function GET() {
   }
 }
 
-// POST /api/projects - Enhanced with automatic report generation
+// POST /api/projects - Enhanced with automatic report generation and periodic scheduling
 export async function POST(request: NextRequest) {
   const correlationId = generateCorrelationId();
   const context = { operation: 'POST /api/projects', correlationId };
 
   try {
-    logger.info('Creating new project with automatic report generation', context);
+    logger.info('Creating new project with automatic report generation and scheduling', context);
 
     const json = await request.json();
 
@@ -219,15 +220,70 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Task 2.1: Set up periodic reports (ported from conversation.ts)
+    if (json.frequency && ['weekly', 'monthly', 'daily', 'biweekly'].includes(json.frequency.toLowerCase())) {
+      try {
+        logger.info('Setting up periodic reports for API project', {
+          ...context,
+          projectId: result.project.id,
+          frequency: json.frequency.toLowerCase()
+        });
+        
+        const autoReportService = getAutoReportService();
+        const schedule = await autoReportService.schedulePeriodicReports(
+          result.project.id,
+          json.frequency.toLowerCase() as 'daily' | 'weekly' | 'biweekly' | 'monthly',
+          {
+            reportTemplate: json.reportTemplate || 'comprehensive'
+          }
+        );
+        
+        reportGenerationInfo = {
+          ...reportGenerationInfo,
+          periodicReportsScheduled: true,
+          frequency: json.frequency.toLowerCase(),
+          nextScheduledReport: schedule.nextRunTime
+        };
+
+        trackBusinessEvent('periodic_reports_scheduled_via_api', {
+          ...context,
+          projectId: result.project.id,
+          frequency: json.frequency.toLowerCase(),
+          nextScheduledReport: schedule.nextRunTime.toISOString()
+        });
+
+        logger.info('Periodic reports scheduled for API project', {
+          ...context,
+          projectId: result.project.id,
+          frequency: json.frequency.toLowerCase(),
+          nextScheduledReport: schedule.nextRunTime.toISOString()
+        });
+      } catch (scheduleError) {
+        logger.error('Failed to schedule periodic reports for API project', scheduleError as Error, {
+          ...context,
+          projectId: result.project.id,
+          frequency: json.frequency
+        });
+        
+        // Continue with project creation but log scheduling failure
+        reportGenerationInfo = {
+          ...reportGenerationInfo,
+          periodicReportsScheduled: false,
+          schedulingError: 'Failed to schedule periodic reports'
+        };
+      }
+    }
+
     trackBusinessEvent('project_created_via_api', {
       ...context,
       projectId: result.project.id,
       projectName: result.project.name,
       competitorCount: result.project.competitors.length,
-      reportGenerationTriggered: !!reportGenerationInfo?.initialReportGenerated
+      reportGenerationTriggered: !!reportGenerationInfo?.initialReportGenerated,
+      periodicReportsScheduled: !!reportGenerationInfo?.periodicReportsScheduled
     });
 
-    logger.info('Project created successfully with report generation', {
+    logger.info('Project created successfully with report generation and scheduling', {
       ...context,
       projectId: result.project.id,
       projectName: result.project.name,

@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { ReportGenerator } from '@/lib/reports';
+// Updated to use consolidated ReportingService
+import { ReportingService } from '@/services/domains/ReportingService';
+import { AnalysisService } from '@/services/domains/AnalysisService';
+import { ComparativeReportRequest } from '@/services/domains/reporting/types';
 import { handleAPIError } from '@/lib/utils/errorHandler';
 import { prisma } from '@/lib/prisma';
 import { 
@@ -59,56 +62,19 @@ export async function POST(request: Request) {
 
     const { reportOptions, reportName, template, focusArea, includeRecommendations } = requestBody;
 
-    // Enhanced context for logging
-    const enhancedContext = {
-      ...context,
-      projectId,
-      reportOptions: reportOptions || 'default',
-      reportName: reportName || 'unnamed',
-      template: template || 'comprehensive',
-      focusArea: focusArea || 'overall'
-    };
-
-    trackReportFlow('comparative_report_initialization', {
-      ...enhancedContext,
-      stepStatus: 'started',
-      stepData: { projectId, reportName, template, focusArea }
-    });
-
-    logger.info('Starting comparative report generation', enhancedContext);
-
-    // Validate project exists and has required data
-    trackReportFlow('project_validation', { ...enhancedContext, stepStatus: 'started' });
-    
+    // Verify project exists and get competitor information
     const project = await prisma.project.findUnique({
       where: { id: projectId },
       include: {
-        products: {
-          include: {
-            snapshots: {
-              orderBy: { createdAt: 'desc' },
-              take: 5
-            }
-          }
-        },
         competitors: {
-          include: {
-            snapshots: {
-              orderBy: { createdAt: 'desc' },
-              take: 5
-            }
-          }
+          select: { id: true, name: true }
         }
       }
     });
 
     if (!project) {
-      trackReportFlow('project_validation', {
-        ...enhancedContext,
-        stepStatus: 'failed',
-        stepData: { error: 'Project not found' }
-      });
-      logger.warn('Project not found for comparative report', enhancedContext);
+      trackCorrelation(correlationId, 'project_not_found', { ...context, projectId });
+      logger.warn('Project not found for comparative report request', { ...context, projectId });
       return NextResponse.json(
         { 
           error: 'Project not found',
@@ -120,35 +86,13 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!project.products || project.products.length === 0) {
-      trackReportFlow('project_validation', {
-        ...enhancedContext,
-        stepStatus: 'failed',
-        stepData: { error: 'No product found in project' }
-      });
-      logger.warn('No product found in project for comparative analysis', enhancedContext);
-      return NextResponse.json(
-        { 
-          error: 'Project must have a product for comparative analysis',
-          code: 'NO_PRODUCT_FOUND',
-          retryable: false,
-          correlationId
-        },
-        { status: 422 }
-      );
-    }
-
     if (!project.competitors || project.competitors.length === 0) {
-      trackReportFlow('project_validation', {
-        ...enhancedContext,
-        stepStatus: 'failed',
-        stepData: { error: 'No competitors found in project' }
-      });
-      logger.warn('No competitors found in project for comparative analysis', enhancedContext);
+      trackCorrelation(correlationId, 'no_competitors_assigned', { ...context, projectId });
+      logger.warn('No competitors assigned to project', { ...context, projectId });
       return NextResponse.json(
         { 
-          error: 'Project must have competitors for comparative analysis',
-          code: 'NO_COMPETITORS_FOUND',
+          error: 'No competitors assigned to project',
+          code: 'NO_COMPETITORS_ASSIGNED',
           retryable: false,
           correlationId
         },
@@ -156,142 +100,77 @@ export async function POST(request: Request) {
       );
     }
 
-    trackReportFlow('project_validation', {
-      ...enhancedContext,
-      stepStatus: 'completed',
-      stepData: { 
-        projectName: project.name,
-        productCount: project.products.length,
-        competitorCount: project.competitors.length
+    // Build comparative report request for consolidated service
+    const comparativeReportRequest: ComparativeReportRequest = {
+      projectId,
+      reportType: 'comparative',
+      options: {
+        template: template || 'comprehensive',
+        focusArea: focusArea || 'all',
+        analysisDepth: 'detailed',
+        includeTableOfContents: true,
+        includeDiagrams: true,
+        enhanceWithAI: true,
+        includeDataFreshness: true,
+        includeActionableInsights: includeRecommendations !== false,
+        ...reportOptions
       }
+    };
+
+    logger.info('Starting comparative report generation with consolidated service', {
+      ...context,
+      projectId,
+      projectName: project.name,
+      competitorCount: project.competitors.length,
+      template: comparativeReportRequest.options?.template,
+      focusArea: comparativeReportRequest.options?.focusArea
     });
 
-    logger.info(`Found project "${project.name}" with ${project.products.length} products and ${project.competitors.length} competitors`, {
-      ...enhancedContext,
-      productNames: project.products.map(p => p.name),
-      competitorNames: project.competitors.map(c => c.name)
-    });
+    // UPDATED: Use consolidated ReportingService
+    const analysisService = new AnalysisService();
+    const reportingService = new ReportingService(analysisService);
 
-    // Initialize generator and generate comparative report
-    const generator = new ReportGenerator();
-    
-    trackReportFlow('comparative_report_generation', {
-      ...enhancedContext,
-      stepStatus: 'started'
-    });
+    // Generate comparative report
+    const reportResult = await reportingService.generateComparativeReport(comparativeReportRequest);
 
-    // Generate single comparative report
-    const reportResult = await generator.generateComparativeReport(projectId, {
-      reportName: reportName || `${project.name} - Comparative Analysis`,
-      template: template || 'comprehensive',
-      focusArea: focusArea || 'overall',
-      includeRecommendations: includeRecommendations !== false,
-      userId: 'chat-system' // Will be replaced with actual user ID from auth
-    });
-
-    if (reportResult.error) {
-      trackReportFlow('comparative_report_generation', {
-        ...enhancedContext,
-        stepStatus: 'failed',
-        stepData: { error: reportResult.error }
-      });
-
-      logger.warn('Comparative report generation failed, providing fallback response', {
-        ...enhancedContext,
-        error: reportResult.error
-      });
-
-      // Phase 5.2: Graceful degradation - provide basic report structure instead of complete failure
-      const fallbackReport = {
-        id: `fallback-report-${Date.now()}`,
-        title: `${project.name} - Comparative Analysis (Partial)`,
-        executiveSummary: `We encountered an issue generating the full comparative analysis for your project "${project.name}". However, we can provide you with the following information:`,
-        sections: [
-          {
-            id: 'project-overview',
-            title: 'Project Overview',
-            content: `• **Project**: ${project.name}\n• **Products**: ${project.products.map(p => p.name).join(', ')}\n• **Competitors**: ${project.competitors.map(c => c.name).join(', ')}\n• **Analysis Status**: Partial data available`,
-            type: 'overview',
-            order: 1
-          },
-          {
-            id: 'issue-notice',
-            title: 'Analysis Issue',
-            content: `**Issue encountered**: ${reportResult.error}\n\n**Next steps**:\n• Your project data is safely stored\n• You can retry the analysis\n• Contact support if the issue persists\n• Meanwhile, you can view individual product/competitor snapshots`,
-            type: 'notice',
-            order: 2
-          }
-        ],
-        metadata: {
-          projectId,
-          projectName: project.name,
-          productCount: project.products.length,
-          competitorCount: project.competitors.length,
-          reportType: 'comparative_fallback',
-          generatedAt: new Date().toISOString(),
-          issue: reportResult.error,
-          fallbackMode: true
-        },
-        keyFindings: [
-          'Report generation encountered technical issues',
-          'Project data is intact and accessible',
-          'Manual retry recommended'
-        ],
-        keyOpportunities: [
-          'Retry analysis with different template',
-          'Check individual snapshots for recent data',
-          'Contact support for assistance'
-        ]
-      };
-
-      return NextResponse.json({
-        success: true,
-        report: fallbackReport,
-        warning: 'Report generated in fallback mode due to processing issues',
-        metadata: {
-          projectId,
-          projectName: project.name,
-          productCount: project.products.length,
-          competitorCount: project.competitors.length,
-          reportType: 'comparative_fallback',
-          template: template || 'comprehensive',
-          focusArea: focusArea || 'overall'
-        },
-        correlationId,
-        retryable: true
-      }, { status: 200 }); // Return 200 instead of 500 for graceful degradation
-    }
-
-    trackReportFlow('comparative_report_generation', {
-      ...enhancedContext,
-      stepStatus: 'completed',
-      stepData: { 
-        reportTitle: reportResult.data?.title || 'unknown',
-        sectionsCount: reportResult.data?.sections?.length || 0
-      }
+    trackCorrelation(correlationId, 'comparative_report_generated_successfully', {
+      ...context,
+      projectId,
+      reportId: reportResult.report?.id || 'unknown',
+      reportTitle: reportResult.report?.title || 'Comparative Report',
+      processingTime: reportResult.processingTime
     });
 
     logger.info('Comparative report generated successfully', {
-      ...enhancedContext,
-      reportTitle: reportResult.data?.title,
-      sectionsCount: reportResult.data?.sections?.length
+      ...context,
+      projectId,
+      reportId: reportResult.report?.id || 'unknown',
+      reportTitle: reportResult.report?.title || 'Comparative Report'
     });
 
-    // Return successful response
-    return NextResponse.json({
+    // Return response in expected format
+    const response = {
       success: true,
-      report: reportResult.data,
-      metadata: {
-        projectId,
-        projectName: project.name,
-        productCount: project.products.length,
-        competitorCount: project.competitors.length,
-        reportType: 'comparative',
-        template: template || 'comprehensive',
-        focusArea: focusArea || 'overall'
-      },
+      message: 'Comparative report generated successfully',
+      projectId: project.id,
+      projectName: project.name,
+      reportId: reportResult.report?.id,
+      reportTitle: reportResult.report?.title || reportName || `Comparative Report - ${project.name}`,
+      reportContent: reportResult.report?.content,
+      competitorCount: project.competitors.length,
+      template: comparativeReportRequest.options?.template,
+      generatedAt: reportResult.report?.createdAt.toISOString(),
+      timestamp: new Date().toISOString(),
       correlationId
+    };
+
+    trackCorrelation(correlationId, 'comparative_report_response_sent', {
+      ...context,
+      success: true,
+      reportId: reportResult.report?.id || 'unknown'
     });
+
+    return NextResponse.json(response, { status: 200 });
 
   } catch (error) {
     trackReportFlow('comparative_report_error', {

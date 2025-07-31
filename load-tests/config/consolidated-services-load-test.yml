@@ -1,0 +1,212 @@
+config:
+  target: 'http://localhost:3000'
+  phases:
+    # Warm-up phase
+    - duration: 60
+      arrivalRate: 1
+      name: "Warm-up phase"
+    # Ramp-up phase  
+    - duration: 120
+      arrivalRate: 5
+      rampTo: 20
+      name: "Ramp-up to normal load"
+    # Sustained load phase
+    - duration: 300
+      arrivalRate: 20
+      name: "Sustained normal load"
+    # Peak load phase
+    - duration: 180
+      arrivalRate: 20
+      rampTo: 50
+      name: "Peak load simulation"
+    # Stress test phase
+    - duration: 120
+      arrivalRate: 50
+      rampTo: 100
+      name: "Stress testing"
+    # Cool-down phase
+    - duration: 60
+      arrivalRate: 100
+      rampTo: 1
+      name: "Cool-down phase"
+  
+  # Performance monitoring configuration
+  processor: "./scenarios/consolidatedServicesProcessor.js"
+  
+  # Request timeout and retry settings
+  timeout: 120000  # 2 minutes timeout for long-running operations
+  
+  # Custom metrics collection
+  metrics:
+    custom:
+      analysisResponseTime:
+        unit: 'milliseconds'
+      reportGenerationTime:
+        unit: 'milliseconds'
+      memoryUsage:
+        unit: 'megabytes'
+      errorRate:
+        unit: 'percentage'
+
+  # Environment variables
+  variables:
+    projectId: "load-test-project-{{ $randomString() }}"
+    correlationId: "load-test-{{ $timestamp() }}"
+    testMode: true
+    consolidatedServiceV15: true
+
+scenarios:
+  # Scenario 1: Analysis Service Load Testing
+  - name: "Analysis Service Load Test"
+    weight: 40
+    flow:
+      - function: "setupAnalysisTest"
+      - post:
+          url: "/api/projects/{{ projectId }}/analysis"
+          headers:
+            Content-Type: "application/json"
+            X-Correlation-ID: "{{ correlationId }}-analysis"
+          json:
+            analysisConfig:
+              focusAreas: 
+                - "features"
+                - "positioning"
+                - "user_experience"
+              depth: "detailed"
+              includeRecommendations: true
+              enhanceWithAI: true
+              consolidatedServiceV15: true
+            testMode: true
+          capture:
+            - json: "$.analysis.id"
+              as: "analysisId"
+            - json: "$.correlationId"
+              as: "responseCorrelationId"
+          expect:
+            - statusCode: 200
+            - hasProperty: "analysis"
+            - hasProperty: "correlationId"
+      - function: "recordAnalysisMetrics"
+      - think: 2  # 2 second pause between requests
+
+  # Scenario 2: Report Generation Load Testing  
+  - name: "Report Generation Load Test"
+    weight: 35
+    flow:
+      - function: "setupReportTest"
+      - post:
+          url: "/api/reports/auto-generate"
+          headers:
+            Content-Type: "application/json"
+            X-Correlation-ID: "{{ correlationId }}-report"
+          json:
+            projectId: "{{ projectId }}"
+            template: "comprehensive"
+            immediate: true
+            reportOptions:
+              includeRecommendations: true
+              enhanceWithAI: true
+              includeDataFreshness: true
+              consolidatedServiceV15: true
+            testMode: true
+          capture:
+            - json: "$.reportId"
+              as: "reportId"
+            - json: "$.correlationId" 
+              as: "responseCorrelationId"
+          expect:
+            - statusCode: 200
+            - hasProperty: "reportId"
+            - hasProperty: "correlationId"
+      - function: "recordReportMetrics"
+      - think: 3  # 3 second pause for report generation
+
+  # Scenario 3: Concurrent Analysis + Report Workflow
+  - name: "End-to-End Workflow Load Test"
+    weight: 20
+    flow:
+      - function: "setupWorkflowTest"
+      # Step 1: Generate Analysis
+      - post:
+          url: "/api/projects/{{ projectId }}/analysis"
+          headers:
+            Content-Type: "application/json"
+            X-Correlation-ID: "{{ correlationId }}-workflow-analysis"
+          json:
+            analysisConfig:
+              focusAreas: ["features", "user_experience"]
+              depth: "comprehensive"
+              includeRecommendations: true
+              enhanceWithAI: true
+              consolidatedServiceV15: true
+            testMode: true
+          capture:
+            - json: "$.analysis.id"
+              as: "workflowAnalysisId"
+          expect:
+            - statusCode: 200
+            - hasProperty: "analysis"
+      - think: 1
+      # Step 2: Generate Report based on Analysis
+      - post:
+          url: "/api/reports/auto-generate"
+          headers:
+            Content-Type: "application/json"
+            X-Correlation-ID: "{{ correlationId }}-workflow-report"
+          json:
+            projectId: "{{ projectId }}"
+            template: "executive"
+            immediate: true
+            reportOptions:
+              includeRecommendations: true
+              enhanceWithAI: false  # Faster processing for load test
+              consolidatedServiceV15: true
+            testMode: true
+          expect:
+            - statusCode: 200
+            - hasProperty: "reportId"
+      - function: "recordWorkflowMetrics"
+      - think: 5  # 5 second pause for workflow completion
+
+  # Scenario 4: Service Health Monitoring
+  - name: "Service Health Check Load Test"
+    weight: 5
+    flow:
+      - get:
+          url: "/api/health"
+          headers:
+            X-Correlation-ID: "{{ correlationId }}-health"
+          expect:
+            - statusCode: 200
+            - hasProperty: "status"
+      - get:
+          url: "/api/system-health"
+          headers:
+            X-Correlation-ID: "{{ correlationId }}-system-health"
+          expect:
+            - statusCode: 200
+      - function: "recordHealthMetrics"
+      - think: 10  # 10 second pause for health checks
+
+# Performance thresholds and SLA validation
+expect:
+  # Response time thresholds
+  p95: 45000    # 95th percentile under 45 seconds
+  p99: 90000    # 99th percentile under 90 seconds
+  median: 15000 # Median response time under 15 seconds
+  
+  # Error rate threshold
+  maxErrorRate: 5  # Maximum 5% error rate
+  
+  # Throughput requirements
+  minRequestsPerSecond: 10  # Minimum 10 requests/second sustained
+
+# Custom function hooks for advanced metrics
+before:
+  flow:
+    - function: "initializeLoadTest"
+
+after:
+  flow:
+    - function: "finalizeLoadTest"
+    - function: "generateLoadTestReport" 
