@@ -263,12 +263,36 @@ export class WebScraperService {
       // Scrape the competitor's website
       const scrapedData = await this.scrapeUrl(competitor.website, options);
 
-      // Create snapshot in database
+      // Create snapshot in database with comprehensive logging
+      console.log('📊 Creating snapshot record via WebScraperService', {
+        competitorId: competitor.id,
+        competitorName: competitor.name,
+        url: competitor.website,
+        dataSize: JSON.stringify(scrapedData).length,
+        hasContent: !!(scrapedData.html || scrapedData.text),
+        statusCode: scrapedData.statusCode,
+        contentLength: scrapedData.contentLength,
+        timestamp: new Date().toISOString()
+      });
+
       const snapshot = await prisma.snapshot.create({
         data: {
           competitorId: competitor.id,
-          metadata: scrapedData as any
+          metadata: scrapedData as any,
+          captureStartTime: new Date(),
+          captureEndTime: new Date(),
+          captureSuccess: true,
+          captureSize: JSON.stringify(scrapedData).length
         }
+      });
+
+      console.log('✅ Snapshot created successfully via WebScraperService', {
+        snapshotId: snapshot.id,
+        competitorId: competitor.id,
+        competitorName: competitor.name,
+        createdAt: snapshot.createdAt,
+        metadataSize: JSON.stringify(snapshot.metadata).length,
+        captureSuccess: snapshot.captureSuccess
       });
 
       console.log(`💾 Created snapshot: ${snapshot.id} for ${competitor.name}`);

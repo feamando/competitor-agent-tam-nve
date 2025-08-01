@@ -8,6 +8,7 @@ import {
   trackCorrelation,
   trackError 
 } from '@/lib/logger'
+import { CompetitorSnapshotTrigger } from '@/services/competitorSnapshotTrigger'
 import redisCacheService, { withRedisCache } from '@/lib/redis-cache'
 import { withCache } from '@/lib/cache'
 import { profileOperation, PERFORMANCE_THRESHOLDS } from '@/lib/profiling'
@@ -185,6 +186,41 @@ export async function POST(request: Request) {
       competitorId: competitor.id,
       competitorName: competitor.name
     });
+
+    // Task 3.2: Trigger immediate snapshot collection for new competitor
+    try {
+      const snapshotTrigger = CompetitorSnapshotTrigger.getInstance();
+      await snapshotTrigger.triggerImmediateSnapshot({
+        competitorId: competitor.id,
+        priority: 'high',
+        correlationId
+      });
+
+      logger.info('Snapshot collection triggered for new competitor', {
+        ...context,
+        competitorId: competitor.id,
+        competitorName: competitor.name
+      });
+
+      trackCorrelation(correlationId, 'snapshot_trigger_initiated', {
+        ...context,
+        competitorId: competitor.id
+      });
+
+    } catch (snapshotError) {
+      // Don't fail competitor creation if snapshot trigger fails
+      logger.warn('Failed to trigger snapshot for new competitor', snapshotError as Error, {
+        ...context,
+        competitorId: competitor.id,
+        competitorName: competitor.name
+      });
+
+      trackCorrelation(correlationId, 'snapshot_trigger_failed', {
+        ...context,
+        competitorId: competitor.id,
+        error: snapshotError instanceof Error ? snapshotError.message : String(snapshotError)
+      });
+    }
 
     return NextResponse.json({
       ...competitor,
