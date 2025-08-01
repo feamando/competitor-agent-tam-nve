@@ -1,0 +1,225 @@
+# Test info
+
+- Name: Task 5.1: Production Validation - Error Handling & Resilience >> should gracefully handle invalid form submissions
+- Location: /Users/troy.edwards/code/competitor-agent-tam-nve/e2e/production-validation.spec.ts:302:7
+
+# Error details
+
+```
+Error: browserType.launch: Executable doesn't exist at /Users/troy.edwards/Library/Caches/ms-playwright/webkit-2158/pw_run.sh
+╔═════════════════════════════════════════════════════════════════════════╗
+║ Looks like Playwright Test or Playwright was just installed or updated. ║
+║ Please run the following command to download new browsers:              ║
+║                                                                         ║
+║     npx playwright install                                              ║
+║                                                                         ║
+║ <3 Playwright Team                                                      ║
+╚═════════════════════════════════════════════════════════════════════════╝
+```
+
+# Test source
+
+```ts
+  202 |     // Check for immediate report generation indicators
+  203 |     const reportSection = page.locator('[data-testid="report-section"], .report-section, text=Report Generation');
+  204 |     await expect(reportSection).toBeVisible({
+  205 |       timeout: PRODUCTION_VALIDATION_CONFIG.timeouts.realTimeUpdate
+  206 |     });
+  207 |
+  208 |     // 9. Validate real-time updates functionality
+  209 |     console.log('🔄 Testing real-time updates...');
+  210 |     
+  211 |     // Look for SSE connection or progress indicators
+  212 |     const progressIndicators = [
+  213 |       '[data-testid="initial-report-progress"]',
+  214 |       '[data-testid="progress-indicator"]',
+  215 |       '.progress-indicator',
+  216 |       'text=Generating',
+  217 |       'text=Processing',
+  218 |       'text=In Progress'
+  219 |     ];
+  220 |
+  221 |     let realTimeUpdateFound = false;
+  222 |     for (const indicator of progressIndicators) {
+  223 |       try {
+  224 |         await expect(page.locator(indicator)).toBeVisible({
+  225 |           timeout: PRODUCTION_VALIDATION_CONFIG.timeouts.realTimeUpdate
+  226 |         });
+  227 |         realTimeUpdateFound = true;
+  228 |         console.log(`✅ Real-time update indicator found: ${indicator}`);
+  229 |         break;
+  230 |       } catch (error) {
+  231 |         // Continue checking other indicators
+  232 |       }
+  233 |     }
+  234 |
+  235 |     // 10. Wait for report completion or validate async processing
+  236 |     const reportCompletionIndicators = [
+  237 |       '[data-testid="report-completed"]',
+  238 |       '[data-testid="report-ready"]',
+  239 |       'text=Report Generated',
+  240 |       'text=Completed',
+  241 |       'text=View Report'
+  242 |     ];
+  243 |
+  244 |     let reportCompleted = false;
+  245 |     const reportWaitStart = Date.now();
+  246 |
+  247 |     for (const indicator of reportCompletionIndicators) {
+  248 |       try {
+  249 |         await expect(page.locator(indicator)).toBeVisible({
+  250 |           timeout: PRODUCTION_VALIDATION_CONFIG.timeouts.reportGeneration
+  251 |         });
+  252 |         reportCompleted = true;
+  253 |         const reportGenerationTime = Date.now() - reportWaitStart;
+  254 |         console.log(`✅ Report completed: ${indicator} (${reportGenerationTime}ms)`);
+  255 |         
+  256 |         expect(reportGenerationTime).toBeLessThan(PRODUCTION_VALIDATION_CONFIG.performanceThresholds.reportGenerationTime);
+  257 |         break;
+  258 |       } catch (error) {
+  259 |         // Continue checking other indicators
+  260 |       }
+  261 |     }
+  262 |
+  263 |     // If report didn't complete immediately, validate async processing indicators
+  264 |     if (!reportCompleted) {
+  265 |       console.log('🔄 Report processing asynchronously, validating queue indicators...');
+  266 |       
+  267 |       const asyncIndicators = [
+  268 |         'text=Queued',
+  269 |         'text=Scheduled',
+  270 |         'text=Processing in background',
+  271 |         '[data-testid="async-processing"]'
+  272 |       ];
+  273 |
+  274 |       for (const indicator of asyncIndicators) {
+  275 |         try {
+  276 |           await expect(page.locator(indicator)).toBeVisible({
+  277 |             timeout: 5000
+  278 |           });
+  279 |           console.log(`✅ Async processing indicator found: ${indicator}`);
+  280 |           break;
+  281 |         } catch (error) {
+  282 |           // Continue checking
+  283 |         }
+  284 |       }
+  285 |     }
+  286 |
+  287 |     const totalTime = Date.now() - startTime;
+  288 |     console.log(`📊 Total end-to-end journey time: ${totalTime}ms`);
+  289 |
+  290 |     // 11. Validate navigation and UI responsiveness
+  291 |     await page.click('text=Dashboard', { timeout: 5000 });
+  292 |     await expect(page).toHaveURL('/');
+  293 |     
+  294 |     await page.goBack();
+  295 |     await expect(page).toHaveURL(/\/projects\/.*/);
+  296 |
+  297 |     console.log('✅ End-to-end user journey validation completed successfully');
+  298 |   });
+  299 | });
+  300 |
+  301 | test.describe('Task 5.1: Production Validation - Error Handling & Resilience', () => {
+> 302 |   test('should gracefully handle invalid form submissions', async ({ page }) => {
+      |       ^ Error: browserType.launch: Executable doesn't exist at /Users/troy.edwards/Library/Caches/ms-playwright/webkit-2158/pw_run.sh
+  303 |     await page.goto('/projects/new');
+  304 |
+  305 |     // Test empty form submission - try to go to next step without filling required fields
+  306 |     // The Next button should be disabled when required fields are empty
+  307 |     const nextButton = page.locator('[data-testid="next-button"]');
+  308 |     await expect(nextButton).toBeDisabled({ timeout: 5000 });
+  309 |     
+  310 |     console.log('✅ Next button correctly disabled for empty form');
+  311 |
+  312 |     // Fill basic info and proceed to product step to test URL validation
+  313 |     await page.fill('[data-testid="project-name"]', 'Test Project');
+  314 |     
+  315 |     // Wait for button to be enabled after filling required field
+  316 |     await page.waitForSelector('[data-testid="next-button"]:not([disabled])', { timeout: 10000 });
+  317 |     await page.click('[data-testid="next-button"]');
+  318 |     
+  319 |     console.log('✅ Form validation works correctly - proceeding to next step after filling required fields');
+  320 |     
+  321 |     // Test invalid URL format - this step happens on the product step  
+  322 |     await page.fill('[data-testid="product-website"]', 'invalid-url');
+  323 |     
+  324 |     // The Next button should be disabled due to invalid URL
+  325 |     const nextButtonOnProduct = page.locator('[data-testid="next-button"]');
+  326 |     await expect(nextButtonOnProduct).toBeDisabled({ timeout: 5000 });
+  327 |     
+  328 |     console.log('✅ URL validation works correctly - Next button disabled for invalid URL');
+  329 |   });
+  330 |
+  331 |   test('should handle network failures gracefully', async ({ page, context }) => {
+  332 |     await page.goto('/projects/new');
+  333 |
+  334 |     // Fill valid form data
+  335 |     await page.fill('[data-testid="project-name"]', 'Network Test Project');
+  336 |     
+  337 |     // Navigate to product step and fill required fields
+  338 |     await page.waitForSelector('[data-testid="next-button"]:not([disabled])', { timeout: 10000 });
+  339 |     await page.click('[data-testid="next-button"]');
+  340 |     
+  341 |     await page.fill('[data-testid="product-name"]', 'Network Test Product');
+  342 |     await page.fill('[data-testid="product-website"]', 'https://network-test.com');
+  343 |
+  344 |     // Navigate through remaining steps quickly
+  345 |     for (let i = 0; i < 3; i++) {
+  346 |       try {
+  347 |         await page.waitForSelector('[data-testid="next-button"]:not([disabled])', { timeout: 5000 });
+  348 |         await page.click('[data-testid="next-button"]');
+  349 |       } catch (error) {
+  350 |         break; // No more next buttons, we're at the final step
+  351 |       }
+  352 |     }
+  353 |
+  354 |     // Simulate network failure by intercepting requests
+  355 |     await page.route('/api/projects', (route) => {
+  356 |       route.abort('failed');
+  357 |     });
+  358 |
+  359 |     await page.waitForSelector('[data-testid="create-project"]:not([disabled])', { timeout: 10000 });
+  360 |     await page.click('[data-testid="create-project"]');
+  361 |
+  362 |     // Should show network error handling
+  363 |     const networkErrorIndicators = [
+  364 |       'text=Network error',
+  365 |       'text=Connection failed',
+  366 |       'text=Please try again',
+  367 |       'text=Error',
+  368 |       '.error'
+  369 |     ];
+  370 |
+  371 |     let networkErrorFound = false;
+  372 |     for (const indicator of networkErrorIndicators) {
+  373 |       try {
+  374 |         await expect(page.locator(indicator)).toBeVisible({
+  375 |           timeout: PRODUCTION_VALIDATION_CONFIG.timeouts.errorRecovery
+  376 |         });
+  377 |         networkErrorFound = true;
+  378 |         console.log(`✅ Network error handling validated: ${indicator}`);
+  379 |         break;
+  380 |       } catch (error) {
+  381 |         // Continue checking
+  382 |       }
+  383 |     }
+  384 |
+  385 |     console.log('✅ Network failure handling tested');
+  386 |   });
+  387 | });
+  388 |
+  389 | test.describe('Task 5.1: Production Validation - Performance & Load', () => {
+  390 |   test('should handle multiple concurrent page loads efficiently', async ({ context }) => {
+  391 |     const pages: Page[] = [];
+  392 |     const loadTimes: number[] = [];
+  393 |
+  394 |     try {
+  395 |       // Create 5 concurrent page loads
+  396 |       const pagePromises = Array.from({ length: 5 }, async (_, index) => {
+  397 |         const page = await context.newPage();
+  398 |         pages.push(page);
+  399 |         
+  400 |         const startTime = Date.now();
+  401 |         await page.goto('/');
+  402 |         const loadTime = Date.now() - startTime;
+```

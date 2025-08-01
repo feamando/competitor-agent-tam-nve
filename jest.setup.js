@@ -54,6 +54,16 @@ jest.mock('@prisma/client', () => {
       delete: jest.fn(),
       count: jest.fn(),
     },
+    // Add AWS Credentials model mock - this was missing!
+    aWSCredentials: {
+      create: jest.fn(),
+      findMany: jest.fn().mockResolvedValue([]),
+      findUnique: jest.fn().mockResolvedValue(null),
+      upsert: jest.fn(),
+      update: jest.fn(),
+      delete: jest.fn(),
+      count: jest.fn(),
+    },
     // Mock database operations
     $connect: jest.fn(),
     $disconnect: jest.fn(),
@@ -81,6 +91,108 @@ jest.mock('@prisma/client', () => {
         }
       },
     },
+  };
+});
+
+// *** ADD BEDROCK SERVICE MOCKING TO PREVENT REAL AWS CALLS ***
+jest.mock('@/services/bedrock/bedrock.service', () => {
+  return {
+    BedrockService: jest.fn().mockImplementation(() => ({
+      invokeModel: jest.fn().mockResolvedValue({
+        body: JSON.stringify({
+          content: [
+            {
+              type: 'text',
+              text: 'Mock UX analysis response with comprehensive competitive insights.'
+            }
+          ]
+        })
+      }),
+      generateCompletion: jest.fn().mockResolvedValue([
+        {
+          type: 'text',
+          text: 'Mock competitive analysis: Product shows strong market positioning with clear value proposition.'
+        }
+      ])
+    }))
+  };
+});
+
+// *** ADD AWS CREDENTIAL SERVICE MOCKING ***
+jest.mock('@/services/aws/awsCredentialService', () => {
+  return {
+    AWSCredentialService: jest.fn().mockImplementation(() => ({
+      listCredentialProfiles: jest.fn().mockResolvedValue([]),
+      getDecryptedCredentials: jest.fn().mockResolvedValue({
+        profileName: 'test-profile',
+        accessKeyId: 'test-key-id',
+        secretAccessKey: 'test-secret',
+        awsRegion: 'us-east-1'
+      }),
+      validateCredentials: jest.fn().mockResolvedValue({
+        isValid: true,
+        latency: 100
+      })
+    }))
+  };
+});
+
+// *** ADD USER EXPERIENCE ANALYZER MOCKING ***
+jest.mock('@/services/analysis/userExperienceAnalyzer', () => {
+  return {
+    UserExperienceAnalyzer: jest.fn().mockImplementation(() => ({
+      analyzeProductVsCompetitors: jest.fn().mockResolvedValue({
+        analysis: {
+          userExperience: {
+            strengths: ['Strong user interface', 'Intuitive navigation'],
+            weaknesses: ['Limited mobile support'],
+            overallScore: 8.5,
+            recommendations: ['Improve mobile responsiveness']
+          },
+          competitivePositioning: {
+            advantages: ['Better pricing', 'Superior features'],
+            disadvantages: ['Smaller market share'],
+            differentiators: ['Unique AI capabilities']
+          }
+        }
+      }),
+      analyzeCompetitiveUX: jest.fn().mockImplementation((data, competitors, options) => {
+        // Check for invalid input scenarios
+        if (!data || !data.productName || !data.productUrl) {
+          throw new Error('Invalid input: Missing required product information');
+        }
+        return Promise.resolve({
+          analysis: {
+            userExperience: {
+              strengths: ['Mock strength'],
+              weaknesses: ['Mock weakness'],
+              overallScore: 7.5,
+              recommendations: ['Mock recommendation']
+            }
+          }
+        });
+      })
+    }))
+  };
+});
+
+// *** ADD MEMORY MONITORING MOCKING ***
+jest.mock('@/lib/monitoring/memoryMonitoring', () => {
+  return {
+    memoryManager: {
+      takeSnapshot: jest.fn().mockReturnValue({
+        heapUsed: 1024 * 1024 * 50, // 50MB
+        heapTotal: 1024 * 1024 * 100, // 100MB
+        external: 1024 * 1024 * 10, // 10MB
+        timestamp: Date.now()
+      }),
+      getStats: jest.fn().mockReturnValue({
+        peak: 1024 * 1024 * 75,
+        current: 1024 * 1024 * 50,
+        average: 1024 * 1024 * 60
+      }),
+      cleanup: jest.fn().mockResolvedValue(undefined)
+    }
   };
 });
 

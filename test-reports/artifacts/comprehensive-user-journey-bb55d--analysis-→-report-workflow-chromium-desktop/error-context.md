@@ -1,0 +1,255 @@
+# Test info
+
+- Name: Task 8.1: Comprehensive User Journey Validation >> 1. Complete Project Workflow >> should complete full project creation → analysis → report workflow
+- Location: /Users/troy.edwards/code/competitor-agent-tam-nve/e2e/comprehensive-user-journeys.spec.ts:146:9
+
+# Error details
+
+```
+TimeoutError: page.click: Timeout 15000ms exceeded.
+Call log:
+  - waiting for locator('[data-testid="nav-projects"]')
+
+    at /Users/troy.edwards/code/competitor-agent-tam-nve/e2e/comprehensive-user-journeys.spec.ts:154:18
+```
+
+# Page snapshot
+
+```yaml
+- navigation:
+  - link "CompAI":
+    - /url: /
+  - link "Dashboard":
+    - /url: /
+  - link "Chat Agent":
+    - /url: /chat
+  - link "Projects":
+    - /url: /projects
+  - link "Competitors":
+    - /url: /competitors
+  - link "Reports":
+    - /url: /reports
+  - text: Competitor Research Agent
+- main:
+  - heading "Competitor Research Dashboard" [level=1]
+  - paragraph: Automate your competitive intelligence with our intelligent agent. Set up projects, schedule reports, and get insights that help you stay ahead.
+  - heading "🤖 AI Chat Agent" [level=2]
+  - paragraph: Start a conversation with our AI agent to set up automated competitor research projects.
+  - link "Start Chat Session":
+    - /url: /chat
+  - heading "Quick Actions" [level=2]
+  - link "New Analysis Project":
+    - /url: /chat
+  - link "View All Reports":
+    - /url: /reports
+  - heading "Recent Reports" [level=2]
+  - heading "System Status" [level=2]
+  - text: Chat Agent Online Report Generator Ready Analysis Engine Active
+```
+
+# Test source
+
+```ts
+   54 |     },
+   55 |     competitors: {
+   56 |       addButton: '[data-testid="add-competitor-btn"]',
+   57 |       nameInput: '[data-testid="competitor-name-input"]',
+   58 |       websiteInput: '[data-testid="competitor-website-input"]',
+   59 |       saveButton: '[data-testid="save-competitor-btn"]'
+   60 |     },
+   61 |     analysis: {
+   62 |       generateButton: '[data-testid="generate-analysis-btn"]',
+   63 |       typeSelect: '[data-testid="analysis-type-select"]',
+   64 |       depthSelect: '[data-testid="analysis-depth-select"]',
+   65 |       focusAreasCheckboxes: '[data-testid^="focus-area-"]',
+   66 |       enhanceWithAICheckbox: '[data-testid="enhance-ai-checkbox"]',
+   67 |       status: '[data-testid="analysis-status"]',
+   68 |       result: '[data-testid="analysis-result"]',
+   69 |       qualityScore: '[data-testid="quality-score"]',
+   70 |       serviceVersion: '[data-testid="service-version"]'
+   71 |     },
+   72 |     reports: {
+   73 |       generateButton: '[data-testid="generate-report-btn"]',
+   74 |       templateSelect: '[data-testid="report-template-select"]',
+   75 |       focusAreaSelect: '[data-testid="report-focus-area-select"]',
+   76 |       status: '[data-testid="report-status"]',
+   77 |       content: '[data-testid="report-content"]',
+   78 |       downloadButton: '[data-testid="download-report-btn"]',
+   79 |       serviceVersion: '[data-testid="report-service-version"]'
+   80 |     },
+   81 |     common: {
+   82 |       loadingSpinner: '[data-testid="loading-spinner"]',
+   83 |       errorMessage: '[data-testid="error-message"]',
+   84 |       successMessage: '[data-testid="success-message"]',
+   85 |       correlationId: '[data-testid="correlation-id"]'
+   86 |     }
+   87 |   }
+   88 | };
+   89 |
+   90 | // Test Utilities
+   91 | class E2ETestHelper {
+   92 |   constructor(private page: Page) {}
+   93 |
+   94 |   async waitForLoadingComplete(): Promise<void> {
+   95 |     await this.page.waitForSelector(
+   96 |       COMPREHENSIVE_E2E_CONFIG.selectors.common.loadingSpinner,
+   97 |       { state: 'detached', timeout: 10000 }
+   98 |     ).catch(() => {
+   99 |       // Loading spinner might not appear for fast operations
+  100 |     });
+  101 |   }
+  102 |
+  103 |   async captureCorrelationId(): Promise<string | null> {
+  104 |     try {
+  105 |       const correlationElement = await this.page.locator(
+  106 |         COMPREHENSIVE_E2E_CONFIG.selectors.common.correlationId
+  107 |       ).first();
+  108 |       return await correlationElement.textContent();
+  109 |     } catch {
+  110 |       return null;
+  111 |     }
+  112 |   }
+  113 |
+  114 |   async validateServiceVersion(selector: string, expectedService: string): Promise<void> {
+  115 |     const serviceElement = await this.page.locator(selector).first();
+  116 |     const serviceVersion = await serviceElement.textContent();
+  117 |     expect(serviceVersion).toContain(expectedService);
+  118 |     expect(serviceVersion).toContain('consolidated');
+  119 |   }
+  120 |
+  121 |   async measurePagePerformance(): Promise<{ loadTime: number; renderTime: number }> {
+  122 |     const performanceTiming = await this.page.evaluate(() => {
+  123 |       const navigation = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming;
+  124 |       return {
+  125 |         loadTime: navigation.loadEventEnd - navigation.loadEventStart,
+  126 |         renderTime: navigation.loadEventEnd - navigation.fetchStart
+  127 |       };
+  128 |     });
+  129 |     
+  130 |     return performanceTiming;
+  131 |   }
+  132 | }
+  133 |
+  134 | test.describe('Task 8.1: Comprehensive User Journey Validation', () => {
+  135 |   let helper: E2ETestHelper;
+  136 |   
+  137 |   test.beforeEach(async ({ page }) => {
+  138 |     helper = new E2ETestHelper(page);
+  139 |     
+  140 |     // Navigate to application
+  141 |     await page.goto('/');
+  142 |     await helper.waitForLoadingComplete();
+  143 |   });
+  144 |
+  145 |   test.describe('1. Complete Project Workflow', () => {
+  146 |     test('should complete full project creation → analysis → report workflow', async ({ page }) => {
+  147 |       test.setTimeout(COMPREHENSIVE_E2E_CONFIG.timeouts.workflow);
+  148 |       
+  149 |       console.log('🔄 Starting complete project workflow test');
+  150 |       
+  151 |       // Phase 1: Project Creation
+  152 |       console.log('📋 Phase 1: Creating new project');
+  153 |       
+> 154 |       await page.click(COMPREHENSIVE_E2E_CONFIG.selectors.navigation.projectsTab);
+      |                  ^ TimeoutError: page.click: Timeout 15000ms exceeded.
+  155 |       await helper.waitForLoadingComplete();
+  156 |       
+  157 |       await page.click(COMPREHENSIVE_E2E_CONFIG.selectors.project.createButton);
+  158 |       
+  159 |       // Fill project details
+  160 |       await page.fill(
+  161 |         COMPREHENSIVE_E2E_CONFIG.selectors.project.nameInput,
+  162 |         COMPREHENSIVE_E2E_CONFIG.testData.project.name
+  163 |       );
+  164 |       await page.fill(
+  165 |         COMPREHENSIVE_E2E_CONFIG.selectors.project.productNameInput,
+  166 |         COMPREHENSIVE_E2E_CONFIG.testData.project.productName
+  167 |       );
+  168 |       await page.fill(
+  169 |         COMPREHENSIVE_E2E_CONFIG.selectors.project.productWebsiteInput,
+  170 |         COMPREHENSIVE_E2E_CONFIG.testData.project.productWebsite
+  171 |       );
+  172 |       await page.fill(
+  173 |         COMPREHENSIVE_E2E_CONFIG.selectors.project.positioningTextarea,
+  174 |         COMPREHENSIVE_E2E_CONFIG.testData.project.positioning
+  175 |       );
+  176 |       await page.fill(
+  177 |         COMPREHENSIVE_E2E_CONFIG.selectors.project.customerDataTextarea,
+  178 |         COMPREHENSIVE_E2E_CONFIG.testData.project.customerData
+  179 |       );
+  180 |       await page.fill(
+  181 |         COMPREHENSIVE_E2E_CONFIG.selectors.project.userProblemTextarea,
+  182 |         COMPREHENSIVE_E2E_CONFIG.testData.project.userProblem
+  183 |       );
+  184 |       
+  185 |       // Select industry
+  186 |       await page.selectOption(
+  187 |         COMPREHENSIVE_E2E_CONFIG.selectors.project.industrySelect,
+  188 |         COMPREHENSIVE_E2E_CONFIG.testData.project.industry
+  189 |       );
+  190 |       
+  191 |       // Save project
+  192 |       await page.click(COMPREHENSIVE_E2E_CONFIG.selectors.project.saveButton);
+  193 |       await helper.waitForLoadingComplete();
+  194 |       
+  195 |       // Validate project creation success
+  196 |       await expect(page.locator(COMPREHENSIVE_E2E_CONFIG.selectors.common.successMessage))
+  197 |         .toBeVisible();
+  198 |       
+  199 |       console.log('✅ Project created successfully');
+  200 |
+  201 |       // Phase 2: Add Competitors
+  202 |       console.log('🏢 Phase 2: Adding competitors');
+  203 |       
+  204 |       for (const competitor of COMPREHENSIVE_E2E_CONFIG.testData.competitors) {
+  205 |         await page.click(COMPREHENSIVE_E2E_CONFIG.selectors.competitors.addButton);
+  206 |         
+  207 |         await page.fill(
+  208 |           COMPREHENSIVE_E2E_CONFIG.selectors.competitors.nameInput,
+  209 |           competitor.name
+  210 |         );
+  211 |         await page.fill(
+  212 |           COMPREHENSIVE_E2E_CONFIG.selectors.competitors.websiteInput,
+  213 |           competitor.website
+  214 |         );
+  215 |         
+  216 |         await page.click(COMPREHENSIVE_E2E_CONFIG.selectors.competitors.saveButton);
+  217 |         await helper.waitForLoadingComplete();
+  218 |       }
+  219 |       
+  220 |       console.log(`✅ Added ${COMPREHENSIVE_E2E_CONFIG.testData.competitors.length} competitors`);
+  221 |
+  222 |       // Phase 3: Generate Analysis
+  223 |       console.log('📊 Phase 3: Generating analysis with consolidated service');
+  224 |       const analysisStartTime = Date.now();
+  225 |       
+  226 |       // Configure analysis options
+  227 |       await page.selectOption(
+  228 |         COMPREHENSIVE_E2E_CONFIG.selectors.analysis.typeSelect,
+  229 |         'comparative_analysis'
+  230 |       );
+  231 |       await page.selectOption(
+  232 |         COMPREHENSIVE_E2E_CONFIG.selectors.analysis.depthSelect,
+  233 |         'comprehensive'
+  234 |       );
+  235 |       
+  236 |       // Select focus areas
+  237 |       await page.check(`${COMPREHENSIVE_E2E_CONFIG.selectors.analysis.focusAreasCheckboxes}features`);
+  238 |       await page.check(`${COMPREHENSIVE_E2E_CONFIG.selectors.analysis.focusAreasCheckboxes}user-experience`);
+  239 |       await page.check(`${COMPREHENSIVE_E2E_CONFIG.selectors.analysis.focusAreasCheckboxes}pricing`);
+  240 |       
+  241 |       // Enable AI enhancement
+  242 |       await page.check(COMPREHENSIVE_E2E_CONFIG.selectors.analysis.enhanceWithAICheckbox);
+  243 |       
+  244 |       // Start analysis
+  245 |       await page.click(COMPREHENSIVE_E2E_CONFIG.selectors.analysis.generateButton);
+  246 |       
+  247 |       // Wait for analysis completion with progress monitoring
+  248 |       await expect(page.locator(COMPREHENSIVE_E2E_CONFIG.selectors.analysis.status))
+  249 |         .toContainText('Processing', { timeout: COMPREHENSIVE_E2E_CONFIG.timeouts.apiResponse });
+  250 |       
+  251 |       await expect(page.locator(COMPREHENSIVE_E2E_CONFIG.selectors.analysis.status))
+  252 |         .toContainText('Completed', { timeout: COMPREHENSIVE_E2E_CONFIG.timeouts.analysis });
+  253 |       
+  254 |       const analysisTime = Date.now() - analysisStartTime;
+```

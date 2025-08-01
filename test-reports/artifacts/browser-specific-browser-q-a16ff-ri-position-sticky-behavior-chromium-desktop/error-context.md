@@ -1,0 +1,296 @@
+# Test info
+
+- Name: Browser-Specific Feature Tests >> Safari-specific features >> Safari position:sticky behavior
+- Location: /Users/troy.edwards/code/competitor-agent-tam-nve/e2e/browser-specific/browser-quirks.spec.ts:151:9
+
+# Error details
+
+```
+Error: expect(locator).toHaveScreenshot(expected)
+
+  Expected an image 1920px by 3188px, received 1904px by 12179px. 4361767 pixels (ratio 0.19 of all image pixels) are different.
+
+Expected: /Users/troy.edwards/code/competitor-agent-tam-nve/e2e/snapshots/browser-specific/browser-quirks.spec.ts-snapshots/safari-sticky-before-chromium-1920x1080-chromium-desktop-darwin.png
+Received: /Users/troy.edwards/code/competitor-agent-tam-nve/test-reports/artifacts/browser-specific-browser-q-a16ff-ri-position-sticky-behavior-chromium-desktop/safari-sticky-before-chromium-1920x1080-actual.png
+    Diff: /Users/troy.edwards/code/competitor-agent-tam-nve/test-reports/artifacts/browser-specific-browser-q-a16ff-ri-position-sticky-behavior-chromium-desktop/safari-sticky-before-chromium-1920x1080-diff.png
+
+Call log:
+  - expect.toHaveScreenshot(safari-sticky-before-chromium-1920x1080.png) with timeout 10000ms
+    - verifying given screenshot expectation
+  - waiting for locator('body')
+    - locator resolved to <body>…</body>
+  - taking element screenshot
+    - disabled all CSS animations
+  - waiting for fonts to load...
+  - fonts loaded
+  - attempting scroll into view action
+    - waiting for element to be stable
+  - Expected an image 1920px by 3188px, received 1904px by 12182px. 4361767 pixels (ratio 0.19 of all image pixels) are different.
+  - waiting 100ms before taking screenshot
+  - waiting for locator('body')
+    - locator resolved to <body>…</body>
+  - taking element screenshot
+    - disabled all CSS animations
+  - waiting for fonts to load...
+  - fonts loaded
+  - attempting scroll into view action
+    - waiting for element to be stable
+  - Expected an image 1904px by 12182px, received 1904px by 12179px.
+  - waiting 250ms before taking screenshot
+  - waiting for locator('body')
+    - locator resolved to <body>…</body>
+  - taking element screenshot
+    - disabled all CSS animations
+  - waiting for fonts to load...
+  - fonts loaded
+  - attempting scroll into view action
+    - waiting for element to be stable
+  - captured a stable screenshot
+  - Expected an image 1920px by 3188px, received 1904px by 12179px. 4361767 pixels (ratio 0.19 of all image pixels) are different.
+
+    at compareScreenshot (/Users/troy.edwards/code/competitor-agent-tam-nve/e2e/helpers/visualRegressionHelper.ts:103:25)
+    at /Users/troy.edwards/code/competitor-agent-tam-nve/e2e/browser-specific/browser-quirks.spec.ts:182:7
+```
+
+# Page snapshot
+
+```yaml
+- text: Sticky Header Test
+- navigation:
+  - link "CompAI":
+    - /url: /
+  - link "Dashboard":
+    - /url: /
+  - link "Chat Agent":
+    - /url: /chat
+  - link "Projects":
+    - /url: /projects
+  - link "Competitors":
+    - /url: /competitors
+  - link "Reports":
+    - /url: /reports
+  - text: Competitor Research Agent
+- main:
+  - heading "Competitor Research Dashboard" [level=1]
+  - paragraph: Automate your competitive intelligence with our intelligent agent. Set up projects, schedule reports, and get insights that help you stay ahead.
+  - heading "🤖 AI Chat Agent" [level=2]
+  - paragraph: Start a conversation with our AI agent to set up automated competitor research projects.
+  - link "Start Chat Session":
+    - /url: /chat
+  - heading "Quick Actions" [level=2]
+  - link "New Analysis Project":
+    - /url: /chat
+  - link "View All Reports":
+    - /url: /reports
+  - heading "Recent Reports" [level=2]
+  - heading "System Status" [level=2]
+  - text: Chat Agent Online Report Generator Ready Analysis Engine Active
+- text: Scrollable content
+```
+
+# Test source
+
+```ts
+   3 |  * Task 6.2: Cross-Browser Testing
+   4 |  * 
+   5 |  * This utility provides functions to perform visual regression testing
+   6 |  * across different browsers and screen sizes.
+   7 |  */
+   8 |
+   9 | import { Page, expect, test } from '@playwright/test';
+   10 | import { existsSync, mkdirSync } from 'fs';
+   11 | import path from 'path';
+   12 | import { generateCorrelationId } from '../../src/lib/logger';
+   13 |
+   14 | /**
+   15 |  * Visual regression test configuration
+   16 |  */
+   17 | export interface VisualRegressionOptions {
+   18 |   /** Name of the screenshot for identification */
+   19 |   name: string;
+   20 |   
+   21 |   /** Custom selector to screenshot (default: body) */
+   22 |   selector?: string;
+   23 |   
+   24 |   /** Threshold for pixel difference (0-1) */
+   25 |   threshold?: number;
+   26 |   
+   27 |   /** Maximum allowed pixel difference */
+   28 |   maxDiffPixels?: number;
+   29 |   
+   30 |   /** Whether to mask dynamic content */
+   31 |   maskDynamicContent?: boolean;
+   32 |   
+   33 |   /** Custom folder path for snapshots */
+   34 |   customSnapshotPath?: string;
+   35 |   
+   36 |   /** Add a unique suffix to prevent conflicts */
+   37 |   uniqueSuffix?: boolean;
+   38 | }
+   39 |
+   40 | /**
+   41 |  * Default options for visual regression testing
+   42 |  */
+   43 | const DEFAULT_OPTIONS: Partial<VisualRegressionOptions> = {
+   44 |   selector: 'body',
+   45 |   threshold: 0.1, // 10% threshold for differences
+   46 |   maxDiffPixels: 500,
+   47 |   maskDynamicContent: true,
+   48 |   uniqueSuffix: false,
+   49 | };
+   50 |
+   51 | /**
+   52 |  * Generates a snapshot name based on test info and options
+   53 |  */
+   54 | export function getSnapshotName(
+   55 |   name: string, 
+   56 |   browserName: string, 
+   57 |   viewport: { width: number, height: number },
+   58 |   options?: Partial<VisualRegressionOptions>
+   59 | ): string {
+   60 |   const suffix = options?.uniqueSuffix ? `-${generateCorrelationId().substring(0, 6)}` : '';
+   61 |   return `${name}-${browserName}-${viewport.width}x${viewport.height}${suffix}.png`;
+   62 | }
+   63 |
+   64 | /**
+   65 |  * Creates directory for snapshots if it doesn't exist
+   66 |  */
+   67 | export function ensureSnapshotDirectoryExists(dirPath: string): void {
+   68 |   if (!existsSync(dirPath)) {
+   69 |     mkdirSync(dirPath, { recursive: true });
+   70 |   }
+   71 | }
+   72 |
+   73 | /**
+   74 |  * Take a screenshot and compare with baseline
+   75 |  */
+   76 | export async function compareScreenshot(
+   77 |   page: Page,
+   78 |   options: VisualRegressionOptions
+   79 | ): Promise<void> {
+   80 |   const mergedOptions = { ...DEFAULT_OPTIONS, ...options };
+   81 |   const { name, selector, threshold, maxDiffPixels, maskDynamicContent } = mergedOptions;
+   82 |   
+   83 |   // Get browser and viewport info
+   84 |   const browserName = page.context().browser()?.browserType().name() || 'unknown';
+   85 |   const viewport = page.viewportSize() || { width: 1920, height: 1080 };
+   86 |   
+   87 |   // Determine screenshot path
+   88 |   const snapshotName = getSnapshotName(name, browserName, viewport, options);
+   89 |   const customPath = mergedOptions.customSnapshotPath 
+   90 |     ? path.resolve(process.cwd(), mergedOptions.customSnapshotPath) 
+   91 |     : path.resolve(process.cwd(), 'e2e/snapshots');
+   92 |   
+   93 |   // Ensure directory exists
+   94 |   ensureSnapshotDirectoryExists(customPath);
+   95 |   
+   96 |   // Mask dynamic content if needed
+   97 |   if (maskDynamicContent) {
+   98 |     await maskDynamicElements(page);
+   99 |   }
+  100 |
+  101 |   // Take screenshot and compare
+  102 |   const locator = page.locator(selector || 'body');
+> 103 |   await expect(locator).toHaveScreenshot(snapshotName, {
+      |                         ^ Error: expect(locator).toHaveScreenshot(expected)
+  104 |     threshold: threshold,
+  105 |     maxDiffPixels: maxDiffPixels,
+  106 |   });
+  107 | }
+  108 |
+  109 | /**
+  110 |  * Mask dynamic elements that may cause false positives
+  111 |  */
+  112 | export async function maskDynamicElements(page: Page): Promise<void> {
+  113 |   // List of selectors for dynamic content that should be masked
+  114 |   const dynamicElements = [
+  115 |     // Time-based elements
+  116 |     '[data-testid="timestamp"]',
+  117 |     '[data-testid="date"]',
+  118 |     '.timestamp',
+  119 |     '.date-time',
+  120 |     
+  121 |     // User-specific content
+  122 |     '[data-testid="user-info"]',
+  123 |     '.user-avatar',
+  124 |     
+  125 |     // Dynamic metrics and counts
+  126 |     '[data-testid="progress-percentage"]',
+  127 |     '[data-testid="metrics"]',
+  128 |     '.count',
+  129 |     
+  130 |     // Randomly generated content
+  131 |     '[data-testid="random-id"]',
+  132 |     '.random-content',
+  133 |     
+  134 |     // Dynamic images and media
+  135 |     'img[src*="?"]',
+  136 |     'video',
+  137 |   ];
+  138 |   
+  139 |   for (const selector of dynamicElements) {
+  140 |     const elements = page.locator(selector);
+  141 |     const count = await elements.count();
+  142 |     
+  143 |     for (let i = 0; i < count; i++) {
+  144 |       const element = elements.nth(i);
+  145 |       if (await element.isVisible()) {
+  146 |         // Add a colored overlay to mask the element
+  147 |         await element.evaluate((el) => {
+  148 |           el.style.backgroundColor = 'purple';
+  149 |           el.style.color = 'purple';
+  150 |         });
+  151 |       }
+  152 |     }
+  153 |   }
+  154 | }
+  155 |
+  156 | /**
+  157 |  * Take screenshot for multiple viewports
+  158 |  */
+  159 | export async function multiViewportScreenshot(
+  160 |   page: Page, 
+  161 |   name: string, 
+  162 |   viewports: Array<{ width: number, height: number }>,
+  163 |   options?: Partial<VisualRegressionOptions>
+  164 | ): Promise<void> {
+  165 |   const originalViewport = page.viewportSize();
+  166 |   
+  167 |   for (const viewport of viewports) {
+  168 |     // Set viewport
+  169 |     await page.setViewportSize(viewport);
+  170 |     
+  171 |     // Take screenshot
+  172 |     await compareScreenshot(page, {
+  173 |       name: `${name}`,
+  174 |       uniqueSuffix: false,
+  175 |       ...options,
+  176 |     });
+  177 |   }
+  178 |   
+  179 |   // Reset viewport to original
+  180 |   if (originalViewport) {
+  181 |     await page.setViewportSize(originalViewport);
+  182 |   }
+  183 | }
+  184 |
+  185 | /**
+  186 |  * Run visual tests across multiple browsers
+  187 |  * Note: This should be used in combination with Playwright projects
+  188 |  */
+  189 | export function visualTest(
+  190 |   title: string,
+  191 |   url: string,
+  192 |   options: Partial<VisualRegressionOptions> = {}
+  193 | ): void {
+  194 |   test(title, async ({ page, browserName }) => {
+  195 |     await page.goto(url);
+  196 |     
+  197 |     // Wait for any loading states or animations to complete
+  198 |     await page.waitForLoadState('networkidle');
+  199 |     
+  200 |     // Optional delay to ensure all content is rendered
+  201 |     await page.waitForTimeout(1000);
+  202 |     
+  203 |     await compareScreenshot(page, {
+```
