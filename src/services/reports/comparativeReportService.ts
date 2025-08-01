@@ -393,20 +393,20 @@ export class ComparativeReportService {
         website: product.website,
         positioning: product.positioning || ''
       },
-      competitorCount: analysis.competitors.length,
-      overallPosition: analysis.summary.overallPosition,
-      keyStrengths: [...analysis.summary.keyStrengths], // Use spread to create new array
-      keyWeaknesses: [...analysis.summary.keyWeaknesses],
-      threatLevel: analysis.summary.threatLevel,
-      opportunityScore: analysis.summary.opportunityScore,
-      marketOpportunities: analysis.detailed.opportunities || [],
-      competitiveAdvantage: analysis.detailed.advantageAreas || [],
-      immediateActions: analysis.recommendations.immediate || [],
-      shortTermActions: analysis.recommendations.shortTerm || [],
-      longTermActions: analysis.recommendations.longTerm || [],
-      priorityScore: analysis.summary.priorityScore || 0,
-      competitorNames: analysis.competitors.map(c => c.name),
-      confidenceScore: analysis.metadata.confidenceScore
+      competitorCount: analysis.competitors?.length || 0,
+      overallPosition: analysis.summary?.overallPosition || 'Unknown',
+      keyStrengths: [...(analysis.summary?.keyStrengths || [])], // Use spread to create new array
+      keyWeaknesses: [...(analysis.summary?.keyWeaknesses || [])],
+      threatLevel: analysis.summary?.threatLevel || 'Low',
+      opportunityScore: analysis.summary?.opportunityScore || 0,
+      marketOpportunities: analysis.detailed?.opportunities || [],
+      competitiveAdvantage: analysis.detailed?.advantageAreas || [],
+      immediateActions: analysis.recommendations?.immediate || [],
+      shortTermActions: analysis.recommendations?.shortTerm || [],
+      longTermActions: analysis.recommendations?.longTerm || [],
+      priorityScore: analysis.summary?.priorityScore || 0,
+      competitorNames: analysis.competitors?.map(c => c.name) || [],
+      confidenceScore: analysis.metadata?.confidenceScore || 0
     };
 
     return context;

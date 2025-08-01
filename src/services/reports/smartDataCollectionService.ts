@@ -8,15 +8,9 @@ import {
   ComparativeAnalysisInput 
 } from '@/types/analysis';
 import { Product, ProductSnapshot } from '@/types/product';
+import { DataCollectionPriority } from '@/services/domains/types/dataTypes';
 
-// Data Collection Priority Levels (as per Phase 2.1 implementation plan)
-export enum DataCollectionPriority {
-  PRODUCT_FORM_DATA = 1,       // Immediate product data from form input
-  FRESH_COMPETITOR_SNAPSHOTS = 2,  // New competitor snapshots (REQUIRED)
-  FAST_COMPETITOR_COLLECTION = 3,  // Essential competitor info only
-  EXISTING_SNAPSHOTS = 4,      // Fallback to existing data
-  BASIC_COMPETITOR_METADATA = 5    // Last resort - basic info only
-}
+// Import DataCollectionPriority from types
 
 export interface SmartDataCollectionResult {
   success: boolean;

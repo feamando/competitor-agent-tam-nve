@@ -629,7 +629,7 @@ describe('Task 8.3: Rollback Testing', () => {
 
     }, ROLLBACK_TEST_CONFIG.timeouts.serviceRollback);
 
-    async checkServiceHealth(): Promise<{healthy: boolean; status?: string; error?: string}> {
+    async function checkServiceHealth(): Promise<{healthy: boolean; status?: string; error?: string}> {
       try {
         const response = await fetch('http://localhost:3000/api/health', {
           method: 'GET',

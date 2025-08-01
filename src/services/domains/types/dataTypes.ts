@@ -484,7 +484,7 @@ export interface DataFreshness {
   refreshRecommended: boolean;
 }
 
-export interface PriorityBreakdown {
+export type PriorityBreakdown = {
   [key in DataCollectionPriority]: {
     attempted: number;
     successful: number;
