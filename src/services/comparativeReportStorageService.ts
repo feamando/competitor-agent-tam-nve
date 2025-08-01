@@ -572,17 +572,50 @@ export class ComparativeReportStorageService {
     fileSize?: number,
     checksum?: string
   ): Promise<any> {
-    // Note: This would need to be adapted to the actual schema
-    // For now, using a simplified approach
+    // Task 3.2: Enhanced database save logic to ensure projectId is never null
+    if (!projectId || projectId.trim() === '') {
+      throw new Error('Task 3.2: projectId is required and cannot be null or empty for database save operation');
+    }
+
+    const validatedProjectId = projectId.trim();
+    logger.info('Task 3.2: Storing report with validated projectId', {
+      reportId,
+      projectId: validatedProjectId,
+      reportName,
+      task: 'Task 3.2 - Database Save Validation'
+    });
+
+    // Task 3.3: Validate project-competitor relationship before saving
+    const competitorId = metadata.competitorIds[0];
+    if (competitorId) {
+      const relationshipExists = await this.validateProjectCompetitorRelationship(validatedProjectId, competitorId);
+      if (!relationshipExists) {
+        logger.error('Task 3.3: Invalid project-competitor relationship in storage service', {
+          projectId: validatedProjectId,
+          competitorId,
+          reportId,
+          task: 'Task 3.3 - Relationship Validation'
+        });
+        throw new Error(`Task 3.3: Competitor ${competitorId} is not associated with project ${validatedProjectId}. Cannot store report with invalid relationship.`);
+      }
+
+      logger.info('Task 3.3: Project-competitor relationship validated in storage service', {
+        projectId: validatedProjectId,
+        competitorId,
+        reportId,
+        task: 'Task 3.3 - Relationship Validation'
+      });
+    }
+
     return await prisma.report.create({
       data: {
         id: reportId,
         name: reportName,
-        // Note: The schema doesn't have projectId directly on Report
-        // This would need to be adapted based on the actual relationships
+        projectId: validatedProjectId, // Task 3.2: Ensure projectId is never null
         competitorId: metadata.competitorIds[0] || 'unknown', // Temporary workaround
         title: reportName,
-        description: `Comparative analysis: ${metadata.productName} vs ${metadata.competitorNames.join(', ')}`
+        description: `Comparative analysis: ${metadata.productName} vs ${metadata.competitorNames.join(', ')}`,
+        status: 'COMPLETED' // Task 3.2: Add required status field
       }
     });
   }
@@ -639,5 +672,50 @@ export class ComparativeReportStorageService {
       createdAt: report.createdAt,
       updatedAt: report.updatedAt
     };
+  }
+
+  /**
+   * Task 3.3: Validate that project-competitor relationship exists before storing report
+   */
+  private async validateProjectCompetitorRelationship(
+    projectId: string, 
+    competitorId: string
+  ): Promise<boolean> {
+    try {
+      logger.info('Task 3.3: Validating project-competitor relationship in storage service', {
+        projectId,
+        competitorId,
+        task: 'Task 3.3 - Relationship Validation'
+      });
+
+      // Query the junction table to verify relationship exists
+      const relationship = await prisma.$queryRaw<{count: number}[]>`
+        SELECT COUNT(*) as count 
+        FROM "_CompetitorToProject" 
+        WHERE "A" = ${competitorId} AND "B" = ${projectId}
+      `;
+
+      const relationshipExists = Boolean(relationship && relationship[0] && relationship[0].count > 0);
+
+      logger.info('Task 3.3: Project-competitor relationship query result in storage service', {
+        projectId,
+        competitorId,
+        relationshipExists,
+        queryResult: relationship,
+        task: 'Task 3.3 - Relationship Validation'
+      });
+
+      return relationshipExists;
+    } catch (error) {
+      logger.error('Task 3.3: Error validating project-competitor relationship in storage service', error as Error, {
+        projectId,
+        competitorId,
+        task: 'Task 3.3 - Relationship Validation'
+      });
+      
+      // In case of database error, we should fail safely
+      // Rather than allow potentially invalid data to be saved
+      return false;
+    }
   }
 } 

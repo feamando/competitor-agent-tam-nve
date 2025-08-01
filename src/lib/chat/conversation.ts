@@ -2565,21 +2565,145 @@ What would you prefer?`,
   }
 
   /**
-   * Create project with all competitors auto-assigned and product creation
-   * Based on the project creation logic from the API routes
+   * Enhanced project creation with all competitors
+   * Task 5.2: Updated project creation logic for consistent initial report generation
    */
   private async createProjectWithAllCompetitors(projectName: string, userEmail: string): Promise<any> {
     const correlationId = generateCorrelationId();
     const context = { operation: 'createProjectWithAllCompetitors', correlationId };
     
     try {
-      // Get or create mock user (auth disabled)
-      const DEFAULT_USER_EMAIL = 'mock@example.com';
+      logger.info('Task 5.2: Starting enhanced project creation with initial report generation', {
+        ...context,
+        projectName,
+        userEmail
+      });
+
+      // Step 1: Validate prerequisites
+      await this.validateProjectCreationPrerequisites(context);
+
+      // Step 2: Get or create user
+      const mockUser = await this.getOrCreateMockUser(context);
+
+      // Step 3: Get competitors with validation
+      const competitorData = await this.getAndValidateCompetitors(context);
+      
+      // Step 4: Create project in transaction
+      const projectResult = await this.createProjectInTransaction(
+        projectName, 
+        userEmail, 
+        mockUser, 
+        competitorData, 
+        context
+      );
+
+      // Step 5: Create product entity if data available
+      const productResult = await this.createProductEntityIfAvailable(projectResult.project, context);
+
+      // Step 6: Generate initial report with enhanced logic
+      const reportResult = await this.generateInitialReportWithRetry(
+        projectResult.project, 
+        competitorData, 
+        productResult,
+        context
+      );
+
+      // Step 7: Schedule periodic reports
+      const schedulingResult = await this.schedulePeriodicReportsWithFallback(
+        projectResult.project, 
+        context
+      );
+
+      // Step 8: Finalize and return result
+      const finalResult = this.finalizeProjectCreation(
+        projectResult.project,
+        productResult,
+        reportResult,
+        schedulingResult,
+        context
+      );
+
+      logger.info('Task 5.2: Enhanced project creation completed successfully', {
+        ...context,
+        projectId: projectResult.project.id,
+        hasProduct: !!productResult.hasProduct,
+        hasInitialReport: !!reportResult.reportGenerated,
+        hasScheduledReports: !!schedulingResult.scheduled
+      });
+
+      return finalResult;
+
+    } catch (error) {
+      logger.error('Task 5.2: Enhanced project creation failed', error as Error, {
+        ...context,
+        projectName,
+        userEmail
+      });
+      
+      // Enhanced error handling with specific error types
+      await this.handleProjectCreationFailure(error, context);
+      throw error;
+    }
+  }
+
+  /**
+   * Task 5.2: Validate project creation prerequisites
+   */
+  private async validateProjectCreationPrerequisites(context: any): Promise<void> {
+    logger.info('Task 5.2: Validating project creation prerequisites', context);
+
+    // Validate database connection
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+    } catch (dbError) {
+      throw new Error('Database connection failed - cannot create project');
+    }
+
+    // Validate required services are available
+    const requiredServices = [
+      'InitialComparativeReportService',
+      'ProductRepository',
+      'AutoReportGenerationService'
+    ];
+
+    for (const service of requiredServices) {
+      try {
+        switch (service) {
+          case 'InitialComparativeReportService':
+            await import('@/services/reports/initialComparativeReportService');
+            break;
+          case 'ProductRepository':
+            await import('@/lib/repositories/productRepository');
+            break;
+          case 'AutoReportGenerationService':
+            await import('@/services/autoReportGenerationService');
+            break;
+        }
+      } catch (importError) {
+        logger.warn(`Service ${service} not available, will use fallbacks`, {
+          ...context,
+          service,
+          error: (importError as Error).message
+        });
+      }
+    }
+
+    logger.info('Task 5.2: Prerequisites validation completed', context);
+  }
+
+  /**
+   * Task 5.2: Get or create mock user with enhanced logic
+   */
+  private async getOrCreateMockUser(context: any): Promise<any> {
+    const DEFAULT_USER_EMAIL = 'mock@example.com';
+    
+    try {
       let mockUser = await prisma.user.findFirst({
         where: { email: DEFAULT_USER_EMAIL }
       });
       
       if (!mockUser) {
+        logger.info('Creating mock user for project creation', context);
         mockUser = await prisma.user.create({
           data: {
             email: DEFAULT_USER_EMAIL,
@@ -2588,268 +2712,570 @@ What would you prefer?`,
         });
       }
 
-      // Auto-assign all competitors
+      return mockUser;
+    } catch (error) {
+      logger.error('Failed to get or create mock user', error as Error, context);
+      throw new Error('User setup failed - cannot create project');
+    }
+  }
+
+  /**
+   * Task 5.2: Get and validate competitors with enhanced validation
+   */
+  private async getAndValidateCompetitors(context: any): Promise<{
+    competitors: any[];
+    competitorIds: string[];
+    validationPassed: boolean;
+  }> {
+    try {
       const allCompetitors = await prisma.competitor.findMany({
-        select: { id: true, name: true }
-      });
-      const competitorIds = allCompetitors.map(c => c.id);
-      
-      logger.info(`Auto-assigning ${allCompetitors.length} competitors to project`, {
-        ...context,
-        projectName,
-        competitorNames: allCompetitors.map(c => c.name)
+        select: { id: true, name: true, website: true, industry: true }
       });
 
-      // Create project with competitors in transaction
+      if (allCompetitors.length === 0) {
+        throw new Error('No competitors available in database - cannot create meaningful project');
+      }
+
+      // Validate competitor data quality
+      const validCompetitors = allCompetitors.filter(competitor => 
+        competitor.name && 
+        competitor.name.trim().length > 0 &&
+        competitor.website &&
+        competitor.website.trim().length > 0
+      );
+
+      if (validCompetitors.length < allCompetitors.length * 0.5) {
+        logger.warn('Many competitors have incomplete data', {
+          ...context,
+          totalCompetitors: allCompetitors.length,
+          validCompetitors: validCompetitors.length,
+          dataQualityScore: Math.round((validCompetitors.length / allCompetitors.length) * 100)
+        });
+      }
+
+      const competitorIds = allCompetitors.map(c => c.id);
+      
+      logger.info('Task 5.2: Competitors validated and prepared', {
+        ...context,
+        totalCompetitors: allCompetitors.length,
+        validCompetitors: validCompetitors.length,
+        competitorNames: allCompetitors.map(c => c.name).join(', ')
+      });
+
+      return {
+        competitors: allCompetitors,
+        competitorIds,
+        validationPassed: validCompetitors.length >= Math.min(3, allCompetitors.length)
+      };
+    } catch (error) {
+      logger.error('Failed to get and validate competitors', error as Error, context);
+      throw new Error(`Competitor setup failed: ${(error as Error).message}`);
+    }
+  }
+
+  /**
+   * Task 5.2: Create project in transaction with enhanced data
+   */
+  private async createProjectInTransaction(
+    projectName: string,
+    userEmail: string,
+    mockUser: any,
+    competitorData: any,
+    context: any
+  ): Promise<{ project: any }> {
+    try {
+      logger.info('Task 5.2: Creating project in database transaction', {
+        ...context,
+        projectName,
+        competitorCount: competitorData.competitorIds.length
+      });
+
       const result = await prisma.$transaction(async (tx) => {
         const project = await tx.project.create({
           data: {
             name: projectName,
-            description: `Competitive analysis project created via chat interface`,
+            description: `Enhanced competitive analysis project created via chat interface - Task 5.2`,
             status: 'ACTIVE',
-            userId: mockUser!.id,
+            priority: 'HIGH', // High priority for chat-created projects
+            userId: mockUser.id,
             userEmail: userEmail,
             parameters: {
+              // Enhanced metadata for Task 5.2
               autoAssignedCompetitors: true,
-              assignedCompetitorCount: competitorIds.length,
+              assignedCompetitorCount: competitorData.competitorIds.length,
               createdViaChat: true,
-              chatSessionId: context.correlationId
+              chatSessionId: context.correlationId,
+              enhancedProjectCreation: true,
+              task52Implementation: true,
+              competitorDataQuality: competitorData.validationPassed,
+              creationTimestamp: new Date().toISOString(),
+              // Configuration for initial report generation
+              initialReportConfig: {
+                enabled: true,
+                priority: 'high',
+                template: 'comprehensive',
+                fallbackToPartialData: true,
+                requireFreshSnapshots: false, // Allow existing data for faster generation
+                timeout: 180000, // 3 minutes for chat-created projects
+                retryEnabled: true,
+                maxRetries: 2
+              }
             },
             tags: [], // Required field for Prisma schema
             competitors: {
-              connect: competitorIds.map((id: string) => ({ id }))
+              connect: competitorData.competitorIds.map((id: string) => ({ id }))
             }
           },
           include: {
-            competitors: true
+            competitors: {
+              select: {
+                id: true,
+                name: true,
+                website: true,
+                industry: true
+              }
+            }
           }
         });
+
+        // Validate project was created correctly
+        if (!project.id || project.competitors.length !== competitorData.competitorIds.length) {
+          throw new Error('Project creation validation failed');
+        }
 
         return { project };
       });
 
-      // *** NEW: Create product entity like the API route ***
-      let productCreated: any = null;
-      const chatData = this.chatState.collectedData;
-      
-      if (chatData?.productName && chatData?.productUrl) {
-        try {
-          logger.info('Creating product entity for chat-created project', {
-            ...context,
-            projectId: result.project.id,
-            productName: chatData.productName,
-            productUrl: chatData.productUrl
-          });
-
-          productCreated = await productRepository.create({
-            name: chatData.productName,
-            website: chatData.productUrl,
-            positioning: chatData.positioning || 'Competitive product analysis',
-            customerData: chatData.customerData || 'To be analyzed through competitive research',
-            userProblem: chatData.userProblem || 'Market positioning and competitive advantage',
-            industry: chatData.industry || 'General',
-            projectId: result.project.id
-          });
-
-          trackBusinessEvent('product_created_via_chat', {
-            ...context,
-            projectId: result.project.id,
-            productId: productCreated.id,
-            productName: productCreated.name,
-            productUrl: productCreated.website
-          });
-
-          logger.info('Product entity created successfully for chat project', {
-            ...context,
-            projectId: result.project.id,
-            productId: productCreated.id,
-            productName: productCreated.name
-          });
-
-          // *** NEW: Trigger product scraping immediately to create snapshots ***
-          try {
-            const { ProductScrapingService } = await import('@/services/productScrapingService');
-            const productScrapingService = new ProductScrapingService();
-            
-            logger.info('Starting product scraping for chat-created product', {
-              ...context,
-              projectId: result.project.id,
-              productId: productCreated.id,
-              productUrl: productCreated.website
-            });
-
-            // Trigger async scraping (don't wait for completion)
-            productScrapingService.scrapeProductById(productCreated.id)
-              .then(() => {
-                logger.info('Product scraping completed for chat project', {
-                  ...context,
-                  projectId: result.project.id,
-                  productId: productCreated.id
-                });
-              })
-              .catch((scrapingError: any) => {
-                logger.warn('Product scraping failed for chat project', {
-                  ...context,
-                  projectId: result.project.id,
-                  productId: productCreated.id,
-                  error: scrapingError.message
-                });
-              });
-
-          } catch (scrapingSetupError) {
-            logger.warn('Failed to setup product scraping for chat project', {
-              ...context,
-              projectId: result.project.id,
-              productId: productCreated.id,
-              error: (scrapingSetupError as Error).message
-            });
-          }
-
-        } catch (productError) {
-          logger.error('Failed to create product entity for chat project', productError as Error, {
-            ...context,
-            projectId: result.project.id,
-            productName: chatData.productName
-          });
-        }
-      }
-
-      // *** NEW: Add automatic report generation like the API route ***
-      const { InitialComparativeReportService } = await import('@/services/reports/initialComparativeReportService');
-      const initialComparativeReportService = new InitialComparativeReportService();
-      let reportGenerationInfo: any = null;
-
-      // Generate initial report automatically
-      if (competitorIds.length > 0) {
-        try {
-          logger.info('Generating initial comparative report for chat-created project', {
-            ...context,
-            projectId: result.project.id
-          });
-
-          const comparativeReport = await initialComparativeReportService.generateInitialComparativeReport(
-            result.project.id,
-            {
-              template: 'comprehensive',
-              priority: 'high',
-              timeout: 120000, // 2 minutes
-              fallbackToPartialData: true,
-              notifyOnCompletion: true,
-              requireFreshSnapshots: true
-            }
-          );
-
-          reportGenerationInfo = {
-            initialReportGenerated: true,
-            reportId: comparativeReport.id,
-            reportTitle: comparativeReport.title,
-            reportType: 'comparative',
-            generatedAt: comparativeReport.createdAt
-          };
-
-          trackBusinessEvent('initial_comparative_report_generated_via_chat', {
-            ...context,
-            projectId: result.project.id,
-            reportId: comparativeReport.id,
-            reportTitle: comparativeReport.title,
-            reportType: 'comparative'
-          });
-
-          logger.info('Initial comparative report generated for chat project', {
-            ...context,
-            projectId: result.project.id,
-            reportId: comparativeReport.id,
-            reportTitle: comparativeReport.title
-          });
-        } catch (reportError) {
-          logger.error('Failed to queue initial report generation for chat project', reportError as Error, {
-            ...context,
-            projectId: result.project.id
-          });
-          reportGenerationInfo = {
-            initialReportQueued: false,
-            error: 'Failed to queue initial report generation'
-          };
-        }
-      }
-
-      // Set up periodic reports based on frequency from chat data
-      const frequency = this.chatState.collectedData?.reportFrequency;
-      if (frequency && ['weekly', 'monthly', 'daily', 'biweekly'].includes(frequency.toLowerCase())) {
-        try {
-          logger.info('Setting up periodic reports for chat project', {
-            ...context,
-            projectId: result.project.id,
-            frequency: frequency.toLowerCase()
-          });
-
-          const autoReportService = getAutoReportService();
-          const schedule = await autoReportService.schedulePeriodicReports(
-            result.project.id,
-            frequency.toLowerCase() as 'daily' | 'weekly' | 'biweekly' | 'monthly',
-            {
-              reportTemplate: 'comprehensive'
-            }
-          );
-
-          reportGenerationInfo = {
-            ...reportGenerationInfo,
-            periodicReportsScheduled: true,
-            frequency: frequency.toLowerCase(),
-            nextScheduledReport: schedule.nextRunTime
-          };
-
-          trackBusinessEvent('periodic_reports_scheduled_via_chat', {
-            ...context,
-            projectId: result.project.id,
-            frequency: frequency.toLowerCase(),
-            nextScheduledReport: schedule.nextRunTime.toISOString()
-          });
-
-          logger.info('Periodic reports scheduled for chat project', {
-            ...context,
-            projectId: result.project.id,
-            frequency: frequency.toLowerCase(),
-            nextScheduledReport: schedule.nextRunTime.toISOString()
-          });
-        } catch (scheduleError) {
-          logger.error('Failed to schedule periodic reports for chat project', scheduleError as Error, {
-            ...context,
-            projectId: result.project.id
-          });
-        }
-      }
-
-      trackBusinessEvent('project_created_via_chat', {
+      logger.info('Task 5.2: Project created successfully in transaction', {
         ...context,
         projectId: result.project.id,
         projectName: result.project.name,
-        competitorCount: result.project.competitors.length,
-        userEmail,
-        reportGenerationTriggered: !!reportGenerationInfo?.initialReportQueued
+        competitorCount: result.project.competitors.length
       });
 
-      logger.info('Project created successfully via chat with report generation', {
-        ...context,
-        projectId: result.project.id,
-        projectName: result.project.name,
-        competitorCount: result.project.competitors.length,
-        reportGenerationInfo
-      });
-
-      // Add report generation info to the returned project
-      return {
-        ...result.project,
-        reportGeneration: reportGenerationInfo
-      };
+      return result;
     } catch (error) {
-      logger.error('Failed to create project via chat', {
+      logger.error('Task 5.2: Project transaction failed', error as Error, {
         ...context,
         projectName,
-        userEmail,
-        error: error instanceof Error ? error.message : 'Unknown error'
+        competitorCount: competitorData.competitorIds.length
       });
-      throw error;
+      throw new Error(`Project creation failed: ${(error as Error).message}`);
+    }
+  }
+
+  /**
+   * Task 5.2: Create product entity if chat data is available
+   */
+  private async createProductEntityIfAvailable(
+    project: any,
+    context: any
+  ): Promise<{ productCreated: any; hasProduct: boolean }> {
+    const chatData = this.chatState.collectedData;
+    
+    if (!chatData?.productName || !chatData?.productUrl) {
+      logger.info('Task 5.2: No product data available, skipping product creation', {
+        ...context,
+        projectId: project.id,
+        hasProductName: !!chatData?.productName,
+        hasProductUrl: !!chatData?.productUrl
+      });
+      return { productCreated: null, hasProduct: false };
+    }
+
+    try {
+      logger.info('Task 5.2: Creating product entity for chat-created project', {
+        ...context,
+        projectId: project.id,
+        productName: chatData.productName,
+        productUrl: chatData.productUrl
+      });
+
+      const { productRepository } = await import('@/lib/repositories/productRepository');
+      
+      const productCreated = await productRepository.create({
+        name: chatData.productName,
+        website: chatData.productUrl,
+        positioning: chatData.positioning || 'Competitive product analysis via chat interface',
+        customerData: chatData.customerData || 'To be analyzed through competitive research',
+        userProblem: chatData.userProblem || 'Market positioning and competitive advantage',
+        industry: chatData.industry || 'General',
+        projectId: project.id
+      });
+
+      // Track successful product creation
+      trackBusinessEvent('enhanced_product_created_via_chat', {
+        ...context,
+        projectId: project.id,
+        productId: productCreated.id,
+        productName: productCreated.name,
+        productUrl: productCreated.website,
+        task: 'Task 5.2'
+      });
+
+      // Trigger async product scraping for better data collection
+      this.triggerAsyncProductScraping(productCreated, project.id, context);
+
+      logger.info('Task 5.2: Product entity created successfully', {
+        ...context,
+        projectId: project.id,
+        productId: productCreated.id,
+        productName: productCreated.name
+      });
+
+      return { productCreated, hasProduct: true };
+
+    } catch (productError) {
+      logger.error('Task 5.2: Product creation failed', productError as Error, {
+        ...context,
+        projectId: project.id,
+        productName: chatData.productName
+      });
+      
+      // Don't fail entire project creation for product issues
+      return { productCreated: null, hasProduct: false };
+    }
+  }
+
+  /**
+   * Task 5.2: Generate initial report with enhanced retry logic
+   */
+  private async generateInitialReportWithRetry(
+    project: any,
+    competitorData: any,
+    productResult: any,
+    context: any
+  ): Promise<{ reportGenerated: boolean; reportData: any; attempts: number }> {
+    if (competitorData.competitorIds.length === 0) {
+      logger.warn('Task 5.2: No competitors available for initial report generation', {
+        ...context,
+        projectId: project.id
+      });
+      return { reportGenerated: false, reportData: null, attempts: 0 };
+    }
+
+    const maxRetries = project.parameters?.initialReportConfig?.maxRetries || 2;
+    let lastError: Error | null = null;
+    
+    for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
+      try {
+        logger.info(`Task 5.2: Attempting initial report generation (attempt ${attempt}/${maxRetries + 1})`, {
+          ...context,
+          projectId: project.id,
+          attempt,
+          maxRetries
+        });
+
+        const { InitialComparativeReportService } = await import('@/services/reports/initialComparativeReportService');
+        const initialComparativeReportService = new InitialComparativeReportService();
+
+        // Enhanced configuration based on attempt number
+        const reportConfig = {
+          template: project.parameters?.initialReportConfig?.template || 'comprehensive',
+          priority: project.parameters?.initialReportConfig?.priority || 'high',
+          timeout: project.parameters?.initialReportConfig?.timeout || 180000,
+          fallbackToPartialData: attempt > 1 ? true : project.parameters?.initialReportConfig?.fallbackToPartialData,
+          notifyOnCompletion: true,
+          requireFreshSnapshots: attempt === 1 ? false : true, // Try fresh snapshots on retry
+          forceGeneration: attempt > 1, // Force on retry attempts
+          correlationId: context.correlationId,
+          retryAttempt: attempt > 1 ? attempt : undefined
+        };
+
+        const comparativeReport = await initialComparativeReportService.generateInitialComparativeReport(
+          project.id,
+          reportConfig
+        );
+
+        const reportData = {
+          initialReportGenerated: true,
+          reportId: comparativeReport.id,
+          reportTitle: comparativeReport.title,
+          reportType: 'comparative',
+          generatedAt: comparativeReport.createdAt,
+          attemptNumber: attempt,
+          configuration: reportConfig
+        };
+
+        // Track successful report generation
+        trackBusinessEvent('enhanced_initial_report_generated_via_chat', {
+          ...context,
+          projectId: project.id,
+          reportId: comparativeReport.id,
+          reportTitle: comparativeReport.title,
+          reportType: 'comparative',
+          attempt,
+          hasProduct: !!productResult.hasProduct,
+          task: 'Task 5.2'
+        });
+
+        logger.info('Task 5.2: Initial report generated successfully', {
+          ...context,
+          projectId: project.id,
+          reportId: comparativeReport.id,
+          reportTitle: comparativeReport.title,
+          attempt,
+          finalAttempt: true
+        });
+
+        return { reportGenerated: true, reportData, attempts: attempt };
+
+      } catch (reportError) {
+        lastError = reportError as Error;
+        
+        logger.warn(`Task 5.2: Initial report generation attempt ${attempt} failed`, {
+          ...context,
+          projectId: project.id,
+          attempt,
+          maxRetries,
+          error: lastError.message,
+          willRetry: attempt <= maxRetries
+        });
+
+        // Wait before retry (exponential backoff)
+        if (attempt <= maxRetries) {
+          const waitTime = Math.min(1000 * Math.pow(2, attempt - 1), 10000); // Max 10 seconds
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+        }
+      }
+    }
+
+    // All attempts failed
+    logger.error('Task 5.2: All initial report generation attempts failed', lastError || new Error('Unknown error'), {
+      ...context,
+      projectId: project.id,
+      totalAttempts: maxRetries + 1,
+      finalError: lastError?.message
+    });
+
+    return {
+      reportGenerated: false,
+      reportData: {
+        initialReportGenerated: false,
+        error: lastError?.message || 'Unknown error',
+        attempts: maxRetries + 1,
+        willRetryLater: true
+      },
+      attempts: maxRetries + 1
+    };
+  }
+
+  /**
+   * Task 5.2: Schedule periodic reports with enhanced fallback
+   */
+  private async schedulePeriodicReportsWithFallback(
+    project: any,
+    context: any
+  ): Promise<{ scheduled: boolean; scheduleData: any }> {
+    const frequency = this.chatState.collectedData?.reportFrequency;
+    
+    if (!frequency || !['weekly', 'monthly', 'daily', 'biweekly'].includes(frequency.toLowerCase())) {
+      logger.info('Task 5.2: No valid frequency specified, skipping periodic report scheduling', {
+        ...context,
+        projectId: project.id,
+        frequency: frequency || 'none'
+      });
+      return { scheduled: false, scheduleData: null };
+    }
+
+    try {
+      logger.info('Task 5.2: Setting up enhanced periodic reports', {
+        ...context,
+        projectId: project.id,
+        frequency: frequency.toLowerCase()
+      });
+
+      const autoReportService = getAutoReportService();
+      const schedule = await autoReportService.schedulePeriodicReports(
+        project.id,
+        frequency.toLowerCase() as 'daily' | 'weekly' | 'biweekly' | 'monthly',
+        {
+          reportTemplate: 'comprehensive',
+          priority: 'normal',
+          enhancedScheduling: true,
+          task52Implementation: true
+        }
+      );
+
+      const scheduleData = {
+        periodicReportsScheduled: true,
+        frequency: frequency.toLowerCase(),
+        nextScheduledReport: schedule.nextRunTime,
+        scheduleId: schedule.id || 'unknown'
+      };
+
+      // Track successful scheduling
+      trackBusinessEvent('enhanced_periodic_reports_scheduled_via_chat', {
+        ...context,
+        projectId: project.id,
+        frequency: frequency.toLowerCase(),
+        nextScheduledReport: schedule.nextRunTime.toISOString(),
+        task: 'Task 5.2'
+      });
+
+      logger.info('Task 5.2: Periodic reports scheduled successfully', {
+        ...context,
+        projectId: project.id,
+        frequency: frequency.toLowerCase(),
+        nextScheduledReport: schedule.nextRunTime.toISOString()
+      });
+
+      return { scheduled: true, scheduleData };
+
+    } catch (scheduleError) {
+      logger.error('Task 5.2: Periodic report scheduling failed', scheduleError as Error, {
+        ...context,
+        projectId: project.id,
+        frequency: frequency.toLowerCase()
+      });
+
+      // Return partial success - project still created successfully
+      return {
+        scheduled: false,
+        scheduleData: {
+          periodicReportsScheduled: false,
+          error: (scheduleError as Error).message,
+          frequency: frequency.toLowerCase()
+        }
+      };
+    }
+  }
+
+  /**
+   * Task 5.2: Finalize project creation with comprehensive result
+   */
+  private finalizeProjectCreation(
+    project: any,
+    productResult: any,
+    reportResult: any,
+    schedulingResult: any,
+    context: any
+  ): any {
+    const finalResult = {
+      ...project,
+      // Enhanced metadata for Task 5.2
+      reportGeneration: {
+        ...reportResult.reportData,
+        productCreated: productResult.hasProduct,
+        productId: productResult.productCreated?.id,
+        ...schedulingResult.scheduleData
+      },
+      // Success metrics
+      creationMetrics: {
+        task: 'Task 5.2',
+        enhancedProjectCreation: true,
+        hasCompetitors: project.competitors.length > 0,
+        hasProduct: productResult.hasProduct,
+        hasInitialReport: reportResult.reportGenerated,
+        hasPeriodicReports: schedulingResult.scheduled,
+        reportGenerationAttempts: reportResult.attempts,
+        overallSuccess: reportResult.reportGenerated && schedulingResult.scheduled
+      }
+    };
+
+    // Final tracking event
+    trackBusinessEvent('enhanced_project_creation_completed', {
+      ...context,
+      projectId: project.id,
+      projectName: project.name,
+      competitorCount: project.competitors.length,
+      hasProduct: productResult.hasProduct,
+      initialReportGenerated: reportResult.reportGenerated,
+      periodicReportsScheduled: schedulingResult.scheduled,
+      overallSuccess: finalResult.creationMetrics.overallSuccess,
+      task: 'Task 5.2'
+    });
+
+    logger.info('Task 5.2: Project creation finalized', {
+      ...context,
+      projectId: project.id,
+      metrics: finalResult.creationMetrics
+    });
+
+    return finalResult;
+  }
+
+  /**
+   * Task 5.2: Handle project creation failure with enhanced error handling
+   */
+  private async handleProjectCreationFailure(error: unknown, context: any): Promise<void> {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorType = this.categorizeProjectCreationError(error);
+
+    logger.error('Task 5.2: Project creation failure analysis', {
+      ...context,
+      errorType,
+      errorMessage,
+      timestamp: new Date().toISOString()
+    });
+
+    // Track failure for monitoring
+    trackBusinessEvent('enhanced_project_creation_failed', {
+      ...context,
+      errorType,
+      errorMessage,
+      task: 'Task 5.2'
+    });
+
+    // Could implement recovery mechanisms here in the future
+    // For now, just ensure proper logging and tracking
+  }
+
+  /**
+   * Task 5.2: Categorize project creation errors for better handling
+   */
+  private categorizeProjectCreationError(error: unknown): string {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    
+    if (errorMessage.includes('Database connection')) return 'database_connection';
+    if (errorMessage.includes('Competitor setup')) return 'competitor_validation';
+    if (errorMessage.includes('Project creation failed')) return 'project_transaction';
+    if (errorMessage.includes('User setup failed')) return 'user_setup';
+    if (errorMessage.includes('Service') && errorMessage.includes('not available')) return 'service_dependency';
+    
+    return 'unknown_error';
+  }
+
+  /**
+   * Task 5.2: Trigger async product scraping (non-blocking)
+   */
+  private async triggerAsyncProductScraping(productCreated: any, projectId: string, context: any): Promise<void> {
+    try {
+      const { ProductScrapingService } = await import('@/services/productScrapingService');
+      const productScrapingService = new ProductScrapingService();
+      
+      logger.info('Task 5.2: Starting async product scraping', {
+        ...context,
+        projectId,
+        productId: productCreated.id,
+        productUrl: productCreated.website
+      });
+
+      // Trigger async scraping (don't wait for completion)
+      productScrapingService.scrapeProductById(productCreated.id)
+        .then(() => {
+          logger.info('Task 5.2: Product scraping completed successfully', {
+            ...context,
+            projectId,
+            productId: productCreated.id
+          });
+        })
+        .catch((scrapingError: any) => {
+          logger.warn('Task 5.2: Product scraping failed (non-critical)', {
+            ...context,
+            projectId,
+            productId: productCreated.id,
+            error: scrapingError.message
+          });
+        });
+
+    } catch (scrapingSetupError) {
+      logger.warn('Task 5.2: Failed to setup product scraping (non-critical)', {
+        ...context,
+        projectId,
+        productId: productCreated.id,
+        error: (scrapingSetupError as Error).message
+      });
     }
   }
 }

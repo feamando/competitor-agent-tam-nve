@@ -64,16 +64,26 @@ class WebScraperService {
     try {
       logger.info('Starting website scraping', { url, options: mergedOptions });
 
-      // For now, provide a comprehensive mock implementation
-      // In production, this would use Puppeteer or similar
-      const mockContent = await this.mockScrapeWebsite(url, mergedOptions);
+      // Check if we should use real scraping or fallback to mock
+      const useRealScraping = process.env.ENABLE_REAL_WEB_SCRAPING === 'true' || process.env.NODE_ENV === 'production';
+      
+      let scrapedContent: ScrapedContent;
+      
+      if (useRealScraping) {
+        // Use real web scraping
+        scrapedContent = await this.performRealScraping(url, mergedOptions);
+      } else {
+        // Fallback to mock for development
+        logger.warn('Using mock scraping - set ENABLE_REAL_WEB_SCRAPING=true for real data', { url });
+        scrapedContent = await this.mockScrapeWebsite(url, mergedOptions);
+      }
       
       const loadTime = Date.now() - startTime;
       
       const result = {
-        ...mockContent,
+        ...scrapedContent,
         metadata: {
-          ...mockContent.metadata,
+          ...scrapedContent.metadata,
           loadTime
         }
       };
@@ -82,7 +92,8 @@ class WebScraperService {
         url,
         loadTime,
         wordCount: result.metadata.wordCount,
-        linksFound: result.metadata.links.length
+        linksFound: result.metadata.links.length,
+        scrapingMethod: useRealScraping ? 'real' : 'mock'
       });
 
       return result;
@@ -220,6 +231,91 @@ class WebScraperService {
         } : {})
       }
     };
+  }
+
+  /**
+   * Perform real web scraping using Puppeteer
+   */
+  private async performRealScraping(url: string, options: ScrapingOptions): Promise<ScrapedContent> {
+    // Dynamic import to avoid bundling issues
+    const puppeteer = await import('puppeteer');
+    
+    let browser;
+    try {
+      browser = await puppeteer.default.launch({ 
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
+      });
+      
+      const page = await browser.newPage();
+      await page.setUserAgent(options.userAgent || this.defaultOptions.userAgent!);
+      
+      // Set timeout and navigate
+      await page.goto(url, { 
+        waitUntil: 'networkidle0',
+        timeout: options.timeout || this.defaultOptions.timeout
+      });
+      
+      // Extract content
+      const result = await page.evaluate((opts) => {
+        const title = document.title;
+        const content = document.body?.innerText || '';
+        
+        // Extract links
+        const links = Array.from(document.querySelectorAll('a[href]'))
+          .map(a => (a as HTMLAnchorElement).href)
+          .filter(href => href.startsWith('http'))
+          .slice(0, 20); // Limit to 20 links
+          
+        // Extract images if requested
+        const images = opts.includeImages ? 
+          Array.from(document.querySelectorAll('img[src]'))
+            .map(img => (img as HTMLImageElement).src)
+            .filter(src => src.startsWith('http'))
+            .slice(0, 10) : [];
+            
+        // Extract meta tags if requested
+        const metaTags: Record<string, string> = {};
+        if (opts.includeMeta) {
+          document.querySelectorAll('meta').forEach(meta => {
+            const name = meta.getAttribute('name') || meta.getAttribute('property');
+            const content = meta.getAttribute('content');
+            if (name && content) {
+              metaTags[name] = content;
+            }
+          });
+        }
+        
+        return {
+          title,
+          content,
+          links,
+          images,
+          metaTags,
+          wordCount: content.split(/\s+/).length
+        };
+      }, options);
+      
+      return {
+        url,
+        title: result.title,
+        content: result.content,
+        metadata: {
+          statusCode: 200,
+          timestamp: new Date().toISOString(),
+          loadTime: 0, // Will be set by caller
+          wordCount: result.wordCount,
+          links: result.links,
+          ...(options.includeImages ? { images: result.images } : {}),
+          ...(options.includeMeta ? { metaTags: result.metaTags } : {})
+        }
+      };
+      
+    } finally {
+      if (browser) {
+        await browser.close();
+      }
+    }
   }
 
   /**

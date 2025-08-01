@@ -16,11 +16,13 @@ import {
   ComparativeAnalysisInput,
   ComparativeAnalysis,
   AnalysisConfiguration,
-  ComparativeAnalysisError,
-  InsufficientDataError,
-  AIServiceError,
   AnalysisFocusArea
 } from '../types/analysisTypes';
+import {
+  ComparativeAnalysisError,
+  InsufficientDataError,
+  AIServiceError
+} from '@/types/analysis';
 import { BedrockService } from '@/services/bedrock/bedrock.service';
 import { BedrockMessage } from '@/services/bedrock/types';
 import { logger } from '@/lib/logger';

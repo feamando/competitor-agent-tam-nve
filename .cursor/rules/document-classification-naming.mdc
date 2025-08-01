@@ -1,7 +1,6 @@
 ---
 description: Rules for standardized document classification and naming convention
-globs: 
-alwaysApply: true
+alwaysApply: false
 ---
 # Rule: Document Classification and Naming Convention
 
@@ -20,6 +19,7 @@ To enforce a standardized naming convention for all documentation and reporting 
 - **S**: Strategy
 - **TH**: Thought Process
 - **D**: Project Documentation
+- **A**: Analysis 
 
 ### Components
 - **Type**: Use the appropriate two-letter code from above

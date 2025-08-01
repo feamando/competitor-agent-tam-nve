@@ -113,6 +113,7 @@ export class ReportGenerator {
     }
   }
 
+    // Task 3.1: Enhanced generateReport to accept resolved projectId
   async generateReport(
     competitorId: string,
     timeframe: number = 30,
@@ -120,22 +121,40 @@ export class ReportGenerator {
       userId?: string;
       changeLog?: string;
       reportName?: string;
-      projectId?: string;
+      projectId?: string; // Task 3.1: Enhanced to support resolved projectId
       reportOptions?: ReportGenerationOptions;
     }
   ): Promise<APIResponse<ReportData>> {
     return logger.timeOperation('report_generation', async () => {
       const reportOptions = { ...this.defaultOptions, ...options?.reportOptions };
       const correlationId = generateCorrelationId();
+      
+      // Task 3.1: Extract and validate resolved project ID
+      const resolvedProjectId = options?.projectId;
       const context = {
         competitorId,
         timeframe,
-        userId: options?.userId,
-        changeLog: options?.changeLog,
-        reportName: options?.reportName,
-        projectId: options?.projectId,
+        userId: options?.userId || 'system',
+        changeLog: options?.changeLog || '',
+        reportName: options?.reportName || '',
+        projectId: resolvedProjectId || '',
         correlationId
       };
+
+      // Task 3.4: Enhanced logging for project association tracking - START
+      logger.info('Task 3.4: Project Association Tracking - Report Generation Started', {
+        competitorId,
+        timeframe,
+        userId: options?.userId || 'system',
+        reportName: options?.reportName || 'unnamed',
+        providedProjectId: resolvedProjectId,
+        hasProvidedProjectId: !!resolvedProjectId,
+        projectIdSource: resolvedProjectId ? 'api_provided' : 'to_be_resolved',
+        correlationId,
+        task: 'Task 3.4 - Enhanced Project Association Tracking',
+        trackingPhase: 'generation_start',
+        timestamp: new Date().toISOString()
+      });
 
       try {
         trackReportFlow('report_generation_started', {
@@ -389,15 +408,107 @@ export class ReportGenerator {
             }
           });
 
+          // Task 3.1: Enhanced database save with resolved projectId validation
+          // Task 3.2: Additional validation to ensure projectId is never null
+          const resolvedProjectIdForSave = resolvedProjectId;
+          
+          if (!resolvedProjectIdForSave) {
+            logger.error('Task 3.2: Attempting to save report without projectId', {
+              competitorId,
+              resolvedProjectId: resolvedProjectIdForSave,
+              correlationId
+            });
+            throw new Error('Task 3.2: projectId is required for database save operation and cannot be null or undefined');
+          }
+
+          const validatedProjectId = resolvedProjectIdForSave.trim();
+          if (validatedProjectId === '') {
+            logger.error('Task 3.2: Attempting to save report with empty projectId', {
+              competitorId,
+              resolvedProjectId: resolvedProjectIdForSave,
+              correlationId
+            });
+            throw new Error('Task 3.2: projectId cannot be empty for database save operation');
+          }
+
+          // Task 3.3: Validate project-competitor relationship before saving
+          const relationshipExists = await this.validateProjectCompetitorRelationship(validatedProjectId, competitorId, correlationId);
+          if (!relationshipExists) {
+            logger.error('Task 3.3: Invalid project-competitor relationship detected', {
+              projectId: validatedProjectId,
+              competitorId,
+              correlationId,
+              task: 'Task 3.3 - Relationship Validation'
+            });
+            throw new Error(`Task 3.3: Competitor ${competitorId} is not associated with project ${validatedProjectId}. Cannot save report with invalid relationship.`);
+          }
+
+          logger.info('Task 3.3: Project-competitor relationship validated successfully', {
+            projectId: validatedProjectId,
+            competitorId,
+            correlationId,
+            task: 'Task 3.3 - Relationship Validation'
+          });
+
+          // Task 3.4: Enhanced logging for project association tracking - PRE-SAVE
+          logger.info('Task 3.4: Project Association Tracking - Pre-Database Save', {
+            competitorId,
+            projectId: validatedProjectId,
+            reportName: options?.reportName || reportData.title,
+            userId: options?.userId || 'system',
+            correlationId,
+            validationsPassed: {
+              projectIdNotNull: true,
+              projectIdNotEmpty: true,
+              relationshipExists: true
+            },
+            task: 'Task 3.4 - Enhanced Project Association Tracking',
+            trackingPhase: 'pre_database_save',
+            timestamp: new Date().toISOString()
+          });
+          
           savedReport = await this.prisma.report.create({
             data: {
               name: options?.reportName || reportData.title,
               description: reportData.description,
               competitorId,
-              projectId: options?.projectId, // Link report to project
+              projectId: validatedProjectId, // Task 3.2: Use validated projectId to ensure never null
               title: reportData.title,
               status: 'COMPLETED',
             },
+          });
+
+          // Task 3.1: Enhanced logging for project association tracking
+          logger.info('Task 3.1: Report saved with resolved projectId', {
+            reportId: savedReport.id,
+            competitorId,
+            resolvedProjectId: resolvedProjectIdForSave,
+            hasProjectId: !!resolvedProjectIdForSave,
+            projectIdSource: resolvedProjectIdForSave ? 'resolved' : 'not_provided',
+            correlationId
+          });
+
+          // Task 3.4: Enhanced logging for project association tracking - POST-SAVE SUCCESS
+          logger.info('Task 3.4: Project Association Tracking - Database Save Successful', {
+            reportId: savedReport.id,
+            competitorId,
+            projectId: validatedProjectId,
+            reportName: savedReport.name,
+            userId: options?.userId || 'system',
+            correlationId,
+            databaseOperationResult: {
+              success: true,
+              reportCreated: true,
+              projectAssociated: true
+            },
+            associationMetrics: {
+              validatedProjectId: validatedProjectId,
+              validatedCompetitorId: competitorId,
+              relationshipVerified: true
+            },
+            task: 'Task 3.4 - Enhanced Project Association Tracking',
+            trackingPhase: 'database_save_success',
+            timestamp: new Date().toISOString()
           });
 
           trackReportFlow('database_save', {
@@ -914,6 +1025,99 @@ Focus on actionable insights and specific improvements based on the competitive 
 
   private formatStringArray(items: string[]): string {
     return items.map(item => `• ${item}`).join('\n');
+  }
+
+  /**
+   * Task 3.3: Validate that project-competitor relationship exists before saving report
+   */
+  private async validateProjectCompetitorRelationship(
+    projectId: string, 
+    competitorId: string, 
+    correlationId: string
+  ): Promise<boolean> {
+    try {
+      // Task 3.4: Enhanced logging for relationship validation start
+      logger.info('Task 3.4: Project Association Tracking - Relationship Validation Started', {
+        projectId,
+        competitorId,
+        correlationId,
+        task: 'Task 3.4 - Enhanced Project Association Tracking',
+        trackingPhase: 'relationship_validation_start',
+        validationTarget: '_CompetitorToProject junction table',
+        timestamp: new Date().toISOString()
+      });
+
+      logger.info('Task 3.3: Validating project-competitor relationship', {
+        projectId,
+        competitorId,
+        correlationId,
+        task: 'Task 3.3 - Relationship Validation'
+      });
+
+      // Query the junction table to verify relationship exists
+      const relationship = await this.prisma.$queryRaw<{count: number}[]>`
+        SELECT COUNT(*) as count 
+        FROM "_CompetitorToProject" 
+        WHERE "A" = ${competitorId} AND "B" = ${projectId}
+      `;
+
+      const relationshipExists = Boolean(relationship && relationship[0] && relationship[0].count > 0);
+
+      // Task 3.4: Enhanced logging for relationship validation result
+      logger.info('Task 3.4: Project Association Tracking - Relationship Validation Result', {
+        projectId,
+        competitorId,
+        relationshipExists,
+        queryResult: relationship,
+        correlationId,
+        validationMetrics: {
+          queryExecuted: true,
+          resultCount: relationship?.[0]?.count || 0,
+          validationPassed: relationshipExists
+        },
+        task: 'Task 3.4 - Enhanced Project Association Tracking',
+        trackingPhase: 'relationship_validation_result',
+        timestamp: new Date().toISOString()
+      });
+
+      logger.info('Task 3.3: Project-competitor relationship query result', {
+        projectId,
+        competitorId,
+        relationshipExists,
+        queryResult: relationship,
+        correlationId,
+        task: 'Task 3.3 - Relationship Validation'
+      });
+
+      return relationshipExists;
+    } catch (error) {
+      // Task 3.4: Enhanced logging for relationship validation error
+      logger.error('Task 3.4: Project Association Tracking - Relationship Validation Error', {
+        projectId,
+        competitorId,
+        correlationId,
+        error: error as Error,
+        validationMetrics: {
+          queryExecuted: false,
+          validationPassed: false,
+          errorOccurred: true
+        },
+        task: 'Task 3.4 - Enhanced Project Association Tracking',
+        trackingPhase: 'relationship_validation_error',
+        timestamp: new Date().toISOString()
+      });
+
+      logger.error('Task 3.3: Error validating project-competitor relationship', error as Error, {
+        projectId,
+        competitorId,
+        correlationId,
+        task: 'Task 3.3 - Relationship Validation'
+      });
+      
+      // In case of database error, we should fail safely
+      // Rather than allow potentially invalid data to be saved
+      return false;
+    }
   }
 
   private async storeComparativeReport(reportData: ReportData, projectId: string, correlationId: string): Promise<void> {
