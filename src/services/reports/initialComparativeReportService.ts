@@ -661,6 +661,8 @@ export class InitialComparativeReportService {
         id: createId(),
         title: `Emergency Report - ${project.name}`,
         description: 'This is an emergency fallback report generated due to system issues. Limited analysis available.',
+        projectId: projectId,
+        productId: projectId, // Using projectId as productId for emergency fallback
         sections: [],
         executiveSummary: `# Emergency Comparative Analysis Report
 
@@ -685,6 +687,25 @@ export class InitialComparativeReportService {
 
 *This report was automatically generated as a fallback when the primary reporting system encountered issues.*`,
         analysisId: createId(),
+        keyFindings: [
+          'Emergency report generated due to system issues',
+          'Limited data available for analysis',
+          'Manual intervention may be required for complete analysis'
+        ],
+        strategicRecommendations: {
+          immediate: ['Check system health and resolve reported errors'],
+          shortTerm: ['Re-run report generation when systems are stable'],
+          longTerm: ['Implement monitoring to prevent future emergency fallbacks'],
+          priorityScore: 50
+        },
+        competitiveIntelligence: {
+          marketPosition: 'Unknown - emergency analysis mode',
+          keyThreats: ['System reliability issues affecting analysis capability'],
+          opportunities: ['System improvement opportunities identified'],
+          competitiveAdvantages: ['Automated fallback reporting system']
+        },
+        status: 'completed',
+        format: 'markdown',
         metadata: {
            productName: project.name,
            productUrl: '',
@@ -703,16 +724,26 @@ export class InitialComparativeReportService {
         updatedAt: new Date()
       };
 
-             // Save emergency report to database
-       await prisma.report.create({
-         data: {
-           id: fallbackReport.id,
-           name: fallbackReport.title,
-           description: 'Emergency fallback report',
-           projectId: projectId,
-           competitorId: project.competitors?.[0]?.id || '',
-           status: 'COMPLETED'
-         }
+             // Save emergency report to database with ReportVersion (FIX: Create both Report and ReportVersion atomically)
+       await prisma.$transaction(async (tx) => {
+         await tx.report.create({
+           data: {
+             id: fallbackReport.id,
+             name: fallbackReport.title,
+             description: 'Emergency fallback report',
+             projectId: projectId,
+             competitorId: project.competitors?.[0]?.id || '',
+             status: 'COMPLETED'
+           }
+         });
+
+         await tx.reportVersion.create({
+           data: {
+             reportId: fallbackReport.id,
+             version: 1,
+             content: fallbackReport as any,
+           },
+         });
        });
 
       trackBusinessEvent('emergency_fallback_report_generated', {
@@ -891,7 +922,7 @@ export class InitialComparativeReportService {
       }
 
       // Check for product data (snapshots)
-      const hasProductData = hasProduct && project.products[0]?.snapshots.length > 0;
+      const hasProductData = hasProduct && (project.products[0]?.snapshots?.length ?? 0) > 0;
       if (hasProductData) {
         readinessScore += 20;
       } else if (hasProduct) {
