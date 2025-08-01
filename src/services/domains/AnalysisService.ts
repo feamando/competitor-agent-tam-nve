@@ -100,10 +100,36 @@ class BedrockServiceManager {
       // Pattern preserved from all three original services: try stored credentials first
       logger.info('Initializing shared BedrockService with stored credentials');
       return await BedrockService.createWithStoredCredentials('anthropic', config);
-    } catch (error) {
-      logger.warn('Failed to initialize with stored credentials, falling back to environment variables', { error });
-      // Fallback pattern from all three services
-      return new BedrockService(config || {}, 'anthropic');
+    } catch (credentialError) {
+      logger.warn('Failed to initialize with stored credentials, attempting environment fallback', { 
+        error: credentialError instanceof Error ? credentialError.message : String(credentialError) 
+      });
+      
+      try {
+        // Enhanced fallback pattern - try environment variables
+        const envService = new BedrockService(config || {}, 'anthropic');
+        logger.info('Successfully initialized BedrockService with environment variables');
+        return envService;
+      } catch (envError) {
+        logger.warn('Environment variable initialization also failed, trying default AWS credential chain', {
+          credentialError: credentialError instanceof Error ? credentialError.message : String(credentialError),
+          envError: envError instanceof Error ? envError.message : String(envError)
+        });
+        
+        try {
+          // Final fallback - let AWS SDK handle default credential chain
+          const defaultService = new BedrockService({ region: 'us-east-1' }, 'anthropic');
+          logger.info('Successfully initialized BedrockService with default AWS credential chain');
+          return defaultService;
+        } catch (defaultError) {
+          logger.error('All BedrockService initialization strategies failed', {
+            credentialError: credentialError instanceof Error ? credentialError.message : String(credentialError),
+            envError: envError instanceof Error ? envError.message : String(envError),
+            defaultError: defaultError instanceof Error ? defaultError.message : String(defaultError)
+          } as any);
+          throw new Error(`BedrockService initialization failed: ${defaultError instanceof Error ? defaultError.message : String(defaultError)}`);
+        }
+      }
     }
   }
 

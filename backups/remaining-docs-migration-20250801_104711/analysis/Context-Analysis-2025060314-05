@@ -1,0 +1,98 @@
+Context Analysis
+
+1. Understanding the Requirements (PRD Analysis)
+From the PRD, I understand that:
+* Target: Good Chop competitor research agent
+* Timeline: June 30, 2025
+* Model Change: You mentioned switching from OpenAI + Mistral to Claude + Mistral (noted in 1a)
+* Core Purpose: Automate competitor research for product managers through a conversational agent interface
+* Key Flow: 6-step MVP process from project setup to automated report delivery
+
+2. Current Project State Analysis
+✅ What's Implemented:
+* Database Schema: Complete Prisma schema with all required models (User, Project, Competitor, Report, Analysis, etc.)
+* AI Integration: Claude + Mistral via AWS Bedrock (already aligned with your requirement!)
+* Core Analysis Engine: Content analysis, diff detection, trend analysis
+* Basic UI: Next.js app with dashboard, navigation, basic pages
+* Authentication: NextAuth.js setup
+* Testing: Jest + Playwright configured
+* Infrastructure: AWS Bedrock, PostgreSQL, proper TypeScript setup
+❌ What's Missing (Critical Gaps):
+* Chat Interface: No conversational agent UI (core requirement from PRD)
+* MVP Flow Implementation: The 6-step conversational flow from PRD is not implemented
+* Google Drive Integration: Required for report storage and sharing
+* Email Notifications: For sending reports to product managers
+* Project Setup Wizard: The initial conversation flow for project creation
+* Scheduling System: Automated report generation on cadence
+* Report Generation: Google Docs creation and management
+
+3. Requirements vs Current State Comparison
+High Priority Gaps:
+1. Chat Interface (Requirements 1-6, 30, 32): Missing conversational UI
+2. Google Drive Integration (Requirements 25-29, 34): No GDrive API integration
+3. Email System (Requirement 31): No email service implementation
+4. MVP Flow Logic (All 6 steps): Conversational flow not implemented
+5. Scheduling (Requirement 33): No automated execution system
+
+
+Implementation Plan
+Phase 1: Core Chat Interface (Week 1-2)
+1. Create Chat UI Components
+* Build conversational interface with message history
+* Implement typing indicators and loading states
+* Add input validation and error handling
+1. Implement Agent Conversation Logic
+* Build state machine for 6-step MVP flow
+* Create prompt templates for each step
+* Implement conversation memory and context management
+1. Integrate with Existing AI Services
+* Connect chat interface to Claude service
+* Add conversation routing and response parsing
+Phase 2: Google Drive & Email Integration (Week 3)
+1. Google Drive API Integration
+* Set up Google Drive API credentials
+* Implement folder creation and document management
+* Build report generation to Google Docs
+1. Email Service Implementation
+* Configure SMTP/email service
+* Create email templates for reports
+* Implement notification system
+Phase 3: MVP Flow Implementation (Week 4)
+1. Project Setup Flow (Steps 0-2)
+* User authentication and project creation
+* Product and competitor configuration
+* Customer perspective definition
+1. Analysis Flow (Steps 3-4)
+* Historical analysis comparison
+* Insight prioritization and summarization
+1. Report Generation & Delivery (Steps 5-6)
+* Google Docs creation with structured content
+* Email delivery with report links
+Phase 4: Scheduling & Automation (Week 5)
+1. Automated Scheduling System
+* Implement cron-based report generation
+* Build queue system for background processing
+* Add monitoring and error handling
+1. Testing & Refinement
+* End-to-end testing of complete flow
+* Performance optimization
+* Bug fixes and polish
+
+Next Steps (Immediate Actions)
+1. Create Chat Interface Foundation
+* Build basic chat UI components
+* Set up conversation state management
+* Create message routing system
+2. Implement Step 0 of MVP Flow
+* Project initialization conversation
+* User validation (HelloFresh email check)
+* Google Drive folder creation
+3. Set up Google Drive API
+* Configure Google Cloud credentials
+* Implement basic folder/document operations
+* Test document creation workflow
+4. Build Email Service
+* Configure email provider
+* Create basic email templates
+* Test email delivery
+

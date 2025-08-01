@@ -236,13 +236,32 @@ export class ConversationManager {
           stepDescription: 'Complete',
         };
       default:
-        // Phase 4.2: Default to restarting the flow for unknown steps
-        return {
-          message: `🔄 **Let's start fresh!**\n\nI've been upgraded with a new comprehensive form that makes the process much faster. Ready to begin a new competitive analysis project?`,
-                     nextStep: undefined,
-          stepDescription: 'Welcome',
-          expectedInputType: 'text',
-        };
+        // Enhanced error recovery instead of automatic restart
+        const currentProject = this.chatState.projectId;
+        const collectedData = this.chatState.collectedData;
+        
+        if (currentProject && collectedData) {
+          // Project exists, attempt to continue analysis
+          return {
+            message: `⚠️ **Session Recovery**\n\nI detected an interruption but your project "${this.chatState.projectName || currentProject}" data is preserved.\n\n**Collected Information:**\n- Product: ${collectedData.productName || 'Not specified'}\n- Email: ${collectedData.userEmail || 'Not specified'}\n\nWould you like me to:\n1. **Continue analysis** with current data\n2. **Review and update** the information\n3. **Start completely fresh**\n\nPlease type 1, 2, or 3.`,
+            stepDescription: 'Session Recovery',
+            expectedInputType: 'selection',
+          };
+        } else if (collectedData && Object.keys(collectedData).length > 0) {
+          // Partial data exists, offer to continue
+          return {
+            message: `⚠️ **Partial Data Recovery**\n\nI found some information from our previous conversation:\n${Object.entries(collectedData).map(([key, value]) => `- ${key}: ${value}`).join('\n')}\n\nWould you like to:\n1. **Continue** from where we left off\n2. **Start fresh** with a new project\n\nPlease type 1 or 2.`,
+            stepDescription: 'Data Recovery',
+            expectedInputType: 'selection',
+          };
+        } else {
+          // No recoverable data, gentle restart
+          return {
+            message: `👋 **Welcome Back!**\n\nI'm ready to help you create a competitive analysis project. Let's start by gathering some basic information.\n\nWhat would you like to name your analysis project?`,
+            stepDescription: 'Welcome',
+            expectedInputType: 'text',
+          };
+        }
     }
   }
 

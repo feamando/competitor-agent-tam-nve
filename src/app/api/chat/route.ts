@@ -1,9 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ConversationManager } from '@/lib/chat/conversation';
 
-// In-memory storage for demo purposes - in production, use Redis or database
-const conversations = new Map<string, ConversationManager>();
-
 export async function POST(request: NextRequest) {
   try {
     const { message, sessionId } = await request.json();
@@ -15,14 +12,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Get or create conversation session
+    // Use persistent conversation management instead of in-memory Map
     const conversationId = sessionId || 'default';
-    let conversation = conversations.get(conversationId);
-    
-    if (!conversation) {
-      conversation = new ConversationManager();
-      conversations.set(conversationId, conversation);
-    }
+    const conversation = ConversationManager.getConversation(conversationId);
 
     // Process the user message
     const response = await conversation.processUserMessage(message);
@@ -51,19 +43,8 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const sessionId = searchParams.get('sessionId') || 'default';
 
-    const conversation = conversations.get(sessionId);
-    
-    if (!conversation) {
-      return NextResponse.json({
-        messages: [],
-        chatState: {
-          currentStep: null,
-          stepDescription: 'Welcome',
-          expectedInputType: 'text' as const,
-        },
-        sessionId,
-      });
-    }
+    // Use persistent conversation retrieval
+    const conversation = ConversationManager.getConversation(sessionId);
 
     return NextResponse.json({
       messages: conversation.getMessages(),
