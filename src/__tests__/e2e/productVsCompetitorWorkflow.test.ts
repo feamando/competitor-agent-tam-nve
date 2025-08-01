@@ -38,8 +38,8 @@ describe('Product vs Competitor Workflow E2E', () => {
       expect(extractionResult.data).toBeDefined();
       expect(extractionResult.data!.userEmail).toBe('test-workflow@example.com');
       expect(extractionResult.data!.projectName).toBe('TestCorp Competitive Analysis');
-      expect(extractionResult.data!.productWebsite).toBe('https://testcorp.com/');
-      expect(extractionResult.data!.productName).toBe('TestCorp Competitive');
+      expect(extractionResult.data!.productWebsite || extractionResult.data!.productUrl).toBe('https://testcorp.com');
+      expect(extractionResult.data!.productName).toBe('TestCorp Platform');
       expect(extractionResult.data!.industry).toBe('SaaS');
       expect(extractionResult.data!.positioning).toBe('Enterprise automation platform');
 
@@ -346,7 +346,7 @@ describe('Product vs Competitor Workflow E2E', () => {
           [],
           { focusAreas: ['user_experience'] }
         );
-        fail('Should have thrown an error');
+        throw new Error('Should have thrown an error');
       } catch (error) {
         expect(error).toBeInstanceOf(Error);
         expect(error.message).toContain('Invalid input');

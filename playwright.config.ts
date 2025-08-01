@@ -101,7 +101,11 @@ const config: PlaywrightTestConfig = {
     reuseExistingServer: !process.env.CI,
     timeout: 120 * 1000, // 2 minutes for server to start
     stderr: 'pipe',
-    stdout: 'pipe'
+    stdout: 'pipe',
+    env: {
+      // Force specific port for testing
+      PORT: '3000'
+    }
   },
   // Output directory for test artifacts
   outputDir: path.join(__dirname, 'test-reports/artifacts'),
