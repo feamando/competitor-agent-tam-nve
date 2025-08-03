@@ -143,7 +143,50 @@ export class SmartDataCollectionService {
       return result;
 
     } catch (error) {
-      logger.error('Smart data collection failed', error as Error, context);
+      // Enhanced error logging for zombie report prevention
+      const enhancedContext = {
+        ...context,
+        errorType: (error as Error).name,
+        errorMessage: (error as Error).message,
+        errorStack: (error as Error).stack?.substring(0, 500), // Truncate stack trace
+        options: {
+          requireFreshSnapshots: options.requireFreshSnapshots,
+          maxCaptureTime: options.maxCaptureTime,
+          fallbackToPartialData: options.fallbackToPartialData,
+          fastCollectionOnly: options.fastCollectionOnly
+        },
+        collectionPhase: 'INITIALIZATION', // Track which phase failed
+        timestamp: new Date().toISOString(),
+        correlationId: (context as any).correlationId || 'unknown'
+      };
+
+      logger.error('Smart data collection failed - CRITICAL: This may trigger emergency fallback report generation', error as Error, enhancedContext);
+      
+      // Track specific error patterns that commonly cause zombie reports
+      if ((error as Error).message.includes('collectProductData')) {
+        logger.error('SmartDataCollectionService.collectProductData specific failure detected', error as Error, {
+          ...enhancedContext,
+          failureLocation: 'collectProductData',
+          zombieRiskLevel: 'HIGH'
+        });
+      }
+
+      if ((error as Error).message.includes('timeout') || (error as Error).name === 'TimeoutError') {
+        logger.error('SmartDataCollectionService timeout failure - high zombie report risk', error as Error, {
+          ...enhancedContext,
+          failureType: 'TIMEOUT',
+          zombieRiskLevel: 'HIGH'
+        });
+      }
+
+      if ((error as Error).message.includes('database') || (error as Error).message.includes('connection')) {
+        logger.error('SmartDataCollectionService database failure - database integrity risk', error as Error, {
+          ...enhancedContext,
+          failureType: 'DATABASE_CONNECTION',
+          zombieRiskLevel: 'MEDIUM'
+        });
+      }
+
       throw error;
     }
   }
@@ -623,19 +666,44 @@ export class SmartDataCollectionService {
         }
       };
 
-      // Store fast collection result
-      await prisma.competitorSnapshot.create({
-        data: {
-          id: createId(),
-          competitorId: competitor.id,
-          metadata: {
-            captureType: 'fast_collection',
-            captureTime: Date.now(),
-            dataCompleteness: 'essential_only',
-            ...fastData
+      // Store fast collection result with enhanced error handling
+      try {
+        const snapshotId = createId();
+        await prisma.snapshot.create({
+          data: {
+            id: snapshotId,
+            competitorId: competitor.id,
+            metadata: {
+              captureType: 'fast_collection',
+              captureTime: Date.now(),
+              dataCompleteness: 'essential_only',
+              ...fastData
+            }
           }
-        }
-      });
+        });
+
+        logger.info('Fast collection snapshot created successfully', {
+          ...context,
+          snapshotId,
+          competitorId: competitor.id,
+          dataType: 'fast_collection'
+        });
+
+      } catch (dbError) {
+        logger.error('Failed to create fast collection snapshot', dbError as Error, {
+          ...context,
+          competitorId: competitor.id,
+          operation: 'snapshot_creation',
+          errorType: 'database_error'
+        });
+        
+        // Don't throw here - fast collection should be resilient
+        logger.warn('Continuing without snapshot creation', {
+          ...context,
+          competitorId: competitor.id,
+          fallbackReason: 'snapshot_creation_failed'
+        });
+      }
 
       logger.info('Fast competitor data collection completed', context);
 

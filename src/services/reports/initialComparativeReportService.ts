@@ -18,6 +18,10 @@ import { PartialDataReportGenerator, PartialDataInfo, DataGap, PartialReportOpti
 import { realTimeStatusService } from '../realTimeStatusService';
 import { reportQualityService } from './reportQualityService';
 import { competitorSnapshotOptimizer, OptimizedSnapshotResult } from '../competitorSnapshotOptimizer';
+import { productSnapshotValidator } from '@/lib/data-validation/productSnapshotValidator';
+import { dataCompletenessChecker } from '@/lib/data-validation/dataCompletenessChecker';
+import { reportPrerequisiteValidator } from '@/lib/validation/reportPrerequisiteValidator';
+import { gracefulDegradationManager } from '@/lib/degradation/gracefulDegradationManager';
 import { intelligentCachingService } from '../intelligentCachingService';
 import { ConfigurationManagementService } from '../configurationManagementService';
 import { 
@@ -354,7 +358,39 @@ export class InitialComparativeReportService {
         return recentDuplicateReport;
       }
 
-      // 1. Validate project readiness
+      // 1. COMPREHENSIVE PREREQUISITE VALIDATION (Task 4.1 - Prevents race conditions)
+      reportLogger.info('Running comprehensive prerequisite validation', context);
+      const prerequisiteResult = await reportPrerequisiteValidator.validateReportPrerequisites(projectId, {
+        strictMode: !options.fallbackToPartialData,
+        minimumScore: options.fallbackToPartialData ? 50 : 70,
+        allowFallback: options.fallbackToPartialData || false,
+        maxWaitTime: 15000, // Wait up to 15 seconds for data
+        skipOptionalChecks: false
+      });
+
+      if (!prerequisiteResult.canProceed && !options.fallbackToPartialData) {
+        const prerequisiteError = `Comprehensive prerequisite validation failed (Score: ${prerequisiteResult.overallScore}%): ${prerequisiteResult.criticalBlockers.join(', ')}`;
+        reportLogger.error(prerequisiteError, new Error(prerequisiteError), context);
+        
+        trackBusinessEvent('prerequisite_validation_failed', {
+          projectId,
+          overallScore: prerequisiteResult.overallScore,
+          canProceed: prerequisiteResult.canProceed,
+          criticalBlockers: prerequisiteResult.criticalBlockers,
+          estimatedQuality: prerequisiteResult.estimatedReportQuality
+        });
+        
+        throw new Error(prerequisiteError);
+      }
+
+      reportLogger.info('Comprehensive prerequisite validation passed', {
+        ...context,
+        score: prerequisiteResult.overallScore,
+        estimatedQuality: prerequisiteResult.estimatedReportQuality,
+        recommendFallback: prerequisiteResult.recommendFallback
+      });
+
+      // 1.1 Validate project readiness (supplementary check)
       const readinessResult = await this.validateProjectReadiness(projectId);
       
       // Task 4.3: Check for missing snapshots during report generation
@@ -407,7 +443,80 @@ export class InitialComparativeReportService {
       
       const smartCollectionResult = await this.executeSmartDataCollectionWithFallback(projectId, options);
       
-      // 3. Build analysis input
+      // 2.1 VALIDATE PRODUCT SNAPSHOTS (Task 2.1 - Prevents race condition)
+      reportLogger.info('Validating product snapshots before report generation', context);
+      const validationResult = await productSnapshotValidator.validateProductSnapshots(projectId, {
+        waitForSnapshots: true,
+        maxWaitTime: 10000, // Wait up to 10 seconds for snapshots
+        requireFreshSnapshots: false
+      });
+      
+      if (!validationResult.isValid && !options.fallbackToPartialData) {
+        const validationError = `Product snapshot validation failed: ${validationResult.errors.join(', ')}`;
+        reportLogger.error(validationError, new Error(validationError), context);
+        
+        trackBusinessEvent('product_snapshot_validation_failed', {
+          projectId,
+          errors: validationResult.errors,
+          missingSnapshots: validationResult.missingSnapshots,
+          productCount: validationResult.productCount,
+          snapshotCount: validationResult.snapshotCount
+        });
+        
+        throw new Error(validationError);
+      }
+      
+      if (validationResult.warnings.length > 0) {
+        reportLogger.warn('Product snapshot validation warnings', {
+          ...context,
+          warnings: validationResult.warnings,
+          recommendations: validationResult.recommendations
+        });
+      }
+      
+      // 2.4 DATA COMPLETENESS CHECK (Task 2.4 - Ensures comprehensive reporting)
+      reportLogger.info('Checking data completeness for report generation', context);
+      const completenessResult = await dataCompletenessChecker.checkDataCompleteness(projectId, {
+        requireFreshData: false,
+        maxDataAge: 48, // 48 hours
+        minimumScore: 60, // 60% minimum for report generation
+        includeOptionalChecks: true
+      });
+      
+      if (!completenessResult.isComplete && !options.fallbackToPartialData) {
+        const completenessError = `Data completeness check failed (${completenessResult.overallGrade}): ${completenessResult.criticalIssues.join(', ')}`;
+        reportLogger.error(completenessError, new Error(completenessError), context);
+        
+        trackBusinessEvent('data_completeness_check_failed', {
+          projectId,
+          overallScore: completenessResult.overallScore,
+          grade: completenessResult.overallGrade,
+          criticalIssues: completenessResult.criticalIssues,
+          estimatedReportQuality: completenessResult.estimatedReportQuality
+        });
+        
+        throw new Error(completenessError);
+      }
+      
+      if (completenessResult.warnings.length > 0) {
+        reportLogger.warn('Data completeness warnings', {
+          ...context,
+          score: completenessResult.overallScore,
+          grade: completenessResult.overallGrade,
+          warnings: completenessResult.warnings,
+          recommendations: completenessResult.recommendations
+        });
+      }
+      
+      reportLogger.info('Data completeness check passed', {
+        ...context,
+        score: completenessResult.overallScore,
+        grade: completenessResult.overallGrade,
+        dataFreshness: completenessResult.dataFreshness,
+        estimatedQuality: completenessResult.estimatedReportQuality
+      });
+      
+      // 3. Build analysis input (now safe from race condition and data validated)
       const analysisInput = await this.buildAnalysisInput(projectId, smartCollectionResult);
       
       // 4. Generate report based on data completeness

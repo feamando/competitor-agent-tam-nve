@@ -243,8 +243,9 @@ export class EmergencyFallbackSystem {
         }
 
         // All retries exhausted or non-retryable error
-        correlatedLogger.error('All retry attempts exhausted, initiating emergency fallback', {
-          ...context,
+        correlatedLogger.error('All retry attempts exhausted, initiating emergency fallback', error as Error, {
+          projectId: options.projectId,
+          operationType: options.operationType,
           totalAttempts: attempt,
           finalError: (error as Error).message,
           errorClassification
@@ -645,19 +646,28 @@ export class EmergencyFallbackSystem {
 
   /**
    * Generate emergency report when primary report generation fails
+   * Task 5.1: Enhanced to include available partial data
    */
   private async generateEmergencyReport(projectId: string, logger: any): Promise<any> {
-    logger.info('Generating emergency fallback report', { projectId });
+    logger.info('Generating enhanced emergency fallback report with partial data', { projectId });
 
     try {
       const project = await prisma.project.findUnique({
         where: { id: projectId },
         include: {
-          competitors: {
+          products: {
             include: {
               snapshots: {
                 orderBy: { createdAt: 'desc' },
                 take: 1
+              }
+            }
+          },
+          competitors: {
+            include: {
+              snapshots: {
+                orderBy: { createdAt: 'desc' },
+                take: 3 // Get more snapshots for better partial analysis
               }
             }
           }
@@ -668,36 +678,33 @@ export class EmergencyFallbackSystem {
         throw new Error(`Project ${projectId} not found`);
       }
 
+      // Task 5.1: Collect available partial data
+      const partialData = await this.collectPartialDataForEmergency(project, logger);
+      
+      // Task 5.2: Generate user-friendly explanations
+      const dataExplanations = this.generateDataExplanations(partialData);
+
       const emergencyReport = {
         id: createId(),
         title: `Emergency Report - ${project.name}`,
-        summary: 'This is an emergency report generated due to system issues.',
-        content: `# Emergency Report for ${project.name}
-
-**Generated:** ${new Date().toISOString()}
-**Status:** Emergency Fallback Mode
-
-## Project Overview
-- **Name:** ${project.name}
-- **Competitors:** ${project.competitors?.length || 0}
-- **Last Updated:** ${new Date().toISOString()}
-
-## System Status
-- **Mode:** Emergency Fallback
-- **Functionality:** Limited
-- **Data Freshness:** May be outdated
-
-## Next Steps
-1. System recovery is in progress
-2. Full report will be available once services are restored
-3. Please check back in a few minutes
-
-*This report was generated using emergency fallback procedures.*`,
+        summary: `Emergency report with ${partialData.dataAvailabilityScore}% data availability`,
+        content: await this.generateEnhancedEmergencyContent(project, partialData, dataExplanations),
         metadata: {
           emergency: true,
           generatedAt: new Date(),
           competitorIds: project.competitors?.map(c => c.id) || [],
-          reportType: 'emergency_fallback'
+          reportType: 'emergency_fallback',
+          dataAvailabilityScore: partialData.dataAvailabilityScore,
+          partialDataIncluded: partialData.hasPartialData,
+          missingDataReasons: partialData.missingDataReasons,
+          // Task 5.4: Add emergency metrics
+          emergencyMetrics: {
+            triggerReason: 'system_failure',
+            dataCompleteness: partialData.dataAvailabilityScore,
+            competitorsWithData: partialData.competitorsWithData,
+            productDataAvailable: partialData.productDataAvailable,
+            generationTime: Date.now()
+          }
         },
         createdAt: new Date(),
         updatedAt: new Date()
@@ -708,23 +715,267 @@ export class EmergencyFallbackSystem {
         data: {
           id: emergencyReport.id,
           name: emergencyReport.title,
-          description: 'Emergency fallback report',
+          description: `Emergency report with ${partialData.dataAvailabilityScore}% data availability`,
           projectId: projectId,
           competitorId: project.competitors?.[0]?.id || '',
           status: 'COMPLETED'
         }
       });
 
-      trackBusinessEvent('emergency_report_generated', {
+      // Task 5.4: Track enhanced emergency metrics
+      trackBusinessEvent('enhanced_emergency_report_generated', {
         projectId,
-        reportId: emergencyReport.id
+        reportId: emergencyReport.id,
+        dataAvailabilityScore: partialData.dataAvailabilityScore,
+        competitorsWithData: partialData.competitorsWithData,
+        productDataAvailable: partialData.productDataAvailable,
+        emergencyTriggerReason: 'system_failure'
+      });
+
+      logger.info('Enhanced emergency report generated successfully', {
+        projectId,
+        reportId: emergencyReport.id,
+        dataAvailabilityScore: partialData.dataAvailabilityScore
       });
 
       return emergencyReport;
     } catch (error) {
-      logger.error('Failed to generate emergency report', error as Error);
+      logger.error('Failed to generate enhanced emergency report', error as Error);
       throw error;
     }
+  }
+
+  /**
+   * Task 5.1: Collect available partial data for emergency report
+   */
+  private async collectPartialDataForEmergency(project: any, logger: any): Promise<any> {
+    logger.info('Collecting partial data for emergency report', { projectId: project.id });
+
+    const partialData = {
+      hasPartialData: false,
+      dataAvailabilityScore: 0,
+      competitorsWithData: 0,
+      productDataAvailable: false,
+      missingDataReasons: [] as string[],
+      availableCompetitorData: [] as any[],
+      productSnapshot: null as any,
+      lastDataUpdate: null as Date | null
+    };
+
+    try {
+      // Check product data availability
+      if (project.products && project.products.length > 0) {
+        const product = project.products[0];
+        if (product.snapshots && product.snapshots.length > 0) {
+          partialData.productDataAvailable = true;
+          partialData.productSnapshot = product.snapshots[0];
+          partialData.lastDataUpdate = new Date(product.snapshots[0].createdAt);
+        } else {
+          partialData.missingDataReasons.push('No product snapshots available');
+        }
+      } else {
+        partialData.missingDataReasons.push('No product data configured');
+      }
+
+      // Check competitor data availability
+      if (project.competitors && project.competitors.length > 0) {
+        project.competitors.forEach((competitor: any) => {
+          if (competitor.snapshots && competitor.snapshots.length > 0) {
+            partialData.competitorsWithData++;
+            partialData.availableCompetitorData.push({
+              id: competitor.id,
+              name: competitor.name,
+              url: competitor.url,
+              latestSnapshot: competitor.snapshots[0],
+              snapshotCount: competitor.snapshots.length
+            });
+          }
+        });
+
+        if (partialData.competitorsWithData === 0) {
+          partialData.missingDataReasons.push('No competitor snapshots available');
+        }
+      } else {
+        partialData.missingDataReasons.push('No competitors configured');
+      }
+
+      // Calculate data availability score
+      const totalPossibleData = 1 + (project.competitors?.length || 0); // 1 product + N competitors
+      const availableData = (partialData.productDataAvailable ? 1 : 0) + partialData.competitorsWithData;
+      partialData.dataAvailabilityScore = Math.round((availableData / totalPossibleData) * 100);
+      partialData.hasPartialData = partialData.dataAvailabilityScore > 0;
+
+      logger.info('Partial data collected for emergency report', {
+        projectId: project.id,
+        dataAvailabilityScore: partialData.dataAvailabilityScore,
+        competitorsWithData: partialData.competitorsWithData,
+        productDataAvailable: partialData.productDataAvailable
+      });
+
+      return partialData;
+    } catch (error) {
+      logger.error('Failed to collect partial data for emergency report', error as Error);
+      partialData.missingDataReasons.push('Data collection system failure');
+      return partialData;
+    }
+  }
+
+  /**
+   * Task 5.2: Generate user-friendly explanations for missing data
+   */
+  private generateDataExplanations(partialData: any): any {
+    const explanations = {
+      missingDataExplanation: '',
+      userFriendlyMessage: '',
+      recommendations: [] as string[],
+      technicalDetails: partialData.missingDataReasons
+    };
+
+    if (partialData.dataAvailabilityScore === 0) {
+      explanations.missingDataExplanation = 'No product or competitor data is currently available due to system maintenance or data collection issues.';
+      explanations.userFriendlyMessage = '🔧 We\'re experiencing temporary data collection issues. Our team is working to restore full functionality.';
+      explanations.recommendations = [
+        'Check back in 15-30 minutes for a complete report',
+        'Contact support if this issue persists',
+        'Consider refreshing your project data once systems are restored'
+      ];
+    } else if (partialData.dataAvailabilityScore < 50) {
+      explanations.missingDataExplanation = `Only ${partialData.dataAvailabilityScore}% of your project data is currently available. Some competitor information may be missing.`;
+      explanations.userFriendlyMessage = '⚠️ This report contains partial data. Some competitor analysis may be incomplete.';
+      explanations.recommendations = [
+        'Review the available data sections below',
+        'A complete report will be generated once all data is available',
+        'Consider updating your competitor list if needed'
+      ];
+    } else {
+      explanations.missingDataExplanation = `${partialData.dataAvailabilityScore}% of your project data is available. Most analysis can be completed.`;
+      explanations.userFriendlyMessage = '✅ Most of your project data is available. This report provides a comprehensive analysis.';
+      explanations.recommendations = [
+        'Review the complete analysis below',
+        'Minor updates may be available in the next report refresh'
+      ];
+    }
+
+    return explanations;
+  }
+
+  /**
+   * Task 5.1 & 5.2: Generate enhanced emergency content with partial data and explanations
+   */
+  private async generateEnhancedEmergencyContent(project: any, partialData: any, explanations: any): Promise<string> {
+    const currentTime = new Date().toISOString();
+    
+    let content = `# Emergency Report - ${project.name}
+
+**Generated:** ${currentTime}  
+**Status:** Emergency Fallback Mode  
+**Data Availability:** ${partialData.dataAvailabilityScore}%
+
+---
+
+## 📊 Data Availability Summary
+
+${explanations.userFriendlyMessage}
+
+**Available Data:**
+- Product Data: ${partialData.productDataAvailable ? '✅ Available' : '❌ Missing'}
+- Competitors with Data: ${partialData.competitorsWithData} of ${project.competitors?.length || 0}
+- Overall Completeness: ${partialData.dataAvailabilityScore}%
+
+`;
+
+    // Add partial data sections if available
+    if (partialData.hasPartialData) {
+      content += `---
+
+## 🏢 Product Information
+`;
+      
+      if (partialData.productDataAvailable && partialData.productSnapshot) {
+        const product = project.products[0];
+        const snapshot = partialData.productSnapshot;
+        content += `
+**Product Name:** ${product.name || 'N/A'}
+**URL:** ${product.url || 'N/A'}
+**Last Updated:** ${new Date(snapshot.createdAt).toLocaleDateString()}
+**Data Quality:** ${snapshot.metadata?.qualityScore || 'N/A'}%
+
+`;
+      } else {
+        content += `
+⚠️ Product data is currently unavailable. This may be due to:
+- Product page not accessible
+- Data collection system maintenance
+- Configuration issues
+
+`;
+      }
+
+      content += `---
+
+## 🏭 Competitor Analysis
+`;
+
+      if (partialData.competitorsWithData > 0) {
+        content += `
+**Competitors with Available Data:** ${partialData.competitorsWithData}
+
+`;
+        partialData.availableCompetitorData.forEach((competitor: any) => {
+          content += `### ${competitor.name}
+- **URL:** ${competitor.url}  
+- **Last Snapshot:** ${new Date(competitor.latestSnapshot.createdAt).toLocaleDateString()}  
+- **Data Points:** ${competitor.snapshotCount} snapshots available  
+
+`;
+        });
+      } else {
+        content += `
+⚠️ No competitor data is currently available. This may be due to:
+- Competitor websites not accessible
+- Data collection system maintenance
+- Network connectivity issues
+
+`;
+      }
+    }
+
+    content += `---
+
+## 🔧 System Status & Next Steps
+
+**Current Status:** ${explanations.missingDataExplanation}
+
+**Recommended Actions:**
+`;
+    
+    explanations.recommendations.forEach((rec: string) => {
+      content += `- ${rec}\n`;
+    });
+
+    content += `
+**Technical Details:**
+`;
+    partialData.missingDataReasons.forEach((reason: string) => {
+      content += `- ${reason}\n`;
+    });
+
+    content += `
+---
+
+## 📞 Support Information
+
+If you need immediate assistance or this issue persists:
+- Contact our support team
+- Reference Report ID: ${new Date().getTime()}
+- Include Project ID: ${project.id}
+
+---
+
+*This emergency report was generated using available partial data. A complete report will be automatically generated once all systems are fully operational.*
+`;
+
+    return content;
   }
 
   /**
@@ -746,10 +997,373 @@ export class EmergencyFallbackSystem {
   }
 
   /**
+   * Task 5.3: Emergency report regeneration trigger system
+   */
+  public async triggerEmergencyReportRegeneration(
+    projectId: string, 
+    options: {
+      forceRegeneration?: boolean;
+      dataAvailabilityThreshold?: number;
+      maxRetries?: number;
+    } = {}
+  ): Promise<{
+    success: boolean;
+    regenerated: boolean;
+    reportId?: string;
+    dataAvailabilityScore?: number;
+    message: string;
+  }> {
+    const correlationId = createId();
+    const logger = createCorrelationLogger(correlationId);
+    
+    logger.info('Triggering emergency report regeneration', { 
+      projectId, 
+      options 
+    });
+
+    try {
+      // Check if we should regenerate based on data availability
+      const shouldRegenerate = await this.shouldRegenerateEmergencyReport(
+        projectId, 
+        options.dataAvailabilityThreshold || 70,
+        logger
+      );
+
+      if (!shouldRegenerate && !options.forceRegeneration) {
+        return {
+          success: true,
+          regenerated: false,
+          message: 'Emergency report regeneration not needed - data availability sufficient'
+        };
+      }
+
+      // Generate new emergency report
+      const newReport = await this.generateEmergencyReport(projectId, logger);
+      
+      // Track regeneration event
+      trackBusinessEvent('emergency_report_regenerated', {
+        projectId,
+        reportId: newReport.id,
+        dataAvailabilityScore: newReport.metadata.dataAvailabilityScore,
+        triggerReason: options.forceRegeneration ? 'manual_trigger' : 'data_availability_improved'
+      });
+
+      return {
+        success: true,
+        regenerated: true,
+        reportId: newReport.id,
+        dataAvailabilityScore: newReport.metadata.dataAvailabilityScore,
+        message: 'Emergency report successfully regenerated'
+      };
+
+    } catch (error) {
+      logger.error('Failed to regenerate emergency report', error as Error);
+      return {
+        success: false,
+        regenerated: false,
+        message: `Failed to regenerate emergency report: ${(error as Error).message}`
+      };
+    }
+  }
+
+  /**
+   * Task 5.3: Check if emergency report should be regenerated
+   */
+  private async shouldRegenerateEmergencyReport(
+    projectId: string, 
+    dataThreshold: number,
+    logger: any
+  ): Promise<boolean> {
+    try {
+      // Get current project data state
+      const project = await prisma.project.findUnique({
+        where: { id: projectId },
+        include: {
+          products: {
+            include: {
+              snapshots: {
+                orderBy: { createdAt: 'desc' },
+                take: 1
+              }
+            }
+          },
+          competitors: {
+            include: {
+              snapshots: {
+                orderBy: { createdAt: 'desc' },
+                take: 1
+              }
+            }
+          }
+        }
+      });
+
+      if (!project) {
+        return false;
+      }
+
+      // Collect current partial data
+      const partialData = await this.collectPartialDataForEmergency(project, logger);
+      
+      // Check if data availability has improved beyond threshold
+      const shouldRegenerate = partialData.dataAvailabilityScore >= dataThreshold;
+      
+      logger.info('Emergency report regeneration assessment', {
+        projectId,
+        currentDataScore: partialData.dataAvailabilityScore,
+        threshold: dataThreshold,
+        shouldRegenerate
+      });
+
+      return shouldRegenerate;
+
+    } catch (error) {
+      logger.error('Failed to assess regeneration need', error as Error);
+      return false;
+    }
+  }
+
+  /**
+   * Task 5.3: Schedule automatic regeneration checks
+   */
+  public scheduleEmergencyReportRegenerationCheck(
+    projectId: string,
+    intervalMinutes: number = 15
+  ): NodeJS.Timeout {
+    const logger = createCorrelationLogger(createId());
+    
+    logger.info('Scheduling emergency report regeneration checks', { 
+      projectId, 
+      intervalMinutes 
+    });
+
+    return setInterval(async () => {
+      try {
+        await this.triggerEmergencyReportRegeneration(projectId, {
+          dataAvailabilityThreshold: 70
+        });
+      } catch (error) {
+        logger.error('Scheduled regeneration check failed', error as Error);
+      }
+    }, intervalMinutes * 60 * 1000);
+  }
+
+  /**
+   * Task 5.4: Enhanced emergency metrics tracking
+   */
+  public trackEmergencyFallbackMetrics(
+    projectId: string,
+    eventType: 'triggered' | 'resolved' | 'regenerated' | 'escalated',
+    metrics: {
+      triggerReason?: string;
+      dataAvailabilityScore?: number;
+      systemRecoveryTime?: number;
+      userImpact?: 'low' | 'medium' | 'high';
+      fallbackQuality?: number;
+      additionalContext?: Record<string, any>;
+    }
+  ): void {
+    const timestamp = Date.now();
+    
+    // Track comprehensive emergency metrics
+    trackBusinessEvent('emergency_fallback_metrics', {
+      projectId,
+      eventType,
+      timestamp,
+      triggerReason: metrics.triggerReason || 'unknown',
+      dataAvailabilityScore: metrics.dataAvailabilityScore || 0,
+      systemRecoveryTime: metrics.systemRecoveryTime || 0,
+      userImpact: metrics.userImpact || 'medium',
+      fallbackQuality: metrics.fallbackQuality || 0,
+      emergencyMode: this.emergencyModeActive.has(projectId),
+      circuitBreakerStates: this.getCircuitBreakerSummary(),
+      ...metrics.additionalContext
+    });
+
+    // Track specific KPIs
+    this.updateEmergencyKPIs(projectId, eventType, metrics);
+  }
+
+  /**
+   * Task 5.4: Update emergency KPIs
+   */
+  private updateEmergencyKPIs(
+    projectId: string,
+    eventType: string,
+    metrics: any
+  ): void {
+    const kpiData = {
+      projectId,
+      eventType,
+      timestamp: Date.now(),
+      // Availability metrics
+      emergencyReportCount: eventType === 'triggered' ? 1 : 0,
+      dataAvailabilityScore: metrics.dataAvailabilityScore || 0,
+      // Performance metrics
+      systemRecoveryTime: metrics.systemRecoveryTime || 0,
+      fallbackQuality: metrics.fallbackQuality || 0,
+      // User experience metrics
+      userImpactLevel: this.calculateUserImpactScore(metrics.userImpact || 'medium'),
+      // System health metrics
+      circuitBreakerStatus: this.getCircuitBreakerHealthScore(),
+      emergencyModeActive: this.emergencyModeActive.has(projectId)
+    };
+
+    trackBusinessEvent('emergency_fallback_kpis', kpiData);
+  }
+
+  /**
+   * Task 5.4: Calculate user impact score for metrics
+   */
+  private calculateUserImpactScore(impact: 'low' | 'medium' | 'high'): number {
+    switch (impact) {
+      case 'low': return 1;
+      case 'medium': return 5;
+      case 'high': return 10;
+      default: return 5;
+    }
+  }
+
+  /**
+   * Task 5.4: Get circuit breaker health score
+   */
+  private getCircuitBreakerHealthScore(): number {
+    const totalBreakers = this.circuitBreakers.size;
+    if (totalBreakers === 0) return 100;
+
+    const openBreakers = Array.from(this.circuitBreakers.values())
+      .filter(breaker => breaker.state === CircuitBreakerState.OPEN).length;
+
+    return Math.round(((totalBreakers - openBreakers) / totalBreakers) * 100);
+  }
+
+  /**
+   * Task 5.4: Get circuit breaker summary for metrics
+   */
+  private getCircuitBreakerSummary(): Record<string, any> {
+    const summary: Record<string, any> = {};
+    
+    this.circuitBreakers.forEach((breaker, key) => {
+      summary[key] = {
+        state: breaker.state,
+        failureCount: breaker.failureCount,
+        lastFailureTime: breaker.lastFailureTime
+      };
+    });
+
+    return summary;
+  }
+
+  /**
+   * Task 5.4: Generate emergency metrics report
+   */
+  public generateEmergencyMetricsReport(projectId?: string): {
+    summary: any;
+    metrics: any[];
+    recommendations: string[];
+  } {
+    const activeEmergencies = this.emergencyModeActive.size;
+    const circuitBreakerHealth = this.getCircuitBreakerHealthScore();
+    
+    const summary = {
+      timestamp: new Date().toISOString(),
+      activeEmergencies,
+      totalProjects: projectId ? 1 : this.emergencyModeActive.size,
+      circuitBreakerHealth,
+      overallSystemHealth: this.calculateOverallSystemHealth()
+    };
+
+    const metrics = this.collectDetailedMetrics(projectId);
+    const recommendations = this.generateMetricsRecommendations(summary, metrics);
+
+    return { summary, metrics, recommendations };
+  }
+
+  /**
+   * Task 5.4: Calculate overall system health
+   */
+  private calculateOverallSystemHealth(): number {
+    const circuitBreakerHealth = this.getCircuitBreakerHealthScore();
+    const emergencyModeImpact = Math.max(0, 100 - (this.emergencyModeActive.size * 10));
+    
+    return Math.round((circuitBreakerHealth + emergencyModeImpact) / 2);
+  }
+
+  /**
+   * Task 5.4: Collect detailed metrics
+   */
+  private collectDetailedMetrics(projectId?: string): any[] {
+    const metrics: any[] = [];
+    
+    // Circuit breaker metrics
+    this.circuitBreakers.forEach((breaker, key) => {
+      metrics.push({
+        type: 'circuit_breaker',
+        key,
+        state: breaker.state,
+        failureCount: breaker.failureCount,
+        lastFailureTime: breaker.lastFailureTime
+      });
+    });
+
+    // Emergency mode metrics
+    this.emergencyModeActive.forEach(pid => {
+      if (!projectId || pid === projectId) {
+        metrics.push({
+          type: 'emergency_mode',
+          projectId: pid,
+          activeSince: Date.now(), // This would be tracked in real implementation
+          impact: 'active'
+        });
+      }
+    });
+
+    return metrics;
+  }
+
+  /**
+   * Task 5.4: Generate recommendations based on metrics
+   */
+  private generateMetricsRecommendations(summary: any, metrics: any[]): string[] {
+    const recommendations: string[] = [];
+
+    if (summary.circuitBreakerHealth < 80) {
+      recommendations.push('Review and fix circuit breaker issues to improve system reliability');
+    }
+
+    if (summary.activeEmergencies > 0) {
+      recommendations.push('Investigate root causes of emergency mode activations');
+    }
+
+    if (summary.overallSystemHealth < 70) {
+      recommendations.push('System health is degraded - consider maintenance window');
+    }
+
+    const openCircuitBreakers = metrics.filter(m => 
+      m.type === 'circuit_breaker' && m.state === CircuitBreakerState.OPEN
+    );
+
+    if (openCircuitBreakers.length > 0) {
+      recommendations.push(`${openCircuitBreakers.length} circuit breakers are open - check service dependencies`);
+    }
+
+    return recommendations;
+  }
+
+  /**
    * Perform emergency data collection
    */
   private async performEmergencyDataCollection(projectId: string, logger: any): Promise<any> {
     logger.info('Performing emergency data collection', { projectId });
+
+    // Task 5.4: Track emergency data collection metrics
+    this.trackEmergencyFallbackMetrics(projectId, 'triggered', {
+      triggerReason: 'data_collection_failure',
+      userImpact: 'medium',
+      additionalContext: {
+        collectionType: 'emergency_data_collection'
+      }
+    });
 
     return {
       emergency: true,
