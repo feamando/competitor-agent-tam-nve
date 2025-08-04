@@ -13,6 +13,7 @@ import { getAutoReportService } from '@/services/autoReportGenerationService';
 import { dataIntegrityValidator } from '@/lib/validation/dataIntegrity';
 import { registerService } from '@/services/serviceRegistry';
 import { ConversationMemoryOptimizer, MAX_MESSAGES_PER_CONVERSATION } from './memoryOptimization';
+import { ChatAWSStatusChecker, AWSStatusResult } from '@/lib/chat/awsStatusChecker';
 
 export class ConversationManager {
   private chatState: ChatState;
@@ -2579,7 +2580,18 @@ What would you prefer?`,
         userEmail
       });
 
-      // Step 1: Validate prerequisites
+      // Step 1: Check AWS status before proceeding
+      const awsStatusChecker = ChatAWSStatusChecker.getInstance();
+      const awsStatus = await awsStatusChecker.checkAWSStatus();
+      
+      logger.info('AWS status check for project creation', {
+        ...context,
+        awsAvailable: awsStatus.available,
+        canProceedWithReports: awsStatus.canProceedWithReports,
+        message: awsStatus.message
+      });
+
+      // Step 2: Validate prerequisites
       await this.validateProjectCreationPrerequisites(context);
 
       // Step 2: Get or create user
@@ -2600,13 +2612,30 @@ What would you prefer?`,
       // Step 5: Create product entity if data available
       const productResult = await this.createProductEntityIfAvailable(projectResult.project, context);
 
-      // Step 6: Generate initial report with enhanced logic
-      const reportResult = await this.generateInitialReportWithRetry(
-        projectResult.project, 
-        competitorData, 
-        productResult,
-        context
-      );
+      // Step 6: Generate initial report with enhanced logic (skip if AWS unavailable)
+      let reportResult;
+      if (awsStatus.canProceedWithReports) {
+        reportResult = await this.generateInitialReportWithRetry(
+          projectResult.project, 
+          competitorData, 
+          productResult,
+          context
+        );
+      } else {
+        logger.info('Skipping initial report generation due to AWS unavailability', {
+          ...context,
+          projectId: projectResult.project.id,
+          reason: awsStatus.message
+        });
+        
+        reportResult = {
+          reportGenerated: false,
+          reportData: null,
+          attempts: 0,
+          skipReason: awsStatus.message,
+          awsUnavailable: true
+        };
+      }
 
       // Step 7: Schedule periodic reports
       const schedulingResult = await this.schedulePeriodicReportsWithFallback(

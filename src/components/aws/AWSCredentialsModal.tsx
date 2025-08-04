@@ -102,7 +102,10 @@ export function AWSCredentialsModal({
     setValidationResult(null);
 
     try {
-      // Save credentials
+      // Save credentials with improved error handling and timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+
       const saveResponse = await fetch('/api/aws/credentials', {
         method: 'POST',
         headers: {
@@ -115,13 +118,36 @@ export function AWSCredentialsModal({
           sessionToken: formData.sessionToken || undefined,
           awsRegion: formData.awsRegion
         }),
+        signal: controller.signal
       });
+
+      clearTimeout(timeoutId);
+
+      // Check if response is ok before trying to parse JSON
+      if (!saveResponse.ok) {
+        const contentType = saveResponse.headers.get('content-type');
+        let errorMessage = `HTTP ${saveResponse.status}: ${saveResponse.statusText}`;
+        
+        try {
+          if (contentType && contentType.includes('application/json')) {
+            const errorData = await saveResponse.json();
+            errorMessage = errorData.error || errorMessage;
+          }
+        } catch (parseError) {
+          logger.warn('Failed to parse error response as JSON', { error: parseError as Error });
+        }
+        
+        throw new Error(errorMessage);
+      }
 
       const saveResult = await saveResponse.json();
 
       if (!saveResult.success) {
         throw new Error(saveResult.error || 'Failed to save credentials');
       }
+
+      // Add a small delay before validation to ensure database consistency
+      await new Promise(resolve => setTimeout(resolve, 100));
 
       // Validate credentials
       await handleValidate(false);
@@ -134,8 +160,23 @@ export function AWSCredentialsModal({
       onClose();
 
     } catch (error) {
-      logger.error('Failed to save AWS credentials', error as Error);
-      setErrors({ general: (error as Error).message });
+      logger.error('Failed to save AWS credentials', error as Error, { 
+        profileName: formData.profileName 
+      });
+      
+      // Provide more specific error messages
+      let errorMessage = (error as Error).message;
+      if (errorMessage.includes('AbortError')) {
+        errorMessage = 'Request timeout - please check your connection and try again';
+      } else if (errorMessage.includes('NetworkError') || errorMessage.includes('Failed to fetch')) {
+        errorMessage = 'Network error - please check your connection and try again';
+      } else if (errorMessage.includes('401')) {
+        errorMessage = 'Authentication error - please verify your credentials';
+      } else if (errorMessage.includes('429')) {
+        errorMessage = 'Too many requests - please wait a moment and try again';
+      }
+      
+      setErrors({ general: errorMessage });
     } finally {
       setIsLoading(false);
     }
@@ -148,6 +189,10 @@ export function AWSCredentialsModal({
     if (showResult) setValidationResult(null);
 
     try {
+      // Add timeout and better error handling for validation
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+
       const response = await fetch('/api/aws/credentials/validate', {
         method: 'POST',
         headers: {
@@ -156,7 +201,27 @@ export function AWSCredentialsModal({
         body: JSON.stringify({
           profileName: formData.profileName
         }),
+        signal: controller.signal
       });
+
+      clearTimeout(timeoutId);
+
+      // Check if response is ok before trying to parse JSON
+      if (!response.ok) {
+        const contentType = response.headers.get('content-type');
+        let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+        
+        try {
+          if (contentType && contentType.includes('application/json')) {
+            const errorData = await response.json();
+            errorMessage = errorData.error || errorMessage;
+          }
+        } catch (parseError) {
+          logger.warn('Failed to parse validation error response as JSON', { error: parseError as Error });
+        }
+        
+        throw new Error(errorMessage);
+      }
 
       const result = await response.json();
 
@@ -175,11 +240,22 @@ export function AWSCredentialsModal({
       return result.valid;
 
     } catch (error) {
-      logger.error('Failed to validate AWS credentials', error as Error);
+      logger.error('Failed to validate AWS credentials', error as Error, { 
+        profileName: formData.profileName 
+      });
+      
+      // Provide more specific error messages for validation
+      let errorMessage = (error as Error).message;
+      if (errorMessage.includes('AbortError')) {
+        errorMessage = 'Validation timeout - please try again';
+      } else if (errorMessage.includes('NetworkError') || errorMessage.includes('Failed to fetch')) {
+        errorMessage = 'Network error during validation - please check your connection';
+      }
+      
       if (showResult) {
         setValidationResult({
           isValid: false,
-          error: (error as Error).message
+          error: errorMessage
         });
       }
       return false;

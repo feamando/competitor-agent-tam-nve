@@ -66,6 +66,10 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
       const data = await response.json();
 
       if (!response.ok) {
+        // Handle specific AWS errors with retry suggestion
+        if (data.errorType === 'AWS_SERVICE_ERROR' && data.canRetry) {
+          throw new Error(`${data.error} You can retry in a few moments.`);
+        }
         throw new Error(data.error || 'Failed to send message');
       }
 

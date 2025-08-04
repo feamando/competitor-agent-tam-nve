@@ -1,7 +1,7 @@
 import { prisma } from '@/lib/prisma';
 import { logger, generateCorrelationId, trackBusinessEvent } from '@/lib/logger';
-import { productSnapshotValidator } from './productSnapshotValidator';
-import { dataCompletenessChecker } from './dataCompletenessChecker';
+import { productSnapshotValidator } from '@/lib/data-validation/productSnapshotValidator';
+import { dataCompletenessChecker } from '@/lib/data-validation/dataCompletenessChecker';
 
 export interface ReportPrerequisite {
   name: string;

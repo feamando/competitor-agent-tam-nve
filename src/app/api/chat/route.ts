@@ -31,6 +31,24 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('Chat API error:', error);
+    
+    // Check if it's an AWS-related error and provide more specific messaging
+    const errorMessage = error instanceof Error ? error.message : 'Internal server error';
+    const isAWSError = errorMessage.includes('ExpiredTokenException') || 
+                      errorMessage.includes('AWS') ||
+                      errorMessage.includes('Bedrock');
+    
+    if (isAWSError) {
+      return NextResponse.json(
+        { 
+          error: 'Service temporarily unavailable due to AWS configuration issues. Please try again later or contact support.',
+          errorType: 'AWS_SERVICE_ERROR',
+          canRetry: true
+        },
+        { status: 503 }
+      );
+    }
+    
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
