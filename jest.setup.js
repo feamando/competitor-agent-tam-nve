@@ -15,44 +15,64 @@ jest.mock('@prisma/client', () => {
   const mockPrismaClient = {
     // Mock database models
     project: {
-      create: jest.fn(),
-      findMany: jest.fn(),
-      findUnique: jest.fn(),
-      update: jest.fn(),
-      delete: jest.fn(),
-      count: jest.fn(),
+      create: jest.fn().mockResolvedValue({ id: '1', name: 'Test Project', status: 'ACTIVE' }),
+      findMany: jest.fn().mockResolvedValue([]),
+      findUnique: jest.fn().mockResolvedValue({ id: '1', name: 'Test Project' }),
+      update: jest.fn().mockResolvedValue({ id: '1', name: 'Updated Project' }),
+      upsert: jest.fn().mockResolvedValue({ id: '1', name: 'Upserted Project' }),
+      delete: jest.fn().mockResolvedValue({ id: '1', name: 'Deleted Project' }),
+      count: jest.fn().mockResolvedValue(1),
     },
     competitor: {
-      create: jest.fn(),
-      findMany: jest.fn(),
-      findUnique: jest.fn(),
-      update: jest.fn(),
-      delete: jest.fn(),
-      count: jest.fn(),
+      create: jest.fn().mockResolvedValue({ id: '1', name: 'Test Competitor', website: 'test.com' }),
+      findMany: jest.fn().mockResolvedValue([]),
+      findFirst: jest.fn().mockResolvedValue({ id: '1', name: 'Test Competitor' }), // ✅ MISSING METHOD ADDED
+      findUnique: jest.fn().mockResolvedValue({ id: '1', name: 'Test Competitor' }),
+      update: jest.fn().mockResolvedValue({ id: '1', name: 'Updated Competitor' }),
+      upsert: jest.fn().mockResolvedValue({ id: '1', name: 'Upserted Competitor' }),
+      delete: jest.fn().mockResolvedValue({ id: '1', name: 'Deleted Competitor' }),
+      deleteMany: jest.fn().mockResolvedValue({ count: 1 }), // ✅ MISSING METHOD ADDED
+      count: jest.fn().mockResolvedValue(1),
     },
     product: {
-      create: jest.fn(),
-      findMany: jest.fn(),
-      findUnique: jest.fn(),
-      update: jest.fn(),
-      delete: jest.fn(),
-      count: jest.fn(),
+      create: jest.fn().mockResolvedValue({ id: '1', name: 'Test Product', website: 'product.com' }),
+      findMany: jest.fn().mockResolvedValue([]),
+      findUnique: jest.fn().mockResolvedValue({ id: '1', name: 'Test Product' }),
+      update: jest.fn().mockResolvedValue({ id: '1', name: 'Updated Product' }),
+      upsert: jest.fn().mockResolvedValue({ id: '1', name: 'Upserted Product' }),
+      delete: jest.fn().mockResolvedValue({ id: '1', name: 'Deleted Product' }),
+      count: jest.fn().mockResolvedValue(1),
     },
     report: {
-      create: jest.fn(),
-      findMany: jest.fn(),
-      findUnique: jest.fn(),
-      update: jest.fn(),
-      delete: jest.fn(),
-      count: jest.fn(),
+      create: jest.fn().mockResolvedValue({ id: '1', title: 'Test Report', status: 'COMPLETED' }),
+      findMany: jest.fn().mockResolvedValue([]),
+      findUnique: jest.fn().mockResolvedValue({ id: '1', title: 'Test Report' }),
+      update: jest.fn().mockResolvedValue({ id: '1', title: 'Updated Report' }),
+      upsert: jest.fn().mockResolvedValue({ id: '1', title: 'Upserted Report' }),
+      delete: jest.fn().mockResolvedValue({ id: '1', title: 'Deleted Report' }),
+      count: jest.fn().mockResolvedValue(1),
     },
     productSnapshot: {
-      create: jest.fn(),
-      findMany: jest.fn(),
-      findUnique: jest.fn(),
-      update: jest.fn(),
-      delete: jest.fn(),
-      count: jest.fn(),
+      create: jest.fn().mockResolvedValue({ id: '1', productId: '1', timestamp: '2025-01-04' }),
+      findMany: jest.fn().mockResolvedValue([]),
+      findFirst: jest.fn().mockResolvedValue({ id: '1', productId: '1', timestamp: '2025-01-04' }), // ✅ MISSING METHOD ADDED
+      findUnique: jest.fn().mockResolvedValue({ id: '1', productId: '1' }),
+      update: jest.fn().mockResolvedValue({ id: '1', productId: '1' }),
+      upsert: jest.fn().mockResolvedValue({ id: '1', productId: '1' }),
+      delete: jest.fn().mockResolvedValue({ id: '1', productId: '1' }),
+      deleteMany: jest.fn().mockResolvedValue({ count: 1 }), // ✅ MISSING METHOD ADDED
+      count: jest.fn().mockResolvedValue(1),
+    },
+    snapshot: {
+      create: jest.fn().mockResolvedValue({ id: '1', productId: '1', timestamp: '2025-01-04' }),
+      findMany: jest.fn().mockResolvedValue([]),
+      findFirst: jest.fn().mockResolvedValue({ id: '1', productId: '1', timestamp: '2025-01-04' }), // ✅ MISSING METHOD ADDED  
+      findUnique: jest.fn().mockResolvedValue({ id: '1', productId: '1' }),
+      update: jest.fn().mockResolvedValue({ id: '1', productId: '1' }),
+      upsert: jest.fn().mockResolvedValue({ id: '1', productId: '1' }),
+      delete: jest.fn().mockResolvedValue({ id: '1', productId: '1' }),
+      deleteMany: jest.fn().mockResolvedValue({ count: 1 }), // ✅ MISSING METHOD ADDED
+      count: jest.fn().mockResolvedValue(1),
     },
     // Add AWS Credentials model mock - this was missing!
     aWSCredentials: {
@@ -176,6 +196,12 @@ jest.mock('@/services/analysis/userExperienceAnalyzer', () => {
   };
 });
 
+// *** ADD LOGGER MOCKING ***
+jest.mock('@/lib/logger', () => ({
+  ...jest.requireActual('@/lib/logger'),
+  generateCorrelationId: jest.fn().mockReturnValue('test-correlation-id-123') // ✅ MISSING FUNCTION ADDED
+}));
+
 // *** ADD MEMORY MONITORING MOCKING ***
 jest.mock('@/lib/monitoring/memoryMonitoring', () => {
   return {
@@ -191,10 +217,47 @@ jest.mock('@/lib/monitoring/memoryMonitoring', () => {
         current: 1024 * 1024 * 50,
         average: 1024 * 1024 * 60
       }),
+      registerLargeObject: jest.fn().mockReturnValue(undefined), // ✅ MISSING METHOD ADDED
+      unregisterLargeObject: jest.fn().mockReturnValue(undefined), // ✅ MISSING METHOD ADDED
       cleanup: jest.fn().mockResolvedValue(undefined)
     }
   };
 });
+
+// *** ADD NEXT.JS API ROUTE SUPPORT ***
+// Provide Request polyfill for Next.js server imports
+global.Request = class MockRequest {
+  constructor(input, init = {}) {
+    this.url = typeof input === 'string' ? input : input.url;
+    this.method = init?.method || 'GET';
+    this.headers = new Map(Object.entries(init?.headers || {}));
+    this.body = init?.body;
+  }
+};
+
+global.Response = class MockResponse {
+  constructor(body, init = {}) {
+    this.status = init.status || 200;
+    this.statusText = init.statusText || 'OK';
+    this.headers = new Map(Object.entries(init.headers || {}));
+    this.body = body;
+  }
+  
+  static json(data, init = {}) {
+    return new this(JSON.stringify(data), { 
+      ...init, 
+      headers: { 'Content-Type': 'application/json', ...(init.headers || {}) }
+    });
+  }
+  
+  async json() {
+    return JSON.parse(this.body);
+  }
+  
+  async text() {
+    return this.body;
+  }
+};
 
 // Import reliability features
 // *** TEMPORARILY DISABLED: These also create dynamic hooks causing the hooks error ***

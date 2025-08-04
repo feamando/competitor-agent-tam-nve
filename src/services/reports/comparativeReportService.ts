@@ -558,8 +558,8 @@ Use clear headings, bullet points, and professional business language.`;
   private extractKeyThreats(context: ReportContext): string[] {
     return [
       `Overall threat level: ${context.threatLevel}`,
-      ...context.featureGaps.slice(0, 3),
-      ...context.uxWeaknesses.slice(0, 2)
+      ...(context.featureGaps || []).slice(0, 3), // ✅ DEFENSIVE GUARD ADDED
+      ...(context.uxWeaknesses || []).slice(0, 2) // ✅ DEFENSIVE GUARD ADDED
     ];
   }
 

@@ -6,7 +6,7 @@ import { projectScrapingService } from '@/services/projectScrapingService';
 import { productChatProcessor } from './productChatProcessor';
 import { productService } from '@/services/productService';
 import { enhancedProjectExtractor, EnhancedChatProjectData } from './enhancedProjectExtractor';
-import { ComprehensiveRequirementsCollector, ComprehensiveProjectRequirements } from './comprehensiveRequirementsCollector';
+import { ComprehensiveRequirementsCollector, ComprehensiveProjectRequirements, RequirementsValidationResult } from './comprehensiveRequirementsCollector';
 import { logger, generateCorrelationId, trackBusinessEvent } from '@/lib/logger';
 import { productRepository } from '@/lib/repositories';
 import { getAutoReportService } from '@/services/autoReportGenerationService';
@@ -14,6 +14,27 @@ import { dataIntegrityValidator } from '@/lib/validation/dataIntegrity';
 import { registerService } from '@/services/serviceRegistry';
 import { ConversationMemoryOptimizer, MAX_MESSAGES_PER_CONVERSATION } from './memoryOptimization';
 import { ChatAWSStatusChecker, AWSStatusResult } from '@/lib/chat/awsStatusChecker';
+// Removed duplicate imports that were causing module resolution errors
+
+// Type definitions for enhanced error handling - Task 1: Move interfaces outside class
+interface ParseErrorCategory {
+  type: 'format_error' | 'missing_data' | 'validation_error' | 'partial_success' | 'general_error';
+  category: string;
+  severity: 'low' | 'medium' | 'high';
+  details: any;
+}
+
+interface RecoveryStrategy {
+  strategy: string;
+  priority: 'low' | 'medium' | 'high';
+  suggestions: string[];
+}
+
+interface ProgressiveParsingResult {
+  hasValidData: boolean;
+  data: any;
+  confidence: number;
+}
 
 export class ConversationManager {
   private chatState: ChatState;
@@ -43,6 +64,7 @@ export class ConversationManager {
       stepDescription: 'Welcome',
       expectedInputType: 'text',
       useComprehensiveFlow: enableComprehensiveFlow, // Respect environment setting
+      collectedData: {}, // Initialize collectedData as empty object to prevent undefined errors
       ...initialState,
     };
     this.reportGenerator = new MarkdownReportGenerator();
@@ -298,13 +320,32 @@ Please tell me:
 
   private async handleStep0(content: string): Promise<ChatResponse> {
     // Phase 5.2: Direct migration - try comprehensive flow first with fallback
+    // Add timeout handling to prevent hanging
+    const processStep0 = async (): Promise<ChatResponse> => {
+      try {
+        return await this.handleComprehensiveInput(content);
+      } catch (error) {
+        console.warn('Comprehensive parsing failed, falling back to legacy flow:', error);
+        
+        // Fallback to legacy flow when comprehensive parsing fails
+        return this.handleLegacyFallback(content, error);
+      }
+    };
+
+    // Implement timeout for step0 processing to prevent hanging
+    const timeoutPromise = new Promise<ChatResponse>((_, reject) => {
+      setTimeout(() => reject(new Error('Step0 processing timeout')), 5000); // 5 second timeout
+    });
+
     try {
-      return await this.handleComprehensiveInput(content);
+      return await Promise.race([processStep0(), timeoutPromise]);
     } catch (error) {
-      console.warn('Comprehensive parsing failed, falling back to legacy flow:', error);
-      
-      // Fallback to legacy flow when comprehensive parsing fails
-      return this.handleLegacyFallback(content, error);
+      console.error('Step0 processing failed:', error);
+      return {
+        message: `⚠️ **Service Initialization Issue**\n\nI'm experiencing some delays during startup. Let me try a simplified approach.\n\nWhat would you like to name your analysis project?`,
+        stepDescription: 'Fallback Mode',
+        expectedInputType: 'text',
+      };
     }
   }
 
@@ -1232,78 +1273,385 @@ Now, what is the name of the product that you want to perform competitive analys
   }
 
   /**
-   * Phase 5: Handle parsing errors with graceful recovery
+   * Task 5.2: Enhanced parsing error handler with better categorization and recovery mechanisms
    */
   private handleParsingError(content: string, error: Error): ChatResponse {
     console.error('Parsing error occurred:', error);
     
-    // Phase 2.1 Fix: Provide specific error messages based on error type and test expectations
+    // Task 5.2: Enhanced error categorization
+    const errorCategory = this.categorizeParsingError(error, content);
+    const recoveryStrategy = this.determineRecoveryStrategy(errorCategory, content);
+    
     let message = '';
-    let errorMessage = '';
     let stepDescription = 'Error Recovery';
     
-    // Analyze the error and content to provide targeted responses
-    if (error.message.includes('Failed to parse input format')) {
-      errorMessage = 'Failed to parse input format';
-      stepDescription = 'Fix Input Format';
-      
-      message = `🔄 **Oops! I had trouble parsing your input.**\n\n`;
-      message += `Don't worry - this happens sometimes. Let me help you get back on track!\n\n`;
-      message += `💡 **What happened:** Failed to parse input format\n\n`;
-      
-      if (content.length > 1000) {
-        message += `🚀 **How to proceed:**\n`;
-        message += `• **Try shorter format** - breaking it into key points\n`;
-        message += `• **Use numbered list** - organize information clearly\n`;
-        message += `• **Step-by-step** - Type "help" for guided setup\n\n`;
-      } else if (content.includes('*') || content.includes('#') || content.includes('[')) {
-        message += `🚀 **How to proceed:**\n`;
-        message += `• **Simplify formatting** - use basic punctuation\n`;
-        message += `• **Plain text** - avoid special characters\n`;
-        message += `• **Step-by-step** - Type "help" for guided setup\n\n`;
-      } else {
-        message += `🚀 **How to proceed:**\n`;
-        message += `• **Use numbered list** (1-9) for best results\n`;
-        message += `• **Include all required fields** - email, product name, URL, etc.\n`;
-        message += `• **Step-by-step** - Type "help" for guided setup\n\n`;
+    switch (errorCategory.type) {
+      case 'format_error':
+        stepDescription = 'Fix Input Format';
+        message = this.createFormatErrorMessage(content, errorCategory.details);
+        break;
+        
+      case 'missing_data':
+        stepDescription = 'Complete Required Data';
+        message = this.createMissingDataErrorMessage(content, errorCategory.details);
+        break;
+        
+      case 'validation_error':
+        stepDescription = 'Fix Data Validation';
+        message = this.createValidationErrorMessage(content, errorCategory.details);
+        break;
+        
+      case 'partial_success':
+        stepDescription = 'Complete Partial Data';
+        message = this.createPartialSuccessMessage(content, errorCategory.details);
+        break;
+        
+      default:
+        stepDescription = 'General Error Recovery';
+        message = this.createGeneralErrorMessage(content, error);
+    }
+    
+    // Task 5.2: Try progressive parsing recovery
+    const recoveredData = this.attemptProgressiveParsing(content, errorCategory);
+    if (recoveredData.hasValidData) {
+      message += `\n\n✅ **Good news!** I was able to recover some of your information:\n`;
+      message += this.formatRecoveredData(recoveredData.data);
+      message += `\n\nPlease provide the missing information to continue.`;
+    }
+
+    return {
+      message,
+      expectedInputType: 'text',
+      step: this.chatState.step,
+      stepDescription,
+      error: {
+        type: errorCategory.type,
+        category: errorCategory.category,
+        recoveryStrategy: recoveryStrategy.strategy,
+        suggestions: recoveryStrategy.suggestions
+      }
+    };
+  }
+
+  /**
+   * Task 5.2: Categorize parsing errors for better recovery strategies
+   */
+  private categorizeParsingError(error: Error, content: string): ParseErrorCategory {
+    const errorMessage = error.message.toLowerCase();
+    const contentLength = content.length;
+    const lines = content.split('\n').filter(line => line.trim());
+    
+    // Format-related errors
+    if (errorMessage.includes('failed to parse input format') || 
+        errorMessage.includes('invalid format') ||
+        contentLength > 2000) {
+      return {
+        type: 'format_error',
+        category: 'formatting',
+        severity: 'medium',
+        details: {
+          isOverlyLong: contentLength > 2000,
+          hasSpecialCharacters: /[*#\[\]{}]/.test(content),
+          lineCount: lines.length,
+          suggestedFormat: 'structured'
+        }
+      };
+    }
+    
+    // Missing required data
+    if (errorMessage.includes('email') || errorMessage.includes('required')) {
+      const missingFields = this.detectMissingFields(content);
+      return {
+        type: 'missing_data',
+        category: 'incomplete',
+        severity: 'high',
+        details: {
+          missingFields,
+          providedFields: this.detectProvidedFields(content),
+          completeness: this.calculateCompleteness(content)
+        }
+      };
+    }
+    
+    // Validation errors (invalid email, URL, etc.)
+    if (errorMessage.includes('invalid') || errorMessage.includes('validation')) {
+      return {
+        type: 'validation_error',
+        category: 'data_quality',
+        severity: 'medium',
+        details: {
+          invalidFields: this.detectInvalidFields(content),
+          validationIssues: this.getValidationIssues(content)
+        }
+      };
+    }
+    
+    // Partial parsing success (some data extracted)
+    const partialData = this.attemptPartialExtraction(content);
+    if (partialData && Object.keys(partialData).length > 0) {
+      return {
+        type: 'partial_success',
+        category: 'recoverable',
+        severity: 'low',
+        details: {
+          extractedFields: Object.keys(partialData),
+          extractedData: partialData,
+          missingFields: this.detectMissingFields(content)
+        }
+      };
+    }
+    
+    // General parsing error
+    return {
+      type: 'general_error',
+      category: 'parsing',
+      severity: 'high',
+      details: {
+        errorMessage: error.message,
+        contentPreview: content.slice(0, 100)
+      }
+    };
+  }
+
+  /**
+   * Task 5.2: Progressive parsing strategy - attempt to extract any valid data
+   */
+  private attemptProgressiveParsing(content: string, errorCategory: ParseErrorCategory): ProgressiveParsingResult {
+    const recoveredData: any = {};
+    let hasValidData = false;
+    
+    try {
+      // Stage 1: Basic pattern extraction
+      const emailMatch = content.match(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/);
+      if (emailMatch) {
+        recoveredData.userEmail = emailMatch[0];
+        hasValidData = true;
       }
       
-      message += `I've preserved any valid information you provided, so you won't lose your progress! 🤝`;
-      
-    } else if (content.toLowerCase().includes('error input') || error.message.includes('conversational')) {
-      // Handle conversational tone test case
-      errorMessage = 'System error occurred: Unexpected processing issue';
-      
-      message = `😊 **I'm here to help!**\n\n`;
-      message += `Don't worry - we'll get this sorted out together! I want to make this as comfortable for you as possible.\n\n`;
-      message += `💡 **What happened:** I had some trouble understanding your input format\n\n`;
-      message += `🚀 **How to proceed:**\n`;
-      message += `• **Try again** - You can resubmit your information\n`;
-      message += `• **Step-by-step** - Type "help" for guided setup\n`;
-      message += `• **Start fresh** - Type "restart" to begin a new project\n\n`;
-      message += `I've preserved any valid information you provided, so you won't lose your progress! 😊`;
-      
-    } else {
-      // Default parsing error with specific templates
-      if (error.message.includes('JSON') || error.message.includes('parse')) {
-        errorMessage = this.errorTemplates.parsing.replace('{reason}', 'Format could not be recognized');
-      } else if (error.message.includes('URL') || error.message.includes('url')) {
-        errorMessage = this.errorTemplates.dataExtraction.replace('{reason}', 'Invalid URL format');
-      } else {
-        errorMessage = this.errorTemplates.systemError.replace('{reason}', 'Unexpected processing issue');
+      // Stage 2: Frequency detection
+      const frequencyMatch = content.match(/\b(weekly|monthly|daily|quarterly|bi-weekly|annually)\b/i);
+      if (frequencyMatch) {
+        recoveredData.reportFrequency = frequencyMatch[1];
+        hasValidData = true;
       }
       
-      message = `I apologize, but there was an error processing your request: ${errorMessage}.\n\n`;
-      message += `Please try again or contact support if this continues to happen.`;
+      // Stage 3: URL extraction
+      const urlMatch = content.match(/https?:\/\/[^\s]+/);
+      if (urlMatch) {
+        recoveredData.productUrl = urlMatch[0];
+        hasValidData = true;
+      }
+      
+      // Stage 4: Project name extraction (simplified)
+      const projectMatch = content.match(/(?:project|report|analysis).*?[:\-]\s*(.+?)(?:\n|$)/i);
+      if (projectMatch && projectMatch[1] && projectMatch[1].length > 3) {
+        recoveredData.projectName = projectMatch[1].trim();
+        hasValidData = true;
+      }
+      
+      // Stage 5: Company/product name extraction
+      const companyMatch = content.match(/(?:company|product|brand).*?[:\-]\s*(.+?)(?:\n|$)/i);
+      if (companyMatch && companyMatch[1] && companyMatch[1].length > 2) {
+        recoveredData.productName = companyMatch[1].trim();
+        hasValidData = true;
+      }
+      
+    } catch (parseError) {
+      console.warn('Progressive parsing failed:', parseError);
     }
     
     return {
-      message,
-      nextStep: 0,
-      stepDescription,
-      expectedInputType: 'text',
-      error: errorMessage
+      hasValidData,
+      data: recoveredData,
+      confidence: hasValidData ? Math.min(Object.keys(recoveredData).length * 20, 80) : 0
     };
+  }
+
+  /**
+   * Task 5.2: Create user-friendly error messages based on error category
+   */
+  private createFormatErrorMessage(content: string, details: any): string {
+    let message = `🔄 **Let's fix the input format!**\n\n`;
+    
+    if (details.isOverlyLong) {
+      message += `Your message is quite long (${content.length} characters). Let's break it down:\n\n`;
+      message += `💡 **Try this approach:**\n`;
+      message += `• Use a **numbered list** (1-9 items)\n`;
+      message += `• One piece of information per line\n`;
+      message += `• Keep each line under 100 characters\n\n`;
+    } else if (details.hasSpecialCharacters) {
+      message += `I noticed some special formatting characters (* # [ ]) that might be causing issues.\n\n`;
+      message += `💡 **For best results:**\n`;
+      message += `• Use **plain text** without special symbols\n`;
+      message += `• Use simple punctuation (: - ,)\n`;
+      message += `• Avoid markdown or rich formatting\n\n`;
+    } else {
+      message += `💡 **Let's organize your information:**\n`;
+      message += `• Use a **clear structure** with labels\n`;
+      message += `• Include one item per line\n`;
+      message += `• Start with your email address\n\n`;
+    }
+    
+    message += `📋 **Suggested format:**\n`;
+    message += `1. Email: your@email.com\n`;
+    message += `2. Frequency: Weekly\n`;
+    message += `3. Project: Your Analysis Name\n`;
+    message += `4. Website: https://yoursite.com\n`;
+    message += `5. Product: Your Product Name\n\n`;
+    
+    return message;
+  }
+
+  /**
+   * Task 5.2: Create missing data error message
+   */
+  private createMissingDataErrorMessage(content: string, details: any): string {
+    let message = `📝 **Almost there! Just need a few more details**\n\n`;
+    
+    if (details.missingFields && details.missingFields.length > 0) {
+      message += `I'm missing these required fields:\n`;
+      details.missingFields.forEach((field: string, index: number) => {
+        const fieldName = this.getFieldDisplayName(field);
+        const example = this.getFieldExample(field);
+        message += `${index + 1}. **${fieldName}** - ${example}\n`;
+      });
+      message += `\n`;
+    }
+    
+    if (details.providedFields && details.providedFields.length > 0) {
+      message += `✅ **Already provided:**\n`;
+      details.providedFields.forEach((field: string) => {
+        message += `• ${this.getFieldDisplayName(field)}\n`;
+      });
+      message += `\n`;
+    }
+    
+    message += `💡 **What to do:** Just provide the missing information above, and we'll be all set!\n`;
+    
+    return message;
+  }
+
+  /**
+   * Task 5.2: Determine recovery strategy based on error category
+   */
+  private determineRecoveryStrategy(errorCategory: ParseErrorCategory, content: string): RecoveryStrategy {
+    switch (errorCategory.type) {
+      case 'format_error':
+        return {
+          strategy: 'reformat',
+          priority: 'high',
+          suggestions: [
+            'Use numbered list format',
+            'Simplify special characters',
+            'Break into shorter segments'
+          ]
+        };
+        
+      case 'missing_data':
+        return {
+          strategy: 'complete_data',
+          priority: 'high',
+          suggestions: [
+            'Provide missing required fields',
+            'Use clear field labels',
+            'Follow the suggested format'
+          ]
+        };
+        
+      case 'validation_error':
+        return {
+          strategy: 'fix_validation',
+          priority: 'medium',
+          suggestions: [
+            'Check email format',
+            'Verify URL structure',
+            'Use standard frequency terms'
+          ]
+        };
+        
+      case 'partial_success':
+        return {
+          strategy: 'progressive_completion',
+          priority: 'low',
+          suggestions: [
+            'Add missing information',
+            'Verify extracted data',
+            'Continue with next steps'
+          ]
+        };
+        
+      default:
+        return {
+          strategy: 'guided_restart',
+          priority: 'high',
+          suggestions: [
+            'Type "help" for guided setup',
+            'Use step-by-step format',
+            'Contact support if needed'
+          ]
+        };
+    }
+  }
+
+  // Helper methods for error categorization
+  private detectMissingFields(content: string): string[] {
+    const missing: string[] = [];
+    
+    if (!content.match(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/)) {
+      missing.push('userEmail');
+    }
+    
+    if (!content.match(/\b(weekly|monthly|daily|quarterly)\b/i)) {
+      missing.push('reportFrequency');
+    }
+    
+    if (!content.match(/(?:project|report|analysis)/i)) {
+      missing.push('projectName');
+    }
+    
+    return missing;
+  }
+
+  private detectProvidedFields(content: string): string[] {
+    const provided: string[] = [];
+    
+    if (content.match(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/)) {
+      provided.push('userEmail');
+    }
+    
+    if (content.match(/\b(weekly|monthly|daily|quarterly)\b/i)) {
+      provided.push('reportFrequency');
+    }
+    
+    if (content.match(/https?:\/\/[^\s]+/)) {
+      provided.push('productUrl');
+    }
+    
+    return provided;
+  }
+
+  private getFieldDisplayName(field: string): string {
+    const displayNames: { [key: string]: string } = {
+      'userEmail': 'Email Address',
+      'reportFrequency': 'Report Frequency',
+      'projectName': 'Project Name',
+      'productUrl': 'Website URL',
+      'productName': 'Product Name'
+    };
+    
+    return displayNames[field] || field;
+  }
+
+  private getFieldExample(field: string): string {
+    const examples: { [key: string]: string } = {
+      'userEmail': 'e.g., john@company.com',
+      'reportFrequency': 'e.g., Weekly, Monthly',
+      'projectName': 'e.g., "Competitor Analysis for ProductX"',
+      'productUrl': 'e.g., https://yoursite.com',
+      'productName': 'e.g., "Your Product Name"'
+    };
+    
+    return examples[field] || 'Please provide';
   }
 
   /**
@@ -2580,15 +2928,33 @@ What would you prefer?`,
         userEmail
       });
 
-      // Step 1: Check AWS status before proceeding
+      // Step 1: Check AWS status before proceeding (non-blocking)
       const awsStatusChecker = ChatAWSStatusChecker.getInstance();
-      const awsStatus = await awsStatusChecker.checkAWSStatus();
       
-      logger.info('AWS status check for project creation', {
+      // Start AWS check in background but don't wait for it
+      const awsStatusPromise = awsStatusChecker.checkAWSStatus().catch(err => {
+        logger.warn('AWS status check failed, proceeding with fallback', {
+          ...context,
+          error: err.message
+        });
+        return {
+          available: false,
+          message: 'AWS status check failed, proceeding without reports',
+          canProceedWithReports: false,
+          fallbackToBasicCreation: true,
+          error: err.message
+        };
+      });
+      
+      // Get cached status immediately or use safe default
+      const awsStatus = awsStatusChecker.getCachedStatus();
+      
+      logger.info('AWS status check for project creation (non-blocking)', {
         ...context,
         awsAvailable: awsStatus.available,
         canProceedWithReports: awsStatus.canProceedWithReports,
-        message: awsStatus.message
+        message: awsStatus.message,
+        usingCachedStatus: true
       });
 
       // Step 2: Validate prerequisites

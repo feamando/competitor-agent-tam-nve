@@ -13,7 +13,7 @@
 
 import { logger, generateCorrelationId, trackErrorWithCorrelation } from '@/lib/logger';
 import { ProductScrapingService } from './productScrapingService';
-import { WebScraperService } from './webScraper';
+import { WebScraperService } from './webScraperService';
 import { dataService } from './domains/DataService';
 import { dataServiceFeatureFlags } from './migration/DataServiceFeatureFlags';
 import prisma from '@/lib/prisma';

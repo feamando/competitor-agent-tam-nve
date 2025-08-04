@@ -202,7 +202,7 @@ export class AnalysisDataService {
       }
 
       // Transform competitors to the expected format
-      const competitorsWithSnapshots = project.competitors
+      const competitorsWithSnapshots = (project.competitors || []) // ✅ DEFENSIVE GUARD ADDED
         .filter((comp: CompetitorWithSnapshotsType) => comp.snapshots.length > 0) // Only include competitors with snapshots
         .map((comp: CompetitorWithSnapshotsType) => ({
           competitor: {
@@ -230,7 +230,7 @@ export class AnalysisDataService {
 
       console.log('Competitors with snapshots fetched', {
         projectId,
-        totalCompetitors: project.competitors.length,
+        totalCompetitors: (project.competitors || []).length, // ✅ DEFENSIVE GUARD ADDED
         competitorsWithSnapshots: competitorsWithSnapshots.length
       });
 

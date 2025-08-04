@@ -425,110 +425,229 @@ You can provide information in any format that works for you:
   public parseComprehensiveInput(message: string): RequirementsValidationResult {
     console.log('[DEBUG] Parsing comprehensive input:', message.substring(0, 200) + '...');
     
-    // Phase 2.2 Enhancement: Preprocessing for better parsing
-    const preprocessedMessage = this.preprocessInput(message);
-    console.log('[DEBUG] Preprocessed message:', preprocessedMessage.substring(0, 200) + '...');
-    
-    const extractedData: Partial<ComprehensiveProjectRequirements> = {};
-    const confidence: { [key: string]: number } = {};
-    const invalidFields: { field: string; reason: string; suggestion: string }[] = [];
-    const suggestions: string[] = [];
-
-    // Phase 2.2: Advanced parsing strategy selection
-    const parsingStrategy = this.determineParsingStrategy(preprocessedMessage);
-    console.log('[DEBUG] Parsing strategy:', parsingStrategy);
-    
-    // Apply the optimal parsing strategy
-    switch (parsingStrategy) {
-      case 'numbered_list':
-        this.parseNumberedListFormat(preprocessedMessage, extractedData, confidence);
-        break;
-      case 'bullet_points':
-        this.parseBulletPointFormat(preprocessedMessage, extractedData, confidence);
-        break;
-      case 'natural_language':
-        this.parseNaturalLanguageFormat(preprocessedMessage, extractedData, confidence);
-        break;
-      case 'mixed_format':
-      default:
-        this.parseMixedFormat(preprocessedMessage, extractedData, confidence);
-        break;
-    }
-
-    console.log('[DEBUG] Extracted data after parsing:', extractedData);
-    console.log('[DEBUG] Confidence scores:', confidence);
-
-    // Phase 2.2: Enhanced field validation with context awareness
-    this.validateExtractedFields(extractedData, invalidFields, preprocessedMessage);
-
-    // Email extraction with enhanced validation (only if not already extracted)
-    if (!extractedData.userEmail) {
-      const emailResult = this.extractField(preprocessedMessage, 'userEmail');
-      if (emailResult.value) {
-        extractedData.userEmail = emailResult.value;
-        confidence.userEmail = emailResult.confidence;
-      } else if (emailResult.candidates.length > 0) {
-        invalidFields.push({
-          field: 'userEmail',
-          reason: 'Invalid email format detected',
-          suggestion: `Found "${emailResult.candidates[0]}" - please provide valid email format: user@company.com`
-        });
+    try {
+      // *** INPUT VALIDATION: Ensure we have valid input ***
+      if (!message || typeof message !== 'string' || message.trim().length === 0) {
+        console.warn('[VALIDATION] Invalid or empty input message, returning minimal valid result');
+        return this.createMinimalValidationResult('Empty or invalid input provided');
       }
-    }
 
-    // Frequency extraction with enhanced patterns (only if not already extracted)
-    if (!extractedData.reportFrequency) {
-      const frequencyResult = this.extractField(preprocessedMessage, 'reportFrequency');
-      if (frequencyResult.value) {
-        extractedData.reportFrequency = frequencyResult.value;
-        confidence.reportFrequency = frequencyResult.confidence;
-      } else if (frequencyResult.candidates.length > 0) {
-        invalidFields.push({
-          field: 'reportFrequency',
-          reason: 'Unclear frequency specification',
-          suggestion: `Found "${frequencyResult.candidates[0]}" - please specify: Weekly, Monthly, or Quarterly`
-        });
+      // Phase 2.2 Enhancement: Preprocessing for better parsing
+      const preprocessedMessage = this.preprocessInput(message);
+      console.log('[DEBUG] Preprocessed message:', preprocessedMessage.substring(0, 200) + '...');
+      
+      const extractedData: Partial<ComprehensiveProjectRequirements> = {};
+      const confidence: { [key: string]: number } = {};
+      const invalidFields: { field: string; reason: string; suggestion: string }[] = [];
+      const suggestions: string[] = [];
+
+      // Phase 2.2: Advanced parsing strategy selection with error handling
+      let parsingStrategy: string;
+      try {
+        parsingStrategy = this.determineParsingStrategy(preprocessedMessage);
+        console.log('[DEBUG] Parsing strategy:', parsingStrategy);
+      } catch (strategyError) {
+        console.warn('[PARSING] Strategy determination failed, using mixed_format fallback:', strategyError);
+        parsingStrategy = 'mixed_format';
       }
-    }
-
-    // URL extraction with enhanced validation (only if not already extracted)
-    if (!extractedData.productUrl) {
-      const urlResult = this.extractField(preprocessedMessage, 'productUrl');
-      if (urlResult.value) {
-        extractedData.productUrl = urlResult.value;
-        confidence.productUrl = urlResult.confidence;
-      } else if (urlResult.candidates.length > 0) {
-        invalidFields.push({
-          field: 'productUrl',
-          reason: 'Invalid URL format',
-          suggestion: `Found "${urlResult.candidates[0]}" - please provide full URL starting with https://`
-        });
+      
+      // Apply the optimal parsing strategy with error handling
+      try {
+        switch (parsingStrategy) {
+          case 'numbered_list':
+            this.parseNumberedListFormat(preprocessedMessage, extractedData, confidence);
+            break;
+          case 'bullet_points':
+            this.parseBulletPointFormat(preprocessedMessage, extractedData, confidence);
+            break;
+          case 'natural_language':
+            this.parseNaturalLanguageFormat(preprocessedMessage, extractedData, confidence);
+            break;
+          case 'mixed_format':
+          default:
+            this.parseMixedFormat(preprocessedMessage, extractedData, confidence);
+            break;
+        }
+      } catch (parsingError) {
+        console.warn('[PARSING] Strategy-specific parsing failed, attempting fallback extraction:', parsingError);
+        // Fallback: Try basic field extraction
+        this.attemptBasicFieldExtraction(preprocessedMessage, extractedData, confidence);
       }
+
+      console.log('[DEBUG] Extracted data after parsing:', extractedData);
+      console.log('[DEBUG] Confidence scores:', confidence);
+
+      // Phase 2.2: Enhanced field validation with context awareness - with error handling
+      try {
+        this.validateExtractedFields(extractedData, invalidFields, preprocessedMessage);
+      } catch (validationError) {
+        console.warn('[VALIDATION] Field validation failed, continuing with basic validation:', validationError);
+        // Continue - validation errors shouldn't break the entire process
+      }
+
+      // Email extraction with enhanced validation (only if not already extracted)
+      try {
+        if (!extractedData.userEmail) {
+          const emailResult = this.extractField(preprocessedMessage, 'userEmail');
+          if (emailResult.value) {
+            extractedData.userEmail = emailResult.value;
+            confidence.userEmail = emailResult.confidence;
+          } else if (emailResult.candidates.length > 0) {
+            invalidFields.push({
+              field: 'userEmail',
+              reason: 'Invalid email format detected',
+              suggestion: `Found "${emailResult.candidates[0]}" - please provide valid email format: user@company.com`
+            });
+          }
+        }
+      } catch (emailError) {
+        console.warn('[EXTRACTION] Email extraction failed:', emailError);
+      }
+
+      // Frequency extraction with enhanced patterns (only if not already extracted)
+      try {
+        if (!extractedData.reportFrequency) {
+          const frequencyResult = this.extractField(preprocessedMessage, 'reportFrequency');
+          if (frequencyResult.value) {
+            extractedData.reportFrequency = frequencyResult.value;
+            confidence.reportFrequency = frequencyResult.confidence;
+          } else if (frequencyResult.candidates.length > 0) {
+            invalidFields.push({
+              field: 'reportFrequency',
+              reason: 'Unclear frequency specification',
+              suggestion: `Found "${frequencyResult.candidates[0]}" - please specify: Weekly, Monthly, or Quarterly`
+            });
+          }
+        }
+      } catch (frequencyError) {
+        console.warn('[EXTRACTION] Frequency extraction failed:', frequencyError);
+      }
+
+      // URL extraction with enhanced validation (only if not already extracted)
+      try {
+        if (!extractedData.productUrl) {
+          const urlResult = this.extractField(preprocessedMessage, 'productUrl');
+          if (urlResult.value) {
+            extractedData.productUrl = urlResult.value;
+            confidence.productUrl = urlResult.confidence;
+          } else if (urlResult.candidates.length > 0) {
+            invalidFields.push({
+              field: 'productUrl',
+              reason: 'Invalid URL format',
+              suggestion: `Found "${urlResult.candidates[0]}" - please provide full URL starting with https://`
+            });
+          }
+        }
+      } catch (urlError) {
+        console.warn('[EXTRACTION] URL extraction failed:', urlError);
+      }
+
+      // Calculate completeness and determine validation status - with error handling
+      let completeness: number;
+      let missingRequiredFields: string[];
+      
+      try {
+        completeness = this.calculateSmartCompleteness(extractedData, confidence);
+        missingRequiredFields = this.requiredFields.filter(field => !extractedData[field as keyof ComprehensiveProjectRequirements]);
+      } catch (completenessError) {
+        console.warn('[CALCULATION] Completeness calculation failed, using fallback:', completenessError);
+        // Fallback calculation
+        const totalFields = Object.keys(this.requiredFields).length || 5;
+        const extractedFields = Object.keys(extractedData).length;
+        completeness = Math.min(100, (extractedFields / totalFields) * 100);
+        missingRequiredFields = this.requiredFields.filter(field => !extractedData[field as keyof ComprehensiveProjectRequirements]);
+      }
+      
+      console.log('[DEBUG] Missing required fields:', missingRequiredFields);
+      console.log('[DEBUG] Completeness percentage:', completeness);
+      console.log('[DEBUG] Invalid fields:', invalidFields);
+
+      // Generate intelligent suggestions - with error handling
+      try {
+        this.generateIntelligentSuggestions(extractedData, missingRequiredFields, suggestions, parsingStrategy);
+      } catch (suggestionError) {
+        console.warn('[SUGGESTION] Suggestion generation failed:', suggestionError);
+        // Add basic fallback suggestion
+        if (missingRequiredFields.length > 0) {
+          suggestions.push('Please provide the missing required information to proceed with project creation.');
+        }
+      }
+
+      const result: RequirementsValidationResult = {
+        isValid: missingRequiredFields.length === 0 && invalidFields.length === 0,
+        completeness,
+        missingRequiredFields,
+        invalidFields,
+        extractedData,
+        confidence,
+        suggestions
+      };
+
+      console.log('[DEBUG] Final validation result (robust):', result);
+      return result;
+
+    } catch (criticalError) {
+      console.error('[CRITICAL] parseComprehensiveInput failed completely, returning safe fallback result:', criticalError);
+      
+      // *** CRITICAL FALLBACK: Always return a valid result ***
+      return this.createMinimalValidationResult(`Parsing failed: ${criticalError instanceof Error ? criticalError.message : 'Unknown error'}`);
     }
+  }
 
-    // Calculate completeness and determine validation status
-    const completeness = this.calculateSmartCompleteness(extractedData, confidence);
-    const missingRequiredFields = this.requiredFields.filter(field => !extractedData[field as keyof ComprehensiveProjectRequirements]);
-    
-    console.log('[DEBUG] Missing required fields:', missingRequiredFields);
-    console.log('[DEBUG] Completeness percentage:', completeness);
-    console.log('[DEBUG] Invalid fields:', invalidFields);
-
-    // Generate intelligent suggestions
-    this.generateIntelligentSuggestions(extractedData, missingRequiredFields, suggestions, parsingStrategy);
-
-    const result: RequirementsValidationResult = {
-      isValid: missingRequiredFields.length === 0 && invalidFields.length === 0,
-      completeness,
-      missingRequiredFields,
-      invalidFields,
-      extractedData,
-      confidence,
-      suggestions
+  /**
+   * Creates a minimal but valid RequirementsValidationResult for error scenarios
+   */
+  private createMinimalValidationResult(errorReason: string): RequirementsValidationResult {
+    return {
+      isValid: false,
+      completeness: 0,
+      missingRequiredFields: [...this.requiredFields],
+      invalidFields: [],
+      extractedData: {},
+      confidence: {},
+      suggestions: [
+        'There was an issue processing your input. Please try again with clear project information.',
+        'Make sure to include: project name, email, frequency, product URL, and industry.',
+        `Error details: ${errorReason}`
+      ]
     };
+  }
 
-    console.log('[DEBUG] Final validation result:', result);
-    return result;
+  /**
+   * Basic field extraction fallback for when advanced parsing fails
+   */
+  private attemptBasicFieldExtraction(
+    message: string, 
+    extractedData: Partial<ComprehensiveProjectRequirements>, 
+    confidence: { [key: string]: number }
+  ): void {
+    try {
+      // Basic email extraction
+      const emailMatch = message.match(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/);
+      if (emailMatch && !extractedData.userEmail) {
+        extractedData.userEmail = emailMatch[0];
+        confidence.userEmail = 0.7;
+      }
+
+      // Basic URL extraction
+      const urlMatch = message.match(/https?:\/\/[^\s]+/);
+      if (urlMatch && !extractedData.productUrl) {
+        extractedData.productUrl = urlMatch[0];
+        confidence.productUrl = 0.6;
+      }
+
+      // Basic frequency extraction
+      const frequencyMatch = message.match(/\b(weekly|monthly|quarterly|daily)\b/i);
+      if (frequencyMatch && !extractedData.reportFrequency) {
+        extractedData.reportFrequency = frequencyMatch[0].toLowerCase();
+        confidence.reportFrequency = 0.5;
+      }
+
+      console.log('[DEBUG] Basic extraction completed:', extractedData);
+    } catch (basicError) {
+      console.warn('[FALLBACK] Basic field extraction also failed:', basicError);
+      // Even basic extraction failed - continue with empty data
+    }
   }
 
   /**
@@ -965,54 +1084,126 @@ You can provide information in any format that works for you:
     console.log('[DEBUG] New data:', newData);
     console.log('[DEBUG] Existing state collectedData:', existingState?.collectedData);
     
-    const merged: Partial<ComprehensiveProjectRequirements> = {};
-    
-    // *** COMPREHENSIVE NULL GUARDS: Safe existing data access ***
-    const existing = existingState?.collectedData || {};
+    try {
+      const merged: Partial<ComprehensiveProjectRequirements> = {};
+      
+      // *** COMPREHENSIVE NULL GUARDS: Safe existing data access ***
+      const existing = existingState?.collectedData || {};
 
-    // Safe property mapping with type checks
-    if (existing.userEmail && typeof existing.userEmail === 'string' && existing.userEmail.trim()) {
-      merged.userEmail = existing.userEmail;
-    }
-    if (existing.reportFrequency && typeof existing.reportFrequency === 'string' && existing.reportFrequency.trim()) {
-      merged.reportFrequency = existing.reportFrequency;
-    }
-    if (existing.reportName && typeof existing.reportName === 'string' && existing.reportName.trim()) {
-      merged.projectName = existing.reportName;
-    }
-    if (existing.productName && typeof existing.productName === 'string' && existing.productName.trim()) {
-      merged.productName = existing.productName;
-    }
-    if (existing.productUrl && typeof existing.productUrl === 'string' && existing.productUrl.trim()) {
-      merged.productUrl = existing.productUrl;
-    }
-    if (existing.industry && typeof existing.industry === 'string' && existing.industry.trim()) {
-      merged.industry = existing.industry;
-    }
-    if (existing.positioning && typeof existing.positioning === 'string' && existing.positioning.trim()) {
-      merged.positioning = existing.positioning;
-    }
-    if (existing.customerData && typeof existing.customerData === 'string' && existing.customerData.trim()) {
-      merged.customerData = existing.customerData;
-    }
-    if (existing.userProblem && typeof existing.userProblem === 'string' && existing.userProblem.trim()) {
-      merged.userProblem = existing.userProblem;
-    }
-
-    console.log('[DEBUG] Merged from existing:', merged);
-
-    // *** NULL SAFETY: Override with new data (but only if new data has values) ***
-    if (newData && typeof newData === 'object') {
-      Object.keys(newData).forEach(key => {
-        const value = newData[key as keyof ComprehensiveProjectRequirements];
-        if (value !== undefined && value !== null && value !== '') {
-          (merged as any)[key] = value;
+      // *** ROBUST STATE MERGING: Safe property mapping with comprehensive type checks ***
+      
+      // Helper function for safe string validation and assignment
+      const mergeStringField = (
+        existingValue: any, 
+        targetKey: keyof ComprehensiveProjectRequirements,
+        sourceKey?: keyof typeof existing
+      ) => {
+        const key = sourceKey || targetKey;
+        const value = existing[key as keyof typeof existing];
+        if (value && typeof value === 'string' && value.trim()) {
+          merged[targetKey] = value.trim();
         }
-      });
-    }
+      };
 
-    console.log('[DEBUG] Final merged data:', merged);
-    return merged;
+      // Core project fields with validation
+      mergeStringField(existing.userEmail, 'userEmail');
+      mergeStringField(existing.reportFrequency, 'reportFrequency');
+      mergeStringField(existing.reportName, 'projectName', 'reportName');
+      
+      // Product information fields
+      mergeStringField(existing.productName, 'productName');
+      mergeStringField(existing.productUrl, 'productUrl');
+      mergeStringField(existing.industry, 'industry');
+      mergeStringField(existing.positioning, 'positioning');
+      mergeStringField(existing.customerData, 'customerData');
+      mergeStringField(existing.userProblem, 'userProblem'); // Fixed syntax error
+
+      // Handle array fields (competitors) safely
+      if (existing.competitors && Array.isArray(existing.competitors) && existing.competitors.length > 0) {
+        merged.competitors = existing.competitors.filter(c => typeof c === 'string' && c.trim());
+      }
+
+      // Handle legacy fields for backward compatibility
+      mergeStringField(existing.customerProblems, 'customerProblems');
+      mergeStringField(existing.businessChallenges, 'businessChallenges');
+      mergeStringField(existing.customerDescription, 'customerDescription');
+
+      console.log('[DEBUG] Merged from existing (validated):', merged);
+
+      // *** ENHANCED NULL SAFETY: Override with new data (comprehensive validation) ***
+      if (newData && typeof newData === 'object') {
+        Object.keys(newData).forEach(key => {
+          try {
+            const value = newData[key as keyof ComprehensiveProjectRequirements];
+            
+            // Only merge non-empty values
+            if (value !== undefined && value !== null && value !== '') {
+              // Additional type validation for specific fields  
+              if (key === 'competitors' && Array.isArray(value)) {
+                // Validate array contents
+                const validCompetitors = value.filter(c => typeof c === 'string' && c.trim());
+                if (validCompetitors.length > 0) {
+                  (merged as any)[key] = validCompetitors;
+                }
+              } else if (typeof value === 'string' && value.trim()) {
+                // String fields - trim whitespace
+                (merged as any)[key] = value.trim();
+              } else if (typeof value === 'boolean' || typeof value === 'number') {
+                // Boolean/number fields - direct assignment
+                (merged as any)[key] = value;
+              }
+            }
+          } catch (fieldError) {
+            console.warn(`[MERGE ERROR] Failed to merge field '${key}':`, fieldError);
+            // Continue with other fields - don't let one bad field break everything
+          }
+        });
+      }
+
+      console.log('[DEBUG] Final merged data (robust):', merged);
+      return merged;
+      
+    } catch (error) {
+      console.error('[MERGE ERROR] Critical error in state merging, using fallback strategy:', error);
+      
+      // *** FALLBACK STRATEGY: Return safe minimal merge ***
+      try {
+        const safeMerge: Partial<ComprehensiveProjectRequirements> = {};
+        
+        // Only merge essential fields with basic validation
+        const existing = existingState?.collectedData || {};
+        if (existing.userEmail && typeof existing.userEmail === 'string') {
+          safeMerge.userEmail = existing.userEmail;
+        }
+        if (existing.reportFrequency && typeof existing.reportFrequency === 'string') {
+          safeMerge.reportFrequency = existing.reportFrequency;
+        }
+        if (existing.reportName && typeof existing.reportName === 'string') {  
+          safeMerge.projectName = existing.reportName;
+        }
+        
+        // Merge critical new data
+        if (newData && typeof newData === 'object') {
+          if (newData.userEmail && typeof newData.userEmail === 'string') {
+            safeMerge.userEmail = newData.userEmail;
+          }
+          if (newData.projectName && typeof newData.projectName === 'string') {
+            safeMerge.projectName = newData.projectName;
+          }
+          if (newData.reportFrequency && typeof newData.reportFrequency === 'string') {
+            safeMerge.reportFrequency = newData.reportFrequency;
+          }
+        }
+        
+        console.log('[DEBUG] Fallback merge result:', safeMerge);
+        return safeMerge;
+        
+      } catch (fallbackError) {
+        console.error('[MERGE ERROR] Fallback merge also failed, returning new data only:', fallbackError);
+        // Ultimate fallback - return new data if it's safe, otherwise empty object
+        return (newData && typeof newData === 'object') ? newData : {};
+      }
+    }
   }
 
   /**

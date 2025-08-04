@@ -497,8 +497,12 @@ export class AnalysisService implements IAnalysisService {
    */
   private createAIAnalyzer(): IAIAnalyzer {
     // Import and instantiate the actual AIAnalyzer implementation
-    // This will be implemented in Task 2.2
-    throw new Error('AIAnalyzer implementation not yet available - will be implemented in Task 2.2');
+    const { AIAnalyzer } = require('./analysis/AIAnalyzer');
+    return new AIAnalyzer(
+      this.smartSchedulingService, // CRITICAL DEPENDENCY - Smart Scheduling integration
+      this.bedrockService,
+      this.conversationManager
+    );
   }
 
   /**
@@ -669,35 +673,62 @@ export class AnalysisService implements IAnalysisService {
 
   /**
    * Handle AI comprehensive analysis (routes to AIAnalyzer)
+   * Enhanced with fallback mechanisms for Task 2.3
    */
   private async handleAIAnalysis(request: AnalysisRequest, context: AnalysisContext): Promise<AnalysisResponse> {
     if (!this.aiAnalyzer) {
-      throw new AnalysisError('AI Analyzer is not enabled', 'VALIDATION_ERROR');
+      logger.warn('AI Analyzer is not enabled, using fallback analysis', { correlationId: context.correlationId });
+      return await this.fallbackAIAnalysis(request, context);
     }
 
-    // Convert unified request to SmartAIAnalysisRequest
-    const smartRequest: SmartAIAnalysisRequest = {
-      projectId: request.projectId,
-      forceFreshData: request.forceFreshData || false,
-      analysisType: 'comprehensive',
-      ...(request.dataCutoff && { dataCutoff: request.dataCutoff }),
-      ...(request.context && { context: request.context })
-    };
+    try {
+      // Convert unified request to SmartAIAnalysisRequest
+      const smartRequest: SmartAIAnalysisRequest = {
+        projectId: request.projectId,
+        forceFreshData: request.forceFreshData || false,
+        analysisType: 'comprehensive',
+        ...(request.dataCutoff && { dataCutoff: request.dataCutoff }),
+        ...(request.context && { context: request.context })
+      };
 
-    AnalysisCorrelationManager.addOperation(context.correlationId, 'ai_analysis_start');
-    const smartResult = await this.aiAnalyzer.analyzeWithSmartScheduling(smartRequest);
-    AnalysisCorrelationManager.addOperation(context.correlationId, 'ai_analysis_complete');
+      AnalysisCorrelationManager.addOperation(context.correlationId, 'ai_analysis_start');
+      
+      // Execute analysis and validate result
+      const smartResult = await this.aiAnalyzer.analyzeWithSmartScheduling(smartRequest);
+      const validationResult = this.validateAnalysisResult(smartResult, 'ai_analysis');
+      
+      if (!validationResult.isValid) {
+        logger.warn('AI analysis result validation failed, using fallback', {
+          correlationId: context.correlationId,
+          validationErrors: validationResult.errors
+        });
+        return await this.fallbackAIAnalysis(request, context);
+      }
+      
+      AnalysisCorrelationManager.addOperation(context.correlationId, 'ai_analysis_complete');
 
-    // Convert SmartAIAnalysisResponse to unified AnalysisResponse
-    return {
-      analysisId: createId(),
-      correlationId: context.correlationId,
-      analysisType: request.analysisType,
-      summary: this.extractSummaryFromSmartAnalysis(smartResult),
-      metadata: this.createUnifiedMetadata(smartResult.analysisMetadata, context),
-      quality: this.assessSmartAnalysisQuality(smartResult),
-      smartAnalysis: smartResult
-    };
+      // Convert SmartAIAnalysisResponse to unified AnalysisResponse
+      return {
+        analysisId: createId(),
+        correlationId: context.correlationId,
+        analysisType: request.analysisType,
+        summary: this.extractSummaryFromSmartAnalysis(smartResult),
+        metadata: this.createUnifiedMetadata(smartResult.analysisMetadata, context),
+        quality: this.assessSmartAnalysisQuality(smartResult),
+        smartAnalysis: smartResult
+      };
+    } catch (error) {
+      logger.error('AI analysis failed, falling back to basic analysis', {
+        error: (error as Error).message,
+        correlationId: context.correlationId
+      });
+      
+      // Track AI analyzer failure for monitoring
+      this.performanceMetrics.aiAnalyses.errorCount++;
+      this.performanceMetrics.aiAnalyses.lastError = new Date();
+      
+      return await this.fallbackAIAnalysis(request, context);
+    }
   }
 
   /**
@@ -975,6 +1006,158 @@ export class AnalysisService implements IAnalysisService {
     return healthStatus;
   }
 
+  // ============================================================================
+  // TASK 2.3: ANALYSIS RESULT VALIDATION AND FALLBACK METHODS
+  // ============================================================================
+
+  /**
+   * Validate analysis results before passing to report generation
+   * Task 2.3: Add analysis result validation
+   */
+  private validateAnalysisResult(result: any, analysisType: string): { isValid: boolean; errors: string[] } {
+    const errors: string[] = [];
+
+    if (!result) {
+      errors.push('Analysis result is null or undefined');
+      return { isValid: false, errors };
+    }
+
+    // Common validation for all analysis types
+    if (analysisType === 'ai_analysis') {
+      if (!result.analysis || typeof result.analysis !== 'string') {
+        errors.push('AI analysis content is missing or invalid');
+      }
+      if (!result.analysisMetadata) {
+        errors.push('AI analysis metadata is missing');
+      }
+      if (result.analysis && result.analysis.length < 50) {
+        errors.push('AI analysis content is too short for meaningful results');
+      }
+    } else if (analysisType === 'ux_analysis') {
+      if (!result.analysis || typeof result.analysis !== 'object') {
+        errors.push('UX analysis content is missing or invalid');
+      }
+      if (!result.comparisons || !Array.isArray(result.comparisons)) {
+        errors.push('UX analysis comparisons are missing or invalid');
+      }
+    } else if (analysisType === 'comparative_analysis') {
+      if (!result.analysis || typeof result.analysis !== 'object') {
+        errors.push('Comparative analysis content is missing or invalid');
+      }
+      if (!result.analysis.competitorAnalysis || !Array.isArray(result.analysis.competitorAnalysis)) {
+        errors.push('Competitor analysis array is missing or invalid');
+      }
+    }
+
+    // Quality threshold checks
+    const confidence = result.confidence || result.analysisMetadata?.confidence || 0;
+    if (confidence < 30) {
+      errors.push(`Analysis confidence score too low: ${confidence}%`);
+    }
+
+    return {
+      isValid: errors.length === 0,
+      errors
+    };
+  }
+
+  /**
+   * Fallback AI analysis when primary AI analyzer fails
+   * Task 2.3: Create fallback analysis methods
+   */
+  private async fallbackAIAnalysis(request: AnalysisRequest, context: AnalysisContext): Promise<AnalysisResponse> {
+    logger.info('Executing fallback AI analysis', { correlationId: context.correlationId });
+
+    try {
+      // Create basic analysis using available data
+      const basicAnalysis = await this.generateBasicAnalysis(request, context);
+      
+      // Build fallback response with clearly marked metadata
+      return {
+        analysisId: createId(),
+        correlationId: context.correlationId,
+        analysisType: request.analysisType,
+        summary: basicAnalysis.summary,
+                 metadata: {
+           analysisMethod: 'rule_based',
+           modelUsed: 'basic_heuristics',
+           confidenceScore: 40, // Lower confidence for fallback
+           processingTime: Date.now() - context.startTime,
+           dataQuality: 'low',
+           correlationId: context.correlationId,
+           analysisTimestamp: new Date(),
+           fallbackReason: 'Primary AI analyzer unavailable',
+           isFallback: true
+         },
+         quality: {
+           overallScore: 40,
+           qualityTier: 'poor',
+           dataCompleteness: 60,
+           analysisConfidence: 40,
+           improvementPotential: 60,
+           qualityNotes: ['Generated using fallback analysis due to primary analyzer failure']
+         }
+      };
+    } catch (error) {
+      logger.error('Fallback AI analysis also failed', { error, correlationId: context.correlationId });
+      
+      // Ultimate fallback - return minimal response
+      return this.generateMinimalAnalysisResponse(request, context, 'AI analysis completely unavailable');
+    }
+  }
+
+  /**
+   * Generate basic analysis using heuristics when AI is unavailable
+   */
+  private async generateBasicAnalysis(request: AnalysisRequest, context: AnalysisContext): Promise<{ summary: any }> {
+    // Basic heuristic-based analysis
+    const summary = {
+      overallPosition: 'unknown',
+      keyStrengths: ['Analysis requires advanced AI capabilities'],
+      keyWeaknesses: ['Limited analysis available without AI service'],
+      opportunityScore: 50,
+      threatLevel: 'medium',
+      confidenceScore: 40
+    };
+
+    return { summary };
+  }
+
+  /**
+   * Generate minimal analysis response for complete failures
+   */
+  private generateMinimalAnalysisResponse(request: AnalysisRequest, context: AnalysisContext, reason: string): AnalysisResponse {
+    return {
+      analysisId: createId(),
+      correlationId: context.correlationId,
+      analysisType: request.analysisType,
+             summary: {
+         overallPosition: 'trailing',
+         keyStrengths: [],
+         keyWeaknesses: [],
+         opportunityScore: 0,
+         threatLevel: 'low',
+         confidenceScore: 0
+       },
+       metadata: {
+         analysisMethod: 'rule_based',
+         modelUsed: 'none',
+         confidenceScore: 0,
+         processingTime: Date.now() - context.startTime,
+         dataQuality: 'low',
+         correlationId: context.correlationId,
+         analysisTimestamp: new Date()
+       },
+       quality: {
+         overallScore: 0,
+         qualityTier: 'poor',
+         dataCompleteness: 0,
+         analysisConfidence: 0,
+         improvementPotential: 100
+       }
+    };
+  }
+
   /**
    * Cleanup resources
    */
@@ -989,9 +1172,7 @@ export class AnalysisService implements IAnalysisService {
       await this.aiAnalyzer.cleanup();
     }
 
-    if (this.smartSchedulingService) {
-      await this.smartSchedulingService.cleanup();
-    }
+    // SmartSchedulingService does not have a cleanup method - skip cleanup
 
     BedrockServiceManager.resetInstance();
     

@@ -30,9 +30,15 @@ function getRetryDelay(errorCode: string | null, errorCategory: string | null, r
     return { delay: networkDelay, shouldRetry: true };
   }
   
-  // Authentication errors - moderate delay
+  // Authentication errors - handle expired credentials specially
   if (errorCategory === 'AUTHENTICATION' || errorCode?.includes('AUTH') || errorCode?.includes('CREDENTIALS')) {
-    const authDelay = Math.min(baseDelay * 1.5, MAX_RETRY_DELAY); // 1.5x longer for auth issues
+    // For expired/invalid credentials, use much longer delays to prevent rate limiting
+    if (errorCode === 'INVALID_CREDENTIALS' || errorCode?.includes('EXPIRED') || errorCode?.includes('TOKEN')) {
+      // Very long delay for expired credentials - essentially pause polling
+      const expiredDelay = Math.min(baseDelay * 10, 300000); // 10x longer, max 5 minutes
+      return { delay: expiredDelay, shouldRetry: false }; // Don't retry expired credentials
+    }
+    const authDelay = Math.min(baseDelay * 1.5, MAX_RETRY_DELAY); // 1.5x longer for other auth issues
     return { delay: authDelay, shouldRetry: true };
   }
   
@@ -353,7 +359,23 @@ export function useAWSStatus(options: UseAWSStatusOptions = {}): AWSStatusHookRe
           
           setError(errorData.errorMessage || 'Invalid AWS credentials');
           setLastUpdated(new Date());
-          // Let normal retry logic handle authentication errors
+          
+          // For invalid/expired credentials, pause polling to prevent rate limiting
+          const isExpiredOrInvalid = errorData?.errorMessage?.includes('security token') || 
+                                   errorData?.errorMessage?.includes('expired') ||
+                                   errorData?.errorMessage?.includes('invalid') ||
+                                   errorData?.errorCode === 'INVALID_CREDENTIALS';
+          
+          if (isExpiredOrInvalid) {
+            setIsPaused(true);
+            logger.info('Pausing AWS status polling - credentials expired/invalid', {
+              errorCode: errorData.errorCode,
+              isPaused: true,
+              reason: 'expired_credentials_detected'
+            });
+            return; // Exit early without retry logic
+          }
+          // Let normal retry logic handle other authentication errors
           
         } else if (response.status === 503) {
           // Task 3.2.3: Handle 503 status code for service/network errors
@@ -432,20 +454,82 @@ export function useAWSStatus(options: UseAWSStatusOptions = {}): AWSStatusHookRe
           setError(errorData.errorMessage || 'Rate limit exceeded');
           setLastUpdated(new Date());
           
-          // For rate limiting, wait longer before retrying
-          if (retryOnError && retryCount < maxRetries) {
-            const retryDelay = (errorData.retryAfter || 60) * 1000; // Use retryAfter or default to 60s
+          // For rate limiting, wait much longer before retrying and reduce retry attempts
+          if (retryOnError && retryCount < Math.min(maxRetries, 2)) { // Limit to 2 retries for rate limits
+            const retryDelay = Math.max((errorData.retryAfter || 120) * 1000, 120000); // Min 2 minutes
             setRetryCount(prev => prev + 1);
-            logger.info('Rate limited - retrying after delay', { 
+            logger.info('Rate limited - retrying after extended delay', { 
               retryAfter: errorData.retryAfter,
               retryDelay,
-              retryCount: retryCount + 1
+              retryCount: retryCount + 1,
+              maxRetries: Math.min(maxRetries, 2)
             });
             
             setTimeout(() => {
               fetchAWSStatus(forceRefresh);
             }, retryDelay);
+          } else {
+            // Pause polling after max retries for rate limiting
+            setIsPaused(true);
+            logger.warn('Pausing AWS status polling due to persistent rate limiting', {
+              retryCount,
+              maxRetries: Math.min(maxRetries, 2),
+              isPaused: true
+            });
           }
+          return; // Exit early to avoid normal retry logic
+          
+        } else if (response.status === 404) {
+          // Handle 404 Not Found - this indicates a routing/compilation issue
+          logger.error('AWS health endpoint not found - possible routing or compilation issue', undefined, {
+            httpStatus: response.status,
+            url: '/api/health/aws',
+            statusText: response.statusText
+          });
+          
+          // Record the 404 error for monitoring
+          const correlationId404 = healthCheckMonitor.recordAttempt(false, responseTime, 'ENDPOINT_NOT_FOUND');
+          setFailureMetrics(healthCheckMonitor.getMetrics());
+          
+          // Set error info for 404 - treat as configuration/service issue
+          setLastErrorInfo({
+            errorCode: 'NETWORK_ERROR', // Use existing valid error code
+            errorCategory: 'SERVICE'
+          });
+          
+          setPreviousStatus(status);
+          setStatus({
+            status: 'unknown',
+            configured: false,
+            valid: false,
+            region: 'unknown',
+            message: 'Service Unavailable',
+            details: 'AWS health endpoint not available - service may be restarting',
+            errorMessage: 'Health endpoint not found (404)',
+            errorCode: null,
+            errorCategory: 'SERVICE',
+            lastChecked: new Date().toISOString()
+          });
+          
+          setError('AWS health endpoint not available');
+          setLastUpdated(new Date());
+          
+          // For 404 errors, pause polling temporarily to avoid spamming
+          setIsPaused(true);
+          logger.warn('Pausing AWS status polling due to 404 errors - endpoint not found', {
+            status: response.status,
+            isPaused: true,
+            retryCount
+          });
+          
+          // Auto-resume after 2 minutes to check if the endpoint is back
+          setTimeout(() => {
+            if (isPaused) {
+              setIsPaused(false);
+              logger.info('Auto-resuming AWS status polling after 404 timeout');
+            }
+          }, 120000); // 2 minutes
+          
           return; // Exit early to avoid normal retry logic
           
         } else {

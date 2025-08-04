@@ -41,7 +41,7 @@ export function AWSStatusIndicator({
     autoRefresh: true,
     refreshInterval: 5 * 60 * 1000, // 5 minutes
     retryOnError: true,
-    maxRetries: 3
+    maxRetries: 2 // Reduce max retries to prevent UI blocking
   });
 
   const [showDetailedError, setShowDetailedError] = useState(false);

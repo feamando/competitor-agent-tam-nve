@@ -25,11 +25,19 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
   const [error, setError] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string>(options.sessionId || 'default');
 
-  // Load existing conversation on mount
+  // Load existing conversation on mount with timeout
   useEffect(() => {
     const loadConversation = async () => {
       try {
-        const response = await fetch(`/api/chat?sessionId=${sessionId}`);
+        // Add timeout for initial conversation loading to prevent hanging
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout for initial load
+        
+        const response = await fetch(`/api/chat?sessionId=${sessionId}`, {
+          signal: controller.signal,
+        });
+        
+        clearTimeout(timeoutId);
         const data = await response.json();
         
         if (response.ok) {
@@ -38,7 +46,16 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
           setSessionId(data.sessionId);
         }
       } catch (err) {
-        console.error('Failed to load conversation:', err);
+        if (err instanceof Error && err.name === 'AbortError') {
+          console.warn('Initial conversation load timed out, using default state');
+          setChatState({
+            currentStep: null,
+            stepDescription: 'Welcome',
+            expectedInputType: 'text',
+          });
+        } else {
+          console.error('Failed to load conversation:', err);
+        }
       }
     };
 
@@ -52,6 +69,10 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
     setError(null);
 
     try {
+      // Add timeout to prevent hanging requests
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: {
@@ -61,8 +82,10 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
           message: message.trim(),
           sessionId,
         }),
+        signal: controller.signal,
       });
 
+      clearTimeout(timeoutId);
       const data = await response.json();
 
       if (!response.ok) {
@@ -87,8 +110,12 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
       }
 
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to send message';
-      setError(errorMessage);
+      if (err instanceof Error && err.name === 'AbortError') {
+        setError('Request timed out. The chat service may be experiencing delays. Please try again.');
+      } else {
+        const errorMessage = err instanceof Error ? err.message : 'Failed to send message';
+        setError(errorMessage);
+      }
       console.error('Chat error:', err);
     } finally {
       setIsLoading(false);

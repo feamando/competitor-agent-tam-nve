@@ -58,9 +58,9 @@ export class ReportProcessor implements IReportProcessor {
     
     logger.info('ReportProcessor initialized', {
       service: 'ReportProcessor',
-      processingTimeout: config.processingTimeout,
-      comparativeOnly: config.comparativeOnly,
-      maxRetries: config.retryConfig.maxAttempts
+      processingTimeout: this.config.processingTimeout,
+      comparativeOnly: this.config.comparativeOnly,
+      maxRetries: this.config.retryConfig?.maxAttempts // ✅ DEFENSIVE GUARD ADDED
     });
   }
 
@@ -154,6 +154,19 @@ export class ReportProcessor implements IReportProcessor {
       });
 
       throw error;
+    }
+  }
+
+  /**
+   * Setup queue processing - called during constructor initialization
+   */
+  private setupQueueProcessing(): void {
+    if (this.queue) {
+      this.processQueue();
+    } else {
+      logger.warn('Queue not available, skipping queue processing setup', {
+        service: 'ReportProcessor'
+      });
     }
   }
 
@@ -688,6 +701,13 @@ export class ReportProcessor implements IReportProcessor {
    * Setup queue event handlers - migrated from AsyncReportProcessingService
    */
   private setupQueueEventHandlers(): void {
+    if (!this.queue) {
+      logger.warn('Queue not available, skipping event handlers setup', {
+        service: 'ReportProcessor'
+      });
+      return;
+    }
+    
     this.queue.on('completed', (job, result) => {
       logger.info('Queue job completed', { 
         jobId: job.id, 

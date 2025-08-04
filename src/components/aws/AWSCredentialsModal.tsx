@@ -104,7 +104,10 @@ export function AWSCredentialsModal({
     try {
       // Save credentials with improved error handling and timeout
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+      const timeoutId = setTimeout(() => {
+        console.warn('AWS credential save operation timed out after 30 seconds');
+        controller.abort();
+      }, 30000); // 30 second timeout
 
       const saveResponse = await fetch('/api/aws/credentials', {
         method: 'POST',
@@ -166,7 +169,7 @@ export function AWSCredentialsModal({
       
       // Provide more specific error messages
       let errorMessage = (error as Error).message;
-      if (errorMessage.includes('AbortError')) {
+      if ((error as DOMException).name === 'AbortError' || errorMessage.includes('AbortError')) {
         errorMessage = 'Request timeout - please check your connection and try again';
       } else if (errorMessage.includes('NetworkError') || errorMessage.includes('Failed to fetch')) {
         errorMessage = 'Network error - please check your connection and try again';

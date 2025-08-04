@@ -30,9 +30,11 @@ jest.mock('@/lib/logger', () => ({
 }));
 
 jest.mock('@/lib/utils/errorHandler', () => ({
-  handleAPIError: jest.fn((error, correlationId) => 
-    new Response(JSON.stringify({ error: error.message, correlationId }), { status: 500 })
-  )
+  handleAPIError: jest.fn((error, correlationId) => {
+    // Use NextResponse for proper Next.js API route response
+    const { NextResponse } = require('next/server');
+    return NextResponse.json({ error: error.message, correlationId }, { status: 500 });
+  })
 }));
 
 describe('GET /api/projects/[id]/initial-report-status', () => {

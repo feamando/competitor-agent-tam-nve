@@ -3,7 +3,7 @@
 // Date: July 29, 2025
 
 import { memoryManager } from './memoryMonitoring';
-import { getMemoryConfig, validateMemoryConfig } from '../../../config/memory.config';
+import { getMemoryConfig, validateMemorySettings } from '../../../config/memory.config';
 import { logger } from '@/lib/logger';
 
 /**
@@ -15,26 +15,26 @@ export function initializeMemoryMonitoring(): void {
     const config = getMemoryConfig();
     
     // Validate memory configuration
-    const validationErrors = validateMemoryConfig(config);
-    if (validationErrors.length > 0) {
+    const validationResult = validateMemorySettings();
+    if (!validationResult.valid) {
       logger.error('Memory configuration validation failed', {
-        errors: validationErrors
+        issues: validationResult.issues
       } as any);
-      throw new Error(`Memory configuration invalid: ${validationErrors.join(', ')}`);
+      throw new Error(`Memory configuration invalid: ${validationResult.issues.join(', ')}`);
     }
 
     // Log memory configuration
     logger.info('Initializing memory monitoring', {
       environment: process.env.NODE_ENV,
-      warningThreshold: (config.warningThreshold * 100).toFixed(0) + '%',
-      criticalThreshold: (config.criticalThreshold * 100).toFixed(0) + '%',
+      warningThreshold: (config.healthCheckThresholds.warning * 100).toFixed(0) + '%',
+      criticalThreshold: (config.healthCheckThresholds.critical * 100).toFixed(0) + '%',
       maxOldSpaceSize: config.maxOldSpaceSize + 'MB',
-      gcEnabled: config.gcEnabled,
+      gcOptimizations: config.gcOptimizations.join(', '),
       nodeOptions: process.env.NODE_OPTIONS
     });
 
     // Check if garbage collection is available
-    if (!global.gc && config.gcEnabled) {
+    if (!global.gc) {
       logger.warn('Garbage collection not available - application not started with --expose-gc flag', {
         recommendation: 'Add --expose-gc to NODE_OPTIONS for optimal memory management'
       });

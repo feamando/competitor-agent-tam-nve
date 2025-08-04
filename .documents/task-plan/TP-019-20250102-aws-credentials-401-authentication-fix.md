@@ -11,10 +11,10 @@
 - Node.js and npm/yarn installed
 - Access to the Prisma database
 - Browser developer tools for debugging frontend issues
-- Test AWS credentials provided:
-  - Profile: [951719175506_bedrock-user]
+- Test AWS credentials: [REDACTED FOR SECURITY]
+  - Profile: [REDACTED]
   - Access Key: [REDACTED]
-  - Secret Key: [REDACTED]
+  - Secret Key: [REDACTED]  
   - Session Token: [REDACTED]
 
 ## Dependencies

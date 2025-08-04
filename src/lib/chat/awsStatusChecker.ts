@@ -16,7 +16,7 @@ export class ChatAWSStatusChecker {
   private lastResult: AWSStatusResult | null = null;
   private readonly CACHE_DURATION = 120000; // 2 minutes to reduce rate limiting
   private isChecking: boolean = false;
-  private readonly CHECK_TIMEOUT = 3000; // 3 seconds max for AWS checks
+  private readonly CHECK_TIMEOUT = 1500; // 1.5 seconds max for AWS checks to prevent hanging
 
   constructor() {
     this.credentialsService = new AWSCredentialsService();
@@ -105,13 +105,13 @@ export class ChatAWSStatusChecker {
         fallbackToBasicCreation: true,
         error: (error as Error).message
       };
-    }
-
-    this.lastCheckTime = now;
-    return this.lastResult;
     } finally {
       this.isChecking = false;
     }
+
+    this.lastCheckTime = now;
+    return this.lastResult!;
+  }
 
   /**
    * Clear cached status to force fresh check

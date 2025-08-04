@@ -710,16 +710,44 @@ export class EmergencyFallbackSystem {
         updatedAt: new Date()
       };
 
-      // Save emergency report
-      await prisma.report.create({
-        data: {
-          id: emergencyReport.id,
-          name: emergencyReport.title,
-          description: `Emergency report with ${partialData.dataAvailabilityScore}% data availability`,
-          projectId: projectId,
-          competitorId: project.competitors?.[0]?.id || '',
-          status: 'COMPLETED'
-        }
+      // Save emergency report with proper ReportVersion to prevent zombie reports
+      // Task 3.1: Fix emergency fallback to create proper ReportVersion records
+      await prisma.$transaction(async (tx) => {
+        // Create the Report record
+        await tx.report.create({
+          data: {
+            id: emergencyReport.id,
+            name: emergencyReport.title,
+            description: `Emergency report with ${partialData.dataAvailabilityScore}% data availability`,
+            projectId: projectId,
+            competitorId: project.competitors?.[0]?.id || '',
+            status: 'COMPLETED'
+          }
+        });
+
+        // Create the ReportVersion record to prevent zombie reports
+        await tx.reportVersion.create({
+          data: {
+            id: createId(),
+            reportId: emergencyReport.id,
+            version: 1,
+            content: {
+              html: emergencyReport.content,
+              metadata: emergencyReport.metadata,
+              type: 'emergency_fallback',
+              generatedAt: new Date().toISOString()
+            },
+            createdAt: new Date(),
+            updatedAt: new Date()
+          }
+        });
+
+        logger.info('Emergency report and version created successfully', {
+          projectId,
+          reportId: emergencyReport.id,
+          versionCreated: true,
+          zombieReportPrevented: true
+        });
       });
 
       // Task 5.4: Track enhanced emergency metrics
