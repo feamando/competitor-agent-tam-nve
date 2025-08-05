@@ -8,7 +8,7 @@ export default function ChatPage() {
   const { messages, chatState, isLoading, error, sendMessage, clearError } = useChat();
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] flex flex-col relative overflow-hidden">
+    <div className="h-screen flex flex-col relative overflow-hidden">
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-md p-4 mx-6 mt-4 z-10">
           <div className="flex">
@@ -33,7 +33,7 @@ export default function ChatPage() {
         </div>
       )}
       
-      <div className="flex-1 min-h-0 overflow-auto">
+      <div className="flex-1 h-full overflow-hidden">
         <ChatInterface
           onSendMessage={sendMessage}
           messages={messages}
