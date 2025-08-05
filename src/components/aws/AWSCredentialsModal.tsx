@@ -6,7 +6,7 @@ import { logger } from '@/lib/logger';
 interface AWSCredentialsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: (credentials: any) => void;
+  onSuccess: (credentials: Record<string, unknown>) => void;
   initialData?: {
     profileName?: string;
     awsRegion?: string;
@@ -14,10 +14,7 @@ interface AWSCredentialsModalProps {
 }
 
 interface FormData {
-  profileName: string;
-  accessKeyId: string;
-  secretAccessKey: string;
-  sessionToken: string;
+  credentialsText: string;
   awsRegion: string;
 }
 
@@ -32,10 +29,7 @@ export function AWSCredentialsModal({
   initialData 
 }: AWSCredentialsModalProps) {
   const [formData, setFormData] = useState<FormData>({
-    profileName: initialData?.profileName || '',
-    accessKeyId: '',
-    secretAccessKey: '',
-    sessionToken: '',
+    credentialsText: '',
     awsRegion: initialData?.awsRegion || 'us-east-1'
   });
 
@@ -59,23 +53,80 @@ export function AWSCredentialsModal({
     { value: 'ap-northeast-1', label: 'Asia Pacific (Tokyo)' }
   ];
 
+  const parseAwsCredentials = (credentialsText: string) => {
+    const lines = credentialsText.trim().split('\n');
+    const credentials: Record<string, Record<string, string>> = {};
+    let currentProfile = '';
+
+    for (const line of lines) {
+      const trimmedLine = line.trim();
+      
+      // Skip empty lines and comments
+      if (!trimmedLine || trimmedLine.startsWith('#')) continue;
+      
+      // Profile section
+      if (trimmedLine.startsWith('[') && trimmedLine.endsWith(']')) {
+        currentProfile = trimmedLine.slice(1, -1).trim();
+        if (!credentials[currentProfile]) {
+          credentials[currentProfile] = {};
+        }
+        continue;
+      }
+      
+      // Key-value pairs
+      const equalIndex = trimmedLine.indexOf('=');
+      if (equalIndex > 0) {
+        const key = trimmedLine.substring(0, equalIndex).trim();
+        const value = trimmedLine.substring(equalIndex + 1).trim();
+        
+        if (currentProfile && credentials[currentProfile]) {
+          credentials[currentProfile]![key] = value;
+        }
+      }
+    }
+    
+    return credentials;
+  };
+
   const validateForm = (): boolean => {
     const newErrors: FormErrors = {};
 
-    if (!formData.profileName.trim()) {
-      newErrors.profileName = 'Profile name is required';
-    }
-
-    if (!formData.accessKeyId.trim()) {
-      newErrors.accessKeyId = 'Access Key ID is required';
-    } else if (!/^(AKIA|ASIA|AROA)[A-Z0-9]{16}$/.test(formData.accessKeyId)) {
-      newErrors.accessKeyId = 'Access Key ID must start with AKIA, ASIA, or AROA and be 20 characters total';
-    }
-
-    if (!formData.secretAccessKey.trim()) {
-      newErrors.secretAccessKey = 'Secret Access Key is required';
-    } else if (formData.secretAccessKey.length < 20) {
-      newErrors.secretAccessKey = 'Secret Access Key is too short';
+    if (!formData.credentialsText.trim()) {
+      newErrors.credentialsText = 'AWS credentials are required';
+    } else {
+      try {
+        const parsedCredentials = parseAwsCredentials(formData.credentialsText);
+        const profiles = Object.keys(parsedCredentials);
+        
+        if (profiles.length === 0) {
+          newErrors.credentialsText = 'No valid AWS profiles found in credentials';
+        } else {
+          // Validate at least one profile has required fields
+          let hasValidProfile = false;
+          for (const profile of profiles) {
+            const creds = parsedCredentials[profile];
+            if (creds && creds.aws_access_key_id && creds.aws_secret_access_key) {
+              // Validate access key format
+              if (!/^(AKIA|ASIA|AROA)[A-Z0-9]{16}$/.test(creds.aws_access_key_id)) {
+                newErrors.credentialsText = `Invalid Access Key ID format in profile [${profile}]. Must start with AKIA, ASIA, or AROA and be 20 characters total`;
+                break;
+              }
+              // Validate secret key length
+              if (creds.aws_secret_access_key.length < 20) {
+                newErrors.credentialsText = `Secret Access Key too short in profile [${profile}]`;
+                break;
+              }
+              hasValidProfile = true;
+            }
+          }
+          
+          if (!hasValidProfile && !newErrors.credentialsText) {
+            newErrors.credentialsText = 'At least one profile must have aws_access_key_id and aws_secret_access_key';
+          }
+        }
+      } catch {
+        newErrors.credentialsText = 'Invalid AWS credentials format';
+      }
     }
 
     if (!formData.awsRegion) {
@@ -102,6 +153,19 @@ export function AWSCredentialsModal({
     setValidationResult(null);
 
     try {
+      // Parse credentials text to get the first valid profile
+      const parsedCredentials = parseAwsCredentials(formData.credentialsText);
+      const profiles = Object.keys(parsedCredentials);
+      const firstProfile = profiles[0];
+      if (!firstProfile) {
+        throw new Error('No profiles found');
+      }
+      const credentials = parsedCredentials[firstProfile];
+
+      if (!credentials) {
+        throw new Error('No valid credentials found');
+      }
+
       // Save credentials with improved error handling and timeout
       const controller = new AbortController();
       const timeoutId = setTimeout(() => {
@@ -115,10 +179,10 @@ export function AWSCredentialsModal({
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          profileName: formData.profileName,
-          accessKeyId: formData.accessKeyId,
-          secretAccessKey: formData.secretAccessKey,
-          sessionToken: formData.sessionToken || undefined,
+          profileName: firstProfile,
+          accessKeyId: credentials.aws_access_key_id,
+          secretAccessKey: credentials.aws_secret_access_key,
+          sessionToken: credentials.aws_session_token || undefined,
           awsRegion: formData.awsRegion
         }),
         signal: controller.signal
@@ -156,7 +220,7 @@ export function AWSCredentialsModal({
       await handleValidate(false);
 
       logger.info('AWS credentials saved successfully', { 
-        profileName: formData.profileName 
+        profileName: firstProfile 
       });
 
       onSuccess(saveResult.data);
@@ -164,7 +228,7 @@ export function AWSCredentialsModal({
 
     } catch (error) {
       logger.error('Failed to save AWS credentials', error as Error, { 
-        profileName: formData.profileName 
+        profileName: 'unknown' 
       });
       
       // Provide more specific error messages
@@ -202,7 +266,15 @@ export function AWSCredentialsModal({
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          profileName: formData.profileName
+          profileName: (() => {
+            try {
+              const parsedCredentials = parseAwsCredentials(formData.credentialsText);
+              const profiles = Object.keys(parsedCredentials);
+              return profiles[0];
+            } catch {
+              return '';
+            }
+          })()
         }),
         signal: controller.signal
       });
@@ -244,7 +316,7 @@ export function AWSCredentialsModal({
 
     } catch (error) {
       logger.error('Failed to validate AWS credentials', error as Error, { 
-        profileName: formData.profileName 
+        profileName: 'unknown' 
       });
       
       // Provide more specific error messages for validation
@@ -269,10 +341,7 @@ export function AWSCredentialsModal({
 
   const handleClose = () => {
     setFormData({
-      profileName: initialData?.profileName || '',
-      accessKeyId: '',
-      secretAccessKey: '',
-      sessionToken: '',
+      credentialsText: '',
       awsRegion: initialData?.awsRegion || 'us-east-1'
     });
     setErrors({});
@@ -325,69 +394,30 @@ export function AWSCredentialsModal({
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Profile Name
+              AWS Credentials
             </label>
-            <input
-              type="text"
-              value={formData.profileName}
-              onChange={(e) => handleInputChange('profileName', e.target.value)}
-              className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                errors.profileName ? 'border-red-500' : 'border-gray-300'
-              }`}
-              placeholder="e.g., production-bedrock"
-            />
-            {errors.profileName && (
-              <p className="mt-1 text-sm text-red-600">{errors.profileName}</p>
-            )}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Access Key ID
-            </label>
-            <input
-              type="text"
-              value={formData.accessKeyId}
-              onChange={(e) => handleInputChange('accessKeyId', e.target.value)}
-              className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                errors.accessKeyId ? 'border-red-500' : 'border-gray-300'
-              }`}
-              placeholder="ASIA53FXCEVJI4T3XYYX"
-            />
-            {errors.accessKeyId && (
-              <p className="mt-1 text-sm text-red-600">{errors.accessKeyId}</p>
-            )}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Secret Access Key
-            </label>
-            <input
-              type="password"
-              value={formData.secretAccessKey}
-              onChange={(e) => handleInputChange('secretAccessKey', e.target.value)}
-              className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                errors.secretAccessKey ? 'border-red-500' : 'border-gray-300'
-              }`}
-              placeholder="Enter your secret access key"
-            />
-            {errors.secretAccessKey && (
-              <p className="mt-1 text-sm text-red-600">{errors.secretAccessKey}</p>
-            )}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Session Token (Optional)
-            </label>
+            <p className="text-sm text-gray-600 mb-2">
+              Paste your AWS credentials file content below:
+            </p>
             <textarea
-              value={formData.sessionToken}
-              onChange={(e) => handleInputChange('sessionToken', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              rows={3}
-              placeholder="Enter session token if using temporary credentials"
+              value={formData.credentialsText}
+              onChange={(e) => handleInputChange('credentialsText', e.target.value)}
+              className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm ${
+                errors.credentialsText ? 'border-red-500' : 'border-gray-300'
+              }`}
+              rows={10}
+              placeholder={`[default]
+aws_access_key_id = YOUR_ACCESS_KEY
+aws_secret_access_key = YOUR_SECRET_KEY
+aws_session_token = YOUR_SESSION_TOKEN (optional)
+
+[production]
+aws_access_key_id = YOUR_ACCESS_KEY 
+aws_secret_access_key = YOUR_SECRET_KEY`}
             />
+            {errors.credentialsText && (
+              <p className="mt-1 text-sm text-red-600">{errors.credentialsText}</p>
+            )}
           </div>
 
           <div>

@@ -154,16 +154,19 @@ export function useAWSStatus(options: UseAWSStatusOptions = {}): AWSStatusHookRe
   const updateAutoRefreshStatus = useCallback(() => {
     const shouldEnableRefresh = !status || status.configured || !isCredentialsNotConfigured(status);
     
-    if (shouldEnableRefresh !== autoRefreshEnabled) {
-      setAutoRefreshEnabled(shouldEnableRefresh);
-      logger.info('Auto-refresh status updated based on configuration', {
-        configured: status?.configured,
-        isNotConfigured: status ? isCredentialsNotConfigured(status) : false,
-        autoRefreshEnabled: shouldEnableRefresh,
-        previousAutoRefreshEnabled: autoRefreshEnabled
-      });
-    }
-  }, [status, autoRefreshEnabled]);
+    setAutoRefreshEnabled(current => {
+      if (shouldEnableRefresh !== current) {
+        logger.info('Auto-refresh status updated based on configuration', {
+          configured: status?.configured,
+          isNotConfigured: status ? isCredentialsNotConfigured(status) : false,
+          autoRefreshEnabled: shouldEnableRefresh,
+          previousAutoRefreshEnabled: current
+        });
+        return shouldEnableRefresh;
+      }
+      return current;
+    });
+  }, [status]);
 
   // Task 1.4.2 & 1.4.3: Check cooldown and reset circuit if cooldown period elapsed
   const checkAndResetCircuitCooldown = useCallback(() => {
@@ -196,13 +199,23 @@ export function useAWSStatus(options: UseAWSStatusOptions = {}): AWSStatusHookRe
     // Task 8.4.1: Measure health check response time
     const startTime = performance.now();
     
-    // Task 4.3.3: Skip all polling when isPaused === true
-    if (isPaused) {
-      logger.info('AWS status polling is paused - skipping fetch', {
+    // Task 4.3.3: Skip automatic polling when isPaused === true, but allow manual refreshes  
+    if (isPaused && !forceRefresh) {
+      logger.info('AWS status polling is paused - skipping automatic fetch', {
         isPaused,
+        forceRefresh,
         reason: 'Credentials not configured'
       });
       return;
+    }
+    
+    // Log when manual refresh bypasses pause
+    if (isPaused && forceRefresh) {
+      logger.info('Manual refresh bypassing pause state', {
+        isPaused,
+        forceRefresh,
+        reason: 'User initiated manual retry'
+      });
     }
     
     // Task 1.4.2: Check time elapsed since lastFailureTime before retry
@@ -792,7 +805,7 @@ export function useAWSStatus(options: UseAWSStatusOptions = {}): AWSStatusHookRe
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, [retryOnError, maxRetries, retryCount, failureCount, isCircuitOpen, checkAndResetCircuitCooldown, cooldownTimeRemaining, autoRefreshEnabled, lastErrorInfo, isPaused, status]);
+  }, [retryOnError, maxRetries, checkAndResetCircuitCooldown]);
 
   const refreshStatus = useCallback(async (): Promise<void> => {
     await fetchAWSStatus(true);
@@ -817,10 +830,11 @@ export function useAWSStatus(options: UseAWSStatusOptions = {}): AWSStatusHookRe
     }
   }, [isPaused, fetchAWSStatus]);
 
-  // Initial fetch
+  // Initial fetch - run once on mount to avoid infinite loops
   useEffect(() => {
     fetchAWSStatus(false);
-  }, [fetchAWSStatus]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Intentionally empty - only run once on mount
 
   // Task 2.3.1: Update auto-refresh status when AWS status changes
   useEffect(() => {
