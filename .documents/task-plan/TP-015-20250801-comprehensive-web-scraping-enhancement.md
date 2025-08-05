@@ -249,17 +249,113 @@
 - [ ] 19.9 Add crawl resumption support
 - [ ] 19.10 Add crawl completion notification
 
-### PHASE 20: Basic Testing & Validation
-- [ ] 20.1 Create test file for `SitemapService`
-- [ ] 20.2 Add unit test for sitemap discovery
-- [ ] 20.3 Add unit test for URL extraction
-- [ ] 20.4 Create test file for `WebCrawlerService`
-- [ ] 20.5 Add unit test for queue management
-- [ ] 20.6 Add unit test for link extraction
-- [ ] 20.7 Create test file for `ContentProcessor`
-- [ ] 20.8 Add unit test for content filtering
-- [ ] 20.9 Add integration test for end-to-end crawling
-- [ ] 20.10 Add performance test for large website crawling
+### PHASE 20: Competitive Intelligence Preprocessing Setup
+- [ ] 20.1 Create `src/lib/scraping/intelligence/` directory
+- [ ] 20.2 Create empty `CompetitiveIntelligenceProcessor.ts` file
+- [ ] 20.3 Add class declaration for `CompetitiveIntelligenceProcessor`
+- [ ] 20.4 Add constructor with dependencies
+- [ ] 20.5 Add `CompetitiveData` interface to types
+- [ ] 20.6 Add `BusinessIntelligence` interface to types
+- [ ] 20.7 Add `CompetitorProfile` interface extension to types
+- [ ] 20.8 Add dependency injection for ML services
+- [ ] 20.9 Add logger and error handling setup
+- [ ] 20.10 Add configuration for intelligence extraction rules
+
+### PHASE 21: Structured Business Data Extraction
+- [ ] 21.1 Add `extractBusinessIntelligence` method signature
+- [ ] 21.2 Add product catalog extraction from pages
+- [ ] 21.3 Add pricing table detection and extraction
+- [ ] 21.4 Add feature list identification and normalization
+- [ ] 21.5 Add service offering extraction from content
+- [ ] 21.6 Add company information extraction (team, funding, etc.)
+- [ ] 21.7 Add technology stack detection from headers/content
+- [ ] 21.8 Add customer testimonial and case study extraction
+- [ ] 21.9 Add partnership and integration information extraction
+- [ ] 21.10 Add financial and performance metrics extraction
+
+### PHASE 22: Marketing Intelligence Preprocessing
+- [ ] 22.1 Add `extractMarketingIntelligence` method signature
+- [ ] 22.2 Add value proposition extraction and categorization
+- [ ] 22.3 Add messaging theme analysis and clustering
+- [ ] 22.4 Add call-to-action pattern recognition
+- [ ] 22.5 Add content tone and brand voice analysis
+- [ ] 22.6 Add target audience signals extraction
+- [ ] 22.7 Add competitive positioning statement identification
+- [ ] 22.8 Add marketing campaign indicators detection
+- [ ] 22.9 Add social proof signals aggregation
+- [ ] 22.10 Add conversion funnel analysis from page structure
+
+### PHASE 23: User Experience Intelligence
+- [ ] 23.1 Create empty `UXIntelligenceExtractor.ts` file
+- [ ] 23.2 Add class declaration for `UXIntelligenceExtractor`
+- [ ] 23.3 Add navigation structure mapping and analysis
+- [ ] 23.4 Add page hierarchy and information architecture extraction
+- [ ] 23.5 Add form analysis and lead capture pattern detection
+- [ ] 23.6 Add mobile-first design indicator extraction
+- [ ] 23.7 Add accessibility feature detection
+- [ ] 23.8 Add user journey pathway identification
+- [ ] 23.9 Add performance optimization indicator extraction
+- [ ] 23.10 Add design system and component pattern analysis
+
+### PHASE 24: Content Categorization and Semantics
+- [ ] 24.1 Add `categorizeBusinessContent` method signature
+- [ ] 24.2 Add page type classification (product, about, pricing, etc.)
+- [ ] 24.3 Add content topic modeling and clustering
+- [ ] 24.4 Add industry-specific terminology extraction
+- [ ] 24.5 Add content freshness and update frequency analysis
+- [ ] 24.6 Add content quality scoring based on depth and engagement
+- [ ] 24.7 Add competitive keyword and phrase identification
+- [ ] 24.8 Add content gap analysis against industry benchmarks
+- [ ] 24.9 Add content format analysis (video, infographic, etc.)
+- [ ] 24.10 Add content personalization indicator detection
+
+### PHASE 25: Change Pattern Analysis
+- [ ] 25.1 Create empty `ChangePatternAnalyzer.ts` file
+- [ ] 25.2 Add class declaration for `ChangePatternAnalyzer`
+- [ ] 25.3 Add pricing change detection and tracking
+- [ ] 25.4 Add feature launch and removal tracking
+- [ ] 25.5 Add messaging evolution analysis
+- [ ] 25.6 Add competitive response pattern identification
+- [ ] 25.7 Add seasonal content and campaign pattern detection
+- [ ] 25.8 Add product positioning shift analysis
+- [ ] 25.9 Add website redesign and UX change tracking
+- [ ] 25.10 Add strategic initiative timeline construction
+
+### PHASE 26: Competitive Context Enrichment
+- [ ] 26.1 Add `enrichWithCompetitiveContext` method signature
+- [ ] 26.2 Add market position inference from content analysis
+- [ ] 26.3 Add competitive advantage scoring and ranking
+- [ ] 26.4 Add threat level assessment based on feature/pricing overlap
+- [ ] 26.5 Add innovation indicator scoring
+- [ ] 26.6 Add market share estimation from digital footprint
+- [ ] 26.7 Add customer segment overlap analysis
+- [ ] 26.8 Add strategic move prediction based on historical patterns
+- [ ] 26.9 Add partnership and ecosystem mapping
+- [ ] 26.10 Add competitive moat analysis and scoring
+
+### PHASE 27: Preprocessing Pipeline Integration
+- [ ] 27.1 Create empty `PreprocessingPipeline.ts` file
+- [ ] 27.2 Add pipeline orchestration for all preprocessing modules
+- [ ] 27.3 Add data quality validation between preprocessing stages
+- [ ] 27.4 Add preprocessing performance monitoring
+- [ ] 27.5 Add selective preprocessing based on analysis requirements
+- [ ] 27.6 Add preprocessing cache management
+- [ ] 27.7 Add error recovery and fallback preprocessing modes
+- [ ] 27.8 Add preprocessing result validation and scoring
+- [ ] 27.9 Add preprocessing metadata generation for Bedrock context
+- [ ] 27.10 Add preprocessing result compression and optimization
+
+### PHASE 28: Basic Testing & Validation
+- [ ] 28.1 Create test file for `SitemapService`
+- [ ] 28.2 Add unit test for sitemap discovery
+- [ ] 28.3 Add unit test for URL extraction
+- [ ] 28.4 Create test file for `WebCrawlerService`
+- [ ] 28.5 Add unit test for queue management
+- [ ] 28.6 Add unit test for link extraction
+- [ ] 28.7 Create test file for `ContentProcessor`
+- [ ] 28.8 Add unit test for content filtering
+- [ ] 28.9 Add integration test for end-to-end crawling
+- [ ] 28.10 Add performance test for large website crawling
 
 ## Implementation Guidelines
 
@@ -269,6 +365,9 @@
 - **Memory-Efficient Processing**: Leverage existing memory optimization patterns from TP-010
 - **Incremental Updates**: Use content hashing and timestamps to avoid redundant processing
 - **Modular Architecture**: Build reusable components that can be extended for different use cases
+- **Competitive Intelligence Focus**: Extract structured business data, pricing, features, and positioning
+- **Context-Aware Preprocessing**: Categorize and enrich content based on business intelligence patterns
+- **Change Pattern Detection**: Track competitive moves, feature launches, and strategic shifts over time
 
 ### Reference Existing Components
 - `src/lib/reports/memoryOptimizedReports.ts` - for memory-efficient data processing patterns
@@ -294,7 +393,12 @@ src/
 │   └── scraping/
 │       ├── ContentProcessor.ts        # Content filtering and extraction
 │       ├── DataCompressor.ts         # Payload compression for Bedrock
-│       └── ChangeDetector.ts         # Incremental update detection
+│       ├── ChangeDetector.ts         # Incremental update detection
+│       ├── PreprocessingPipeline.ts  # Orchestrates all preprocessing steps
+│       └── intelligence/
+│           ├── CompetitiveIntelligenceProcessor.ts  # Business intelligence extraction
+│           ├── UXIntelligenceExtractor.ts          # User experience analysis
+│           └── ChangePatternAnalyzer.ts            # Competitive change tracking
 └── types/
     └── crawling.ts                   # Type definitions for crawling operations
 ```
@@ -327,6 +431,11 @@ src/
 - [ ] Incremental updates detect changes and avoid re-processing unchanged content
 - [ ] Rate limiting prevents overwhelming target websites with requests
 - [ ] Bedrock integration handles large datasets through chunking and summarization
+- [ ] Competitive intelligence preprocessing extracts structured business data (pricing, features, positioning)
+- [ ] Marketing intelligence identifies value propositions, messaging themes, and target audiences
+- [ ] UX intelligence captures navigation patterns, user flows, and design insights
+- [ ] Content categorization accurately classifies pages by business function
+- [ ] Change pattern analysis tracks competitive moves and strategic shifts over time
 
 ### Performance Requirements
 - [ ] Memory usage remains stable during large-scale crawling operations
@@ -334,6 +443,9 @@ src/
 - [ ] Storage efficiency through compression reduces database size by at least 40%
 - [ ] Change detection reduces redundant processing by at least 60%
 - [ ] System handles crawling of 1000+ page websites without memory issues
+- [ ] Competitive intelligence preprocessing completes within 2x base processing time
+- [ ] Structured data extraction achieves 85%+ accuracy for pricing and feature data
+- [ ] Content categorization maintains 90%+ accuracy for business function classification
 
 ### Quality Requirements
 - [ ] All scraped content maintains accuracy and completeness
@@ -341,6 +453,9 @@ src/
 - [ ] Monitoring provides visibility into crawling performance and issues
 - [ ] Compliance with robots.txt and ethical scraping practices
 - [ ] Integration tests validate end-to-end functionality
+- [ ] Competitive intelligence extraction preserves key business context and relationships
+- [ ] Data preprocessing maintains temporal context for change tracking
+- [ ] Structured data extraction handles edge cases and format variations gracefully
 
 ### Integration Requirements
 - [ ] Enhanced scraping integrates seamlessly with existing analysis services

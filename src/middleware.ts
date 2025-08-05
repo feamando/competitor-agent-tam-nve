@@ -1,34 +1,7 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
-// TP-024 Task 2.4: Initialize services at application startup
-let servicesInitialized = false;
-
-async function initializeServices() {
-  if (servicesInitialized) return;
-  
-  try {
-    console.log('🚀 TP-024: Initializing critical services at startup...');
-    
-    // Initialize AutoReportGenerationService to start cron job manager
-    const { getAutoReportService } = await import('./services/autoReportGenerationService');
-    const autoReportService = getAutoReportService();
-    
-    console.log('✅ TP-024: AutoReportGenerationService initialized - cron jobs should now work');
-    servicesInitialized = true;
-    
-  } catch (error) {
-    console.error('❌ TP-024: Failed to initialize services:', error);
-    // Don't set servicesInitialized = true so we can retry on next request
-  }
-}
-
 export async function middleware(request: NextRequest) {
-  // TP-024 Task 2.4: Initialize services on first request
-  if (!servicesInitialized) {
-    await initializeServices();
-  }
-  
   // Authentication disabled - all routes are now public
   // const path = request.nextUrl.pathname
   // const isPublicPath = path === '/auth/signin' || path === '/api/chat'
@@ -48,11 +21,13 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    '/dashboard/:path*',
-    '/projects/:path*',
-    '/competitors/:path*',
-    '/reports/:path*',
-    '/api/:path*',
-    '/auth/signin',
+    /*
+     * Match all request paths except for the ones starting with:
+     * - api (API routes)
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico (favicon file)
+     */
+    '/((?!api|_next/static|_next/image|favicon.ico).*)',
   ],
 } 

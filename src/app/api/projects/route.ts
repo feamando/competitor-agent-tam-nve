@@ -4,6 +4,7 @@ import { logger, generateCorrelationId, trackBusinessEvent } from '@/lib/logger'
 import { prisma } from '@/lib/prisma';
 import { productRepository } from '@/lib/repositories';
 import { getAutoReportService } from '@/services/autoReportGenerationService';
+import { ensureServicesInitialized } from '@/lib/startup';
 
 // Default mock user for testing without authentication
 const DEFAULT_USER_EMAIL = 'mock@example.com';
@@ -59,6 +60,9 @@ export async function POST(request: NextRequest) {
   const context = { operation: 'POST /api/projects', correlationId };
 
   try {
+    // TP-024: Ensure services are initialized on first API call
+    await ensureServicesInitialized();
+    
     logger.info('Creating new project with automatic report generation and scheduling', context);
 
     const json = await request.json();

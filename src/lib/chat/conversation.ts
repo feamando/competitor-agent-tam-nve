@@ -1990,8 +1990,13 @@ Now, what is the name of the product that you want to perform competitive analys
     const response = content.toLowerCase().trim();
     
     if (response.includes('yes') || response === 'y' || response.includes('confirm') || response.includes('proceed')) {
-      // User confirmed - proceed with project creation
-      return this.executeProjectCreation();
+      // BUGFIX: Use the same project creation method to prevent duplication
+      // Extract requirements from chat state for consistent creation
+      const requirements = this.extractRequirementsFromChatState();
+      if (!requirements) {
+        throw new Error('No project requirements found in chat state for confirmation');
+      }
+      return this.createProjectFromComprehensiveData(requirements);
     } else if (response.includes('edit') || response.includes('modify') || response.includes('change')) {
       // User wants to edit - return to comprehensive input
       return {
@@ -2012,80 +2017,7 @@ Now, what is the name of the product that you want to perform competitive analys
     }
   }
 
-  /**
-   * Phase 4.2: Execute actual project creation after confirmation
-   */
-  private async executeProjectCreation(): Promise<ChatResponse> {
-    try {
-      // Get the requirements from chat state
-      const requirements = this.extractRequirementsFromChatState();
-      
-      if (!requirements) {
-        throw new Error('No project requirements found in chat state');
-      }
 
-      // Store comprehensive data in chat state
-      this.chatState.collectedData = this.comprehensiveCollector.toChatState(requirements).collectedData;
-      
-      // Create database project with all competitors auto-assigned
-      const databaseProject = await this.createProjectWithAllCompetitors(requirements.projectName, requirements.userEmail);
-      
-      this.chatState.projectId = databaseProject.id;
-      this.chatState.projectName = databaseProject.name;
-      this.chatState.databaseProjectCreated = true;
-
-      const competitorCount = databaseProject.competitors?.length || 0;
-      const competitorNames = databaseProject.competitors?.map((c: any) => c.name).join(', ') || 'None';
-      const parsedFreq = parseFrequency(requirements.reportFrequency);
-
-      let message = `🎉 **PROJECT CREATED SUCCESSFULLY!**\n\n`;
-      
-      message += `✅ **Project Details:**\n`;
-      message += `• **Name:** ${databaseProject.name}\n`;
-      message += `• **ID:** ${databaseProject.id}\n`;
-      message += `• **Product:** ${requirements.productName}\n`;
-      message += `• **URL:** ${requirements.productUrl}\n`;
-      message += `• **Industry:** ${requirements.industry}\n`;
-      message += `• **Competitors Auto-Assigned:** ${competitorCount}\n`;
-      message += `• **Report Schedule:** ${this.formatReportFrequency(requirements.reportFrequency)}\n\n`;
-
-      if (competitorCount > 0) {
-        message += `🏢 **Competitors Found:** ${competitorNames}\n\n`;
-      }
-
-      message += `🚀 **What Happens Next:**\n`;
-      message += `1. **Immediate:** Automated competitor discovery and website scraping begins\n`;
-      message += `2. **Within 30 minutes:** Initial competitive landscape analysis\n`;
-      message += `3. **${this.formatReportFrequency(requirements.reportFrequency)}:** First comprehensive report delivered to ${requirements.userEmail}\n`;
-      message += `4. **Ongoing:** Continuous monitoring and automated updates\n\n`;
-
-      message += `📊 **Analysis Features Enabled:**\n`;
-      message += `• Product positioning analysis vs competitors\n`;
-      message += `• Customer experience comparisons\n`;
-      message += `• Pricing and feature analysis\n`;
-      message += `• Market positioning insights\n`;
-      message += `• Automated trend detection\n\n`;
-
-      message += `✨ **Ready to start comprehensive competitive analysis!**\n\n`;
-      message += `Would you like me to begin the analysis immediately? (yes/no)`;
-
-      return {
-        message,
-        nextStep: 3,
-        stepDescription: 'Start Analysis',
-        expectedInputType: 'text',
-        projectCreated: true,
-      };
-    } catch (error) {
-      console.error('Failed to create project:', error);
-      
-      return {
-        message: `❌ **Error Creating Project**\n\nI encountered an error while creating your project: ${error instanceof Error ? error.message : 'Unknown error'}\n\nYour information has been saved. Would you like me to:\n\n1. **Retry** - Try creating the project again\n2. **Edit** - Modify the project information\n3. **Support** - Get help with this issue\n\nPlease respond with "retry", "edit", or "support".`,
-        expectedInputType: 'text',
-        error: error instanceof Error ? error.message : 'Unknown error',
-      };
-    }
-  }
 
   /**
    * Phase 4.2: Extract requirements from current chat state
@@ -2978,28 +2910,34 @@ What would you prefer?`,
       // Step 5: Create product entity if data available
       const productResult = await this.createProductEntityIfAvailable(projectResult.project, context);
 
-      // Step 6: Generate initial report with enhanced logic (skip if AWS unavailable)
+      // Step 6: Generate initial report - BUGFIX: Remove AWS dependency for consistency with API route
       let reportResult;
-      if (awsStatus.canProceedWithReports) {
+      try {
+        logger.info('Generating initial report for chat-created project', {
+          ...context,
+          projectId: projectResult.project.id,
+          awsStatus: awsStatus.available ? 'available' : 'unavailable',
+          proceedingRegardless: true
+        });
+        
         reportResult = await this.generateInitialReportWithRetry(
           projectResult.project, 
           competitorData, 
           productResult,
           context
         );
-      } else {
-        logger.info('Skipping initial report generation due to AWS unavailability', {
+      } catch (reportError) {
+        logger.error('Initial report generation failed for chat-created project', reportError as Error, {
           ...context,
-          projectId: projectResult.project.id,
-          reason: awsStatus.message
+          projectId: projectResult.project.id
         });
         
         reportResult = {
           reportGenerated: false,
           reportData: null,
-          attempts: 0,
-          skipReason: awsStatus.message,
-          awsUnavailable: true
+          attempts: 1,
+          error: reportError instanceof Error ? reportError.message : 'Unknown error',
+          skipReason: 'Report generation failed'
         };
       }
 

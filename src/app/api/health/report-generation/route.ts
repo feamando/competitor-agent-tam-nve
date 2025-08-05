@@ -10,6 +10,7 @@ import { reportMonitoringService } from '@/lib/monitoring/reportMonitoring';
 import { reportAlertingService } from '@/lib/alerts/reportAlertingService';
 import { getValidationSummaryForDashboard } from '@/lib/validation/reportGenerationValidator';
 import { logger, generateCorrelationId } from '@/lib/logger';
+import { ensureServicesInitialized } from '@/lib/startup';
 
 export interface HealthCheckResponse {
   status: 'healthy' | 'degraded' | 'critical';
@@ -52,6 +53,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const context = { correlationId, operation: 'healthCheck' };
 
   try {
+    // TP-024: Ensure services are initialized on first API call
+    await ensureServicesInitialized();
+    
     logger.info('TP-024: Starting report generation health check', context);
 
     // Get system uptime (approximate - time since service started)

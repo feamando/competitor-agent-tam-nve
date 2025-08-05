@@ -20,6 +20,23 @@ export interface SmartDataCollectionResult {
   dataFreshness: 'new' | 'existing' | 'mixed' | 'basic';
   collectionTime: number;
   priorityBreakdown: PriorityUsageBreakdown;
+  
+  /**
+   * Total number of competitor snapshots captured (fresh + existing)
+   * 
+   * This field was added as part of TP-025 to fix the issue where
+   * competitorSnapshotsCaptured was always 0 despite existing snapshots.
+   * 
+   * The value is calculated as:
+   * capturedCount = competitorData.freshSnapshots + competitorData.existingSnapshots
+   * 
+   * This ensures that InitialComparativeReportService can properly determine
+   * whether to generate full comparative reports or fall back to emergency reports.
+   * 
+   * @see TP-025-20250805-report-data-collection-aggregation-fix.md
+   * @see A-003-20250805-report-data-collection-failure-root-cause-investigation.md
+   */
+  capturedCount: number;
 }
 
 export interface ProductDataResult {
@@ -127,7 +144,11 @@ export class SmartDataCollectionService {
         dataCompletenessScore,
         dataFreshness,
         collectionTime: Date.now() - startTime,
-        priorityBreakdown
+        priorityBreakdown,
+        // TP-025 FIX: Calculate total captured snapshots for report metadata
+        // This fixes the issue where competitorSnapshotsCaptured was always 0
+        // by properly aggregating fresh and existing snapshot counts
+        capturedCount: competitorDataResult.freshSnapshots + competitorDataResult.existingSnapshots
       };
 
       logger.info('Smart data collection completed successfully', {
@@ -136,7 +157,8 @@ export class SmartDataCollectionService {
           dataCompletenessScore: result.dataCompletenessScore,
           dataFreshness: result.dataFreshness,
           collectionTime: result.collectionTime,
-          priorityBreakdown: result.priorityBreakdown
+          priorityBreakdown: result.priorityBreakdown,
+          capturedCount: result.capturedCount
         }
       });
 
