@@ -3204,6 +3204,8 @@ What would you prefer?`,
               task52Implementation: true,
               competitorDataQuality: competitorData.validationPassed,
               creationTimestamp: new Date().toISOString(),
+              // CRITICAL FIX: Add autoGenerateInitialReport flag for API compatibility
+              autoGenerateInitialReport: true, // TP-024 Task 1.2: Fix missing flag
               // Configuration for initial report generation
               initialReportConfig: {
                 enabled: true,
@@ -3237,6 +3239,22 @@ What would you prefer?`,
         if (!project.id || project.competitors.length !== competitorData.competitorIds.length) {
           throw new Error('Project creation validation failed');
         }
+
+        // TP-024 Task 1.4: Validate autoGenerateInitialReport flag is set
+        if (!project.parameters?.autoGenerateInitialReport) {
+          logger.error('CRITICAL: autoGenerateInitialReport flag not set during chat project creation', {
+            ...context,
+            projectId: project.id,
+            parameters: project.parameters
+          });
+          throw new Error('autoGenerateInitialReport flag validation failed');
+        }
+
+        logger.info('TP-024: Validated autoGenerateInitialReport flag is properly set', {
+          ...context,
+          projectId: project.id,
+          autoGenerateInitialReport: project.parameters.autoGenerateInitialReport
+        });
 
         return { project };
       });
