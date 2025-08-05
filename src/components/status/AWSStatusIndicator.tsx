@@ -215,7 +215,7 @@ export function AWSStatusIndicator({
       setLoadingTimeout(null);
       setIsLoadingTimedOut(false);
     }
-  }, [isLoading, isLoadingTimedOut, loadingTimeout]);
+  }, [isLoading, isLoadingTimedOut]);
 
   // Task 5.3.4: Cleanup timeout on component unmount
   React.useEffect(() => {
