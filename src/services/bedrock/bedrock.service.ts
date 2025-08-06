@@ -33,22 +33,52 @@ export class BedrockService {
 
   /**
    * Create BedrockRuntime client with proper credential handling
+   * Supports AWS SDK default credential chain while providing explicit validation
    */
   private createClient(config: BedrockConfig): BedrockRuntimeClient {
-    const clientConfig: any = {
+    const clientConfig: {
+      region: string;
+      credentials?: {
+        accessKeyId: string;
+        secretAccessKey: string;
+        sessionToken?: string;
+      };
+    } = {
       region: config.region
     };
 
-    // Only add credentials if they're properly configured
+    // Add explicit credentials if provided, otherwise let AWS SDK use default credential chain
     if (config.credentials?.accessKeyId && config.credentials?.secretAccessKey) {
       clientConfig.credentials = {
         accessKeyId: config.credentials.accessKeyId,
         secretAccessKey: config.credentials.secretAccessKey,
         ...(config.credentials.sessionToken && { sessionToken: config.credentials.sessionToken })
       };
+      
+      console.log('[BedrockService] Using explicit credentials for Bedrock client initialization');
+    } else {
+      console.log('[BedrockService] Using AWS SDK default credential chain for Bedrock client initialization');
     }
 
-    return new BedrockRuntimeClient(clientConfig);
+    try {
+      const client = new BedrockRuntimeClient(clientConfig);
+      console.log('[BedrockService] Successfully created BedrockRuntimeClient', { 
+        region: config.region, 
+        hasExplicitCredentials: !!config.credentials?.accessKeyId 
+      });
+      return client;
+    } catch (error) {
+      console.error('[BedrockService] Failed to create BedrockRuntimeClient', { 
+        error: error.message, 
+        region: config.region,
+        hasExplicitCredentials: !!config.credentials?.accessKeyId 
+      });
+      throw new Error(
+        `Failed to initialize Bedrock service: ${error.message}. ` +
+        'Please ensure AWS credentials are properly configured via environment variables, ' +
+        'AWS config files, or IAM roles.'
+      );
+    }
   }
 
   private async invokeModel(request: BedrockRequest): Promise<BedrockResponse> {
