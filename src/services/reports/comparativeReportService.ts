@@ -3,6 +3,8 @@ import Handlebars from 'handlebars';
 import { logger, generateCorrelationId } from '@/lib/logger';
 import { BedrockService } from '../bedrock/bedrock.service';
 import { BedrockMessage } from '../bedrock/types';
+import { BedrockInitializationError, BedrockValidationError, ReportGenerationFallbackInfo } from '@/types/bedrockHealth';
+import { bedrockCircuitBreaker } from '@/lib/health/bedrockHealthChecker';
 import { UserExperienceAnalyzer, UXAnalysisResult } from '../analysis/userExperienceAnalyzer';
 import { 
   ComparativeReport, 
@@ -99,17 +101,38 @@ export class ComparativeReportService {
   }
 
   /**
-   * Initialize the Bedrock service with stored credentials
+   * Initialize the Bedrock service with proper error handling
+   * Implements TP-029 Task 3.1-3.2: Explicit error handling instead of silent fallback
    */
   private async initializeBedrockService(): Promise<BedrockService> {
     if (!this.bedrockService) {
       try {
-        // Try to create with stored credentials first
-        this.bedrockService = await BedrockService.createWithStoredCredentials('anthropic');
+        logger.info('[ComparativeReportService] Initializing Bedrock service for AI-enhanced report generation');
+        
+        // Use circuit breaker to prevent repeated failed attempts
+        this.bedrockService = await bedrockCircuitBreaker.execute(async () => {
+          // Try to create with stored credentials first
+          const service = await BedrockService.createWithStoredCredentials('anthropic');
+          
+          // Validate service availability before accepting it
+          await service.validateServiceAvailability();
+          
+          logger.info('[ComparativeReportService] Successfully initialized and validated Bedrock service');
+          return service;
+        });
       } catch (error) {
-        logger.warn('Failed to initialize with stored credentials, falling back to environment variables', { error });
-        // Fallback to traditional constructor with environment variables
-        this.bedrockService = new BedrockService();
+        logger.error('[ComparativeReportService] Failed to initialize Bedrock service', { 
+          error: error.message,
+          circuitBreakerState: bedrockCircuitBreaker.getState()
+        });
+        
+        // Throw explicit error instead of silent fallback
+        throw new BedrockInitializationError(
+          'Cannot initialize AI service for enhanced report generation. ' +
+          'This will result in basic template reports only. ' +
+          'Please check AWS credentials and Bedrock service availability.',
+          error
+        );
       }
     }
     return this.bedrockService;
@@ -297,17 +320,18 @@ export class ComparativeReportService {
   }
 
   /**
-   * Generate enhanced report content using AI
+   * Generate enhanced report content using AI with proper fallback handling
+   * Implements TP-029 Task 3.3-3.4: User-facing notifications and fallback transparency
    */
   async generateEnhancedReportContent(
     analysisId: string,
     template: ReportTemplate,
     options: ReportGenerationOptions = {}
-  ): Promise<string> {
+  ): Promise<{ content: string; fallbackInfo?: ReportGenerationFallbackInfo }> {
     const context = { analysisId, template };
 
     try {
-      logger.info('Generating enhanced report content with AI', context);
+      logger.info('[ComparativeReportService] Attempting to generate AI-enhanced report content', context);
 
       const prompt = this.buildEnhancedReportPrompt(template, options);
       const messages: BedrockMessage[] = [
@@ -316,23 +340,91 @@ export class ComparativeReportService {
           content: [{ type: 'text', text: prompt }]
         }
       ];
+      
+      // This will now throw explicit errors instead of silently failing
       const bedrockService = await this.initializeBedrockService();
       const enhancedContent = await bedrockService.generateCompletion(messages);
-
-      logger.info('Enhanced report content generated successfully', {
+      
+      logger.info('[ComparativeReportService] Successfully generated AI-enhanced report content', {
         ...context,
         contentLength: enhancedContent.length
       });
-
-      return enhancedContent;
+      
+      return { content: enhancedContent };
 
     } catch (error) {
-      logger.error('Failed to generate enhanced report content', error as Error, context);
-      throw new ReportGenerationError(
-        `Failed to generate enhanced report content: ${(error as Error).message}`,
-        { analysisId, template }
-      );
+      logger.error('[ComparativeReportService] AI-enhanced content generation failed', {
+        error: error.message,
+        ...context,
+        circuitBreakerState: bedrockCircuitBreaker.getState()
+      });
+
+      // Determine fallback reason based on error type
+      let fallbackReason: ReportGenerationFallbackInfo['reason'] = 'bedrock_unavailable';
+      if (error instanceof BedrockInitializationError) {
+        fallbackReason = 'initialization_failed';
+      } else if (error instanceof BedrockValidationError) {
+        fallbackReason = 'validation_failed';
+      } else if (error.message.includes('timeout')) {
+        fallbackReason = 'timeout';
+      }
+
+      // Generate basic template content with fallback information
+      logger.warn('[ComparativeReportService] Falling back to basic template due to AI service unavailability', {
+        ...context,
+        fallbackReason,
+        errorMessage: error.message
+      });
+
+      const fallbackInfo: ReportGenerationFallbackInfo = {
+        reason: fallbackReason,
+        timestamp: new Date().toISOString(),
+        fallbackType: 'basic_template',
+        originalError: error.message
+      };
+
+      // Generate basic template content (without AI enhancement)
+      const basicContent = this.generateBasicTemplateContent(template, options);
+      
+      return { 
+        content: basicContent, 
+        fallbackInfo 
+      };
     }
+  }
+
+  /**
+   * Generate basic template content without AI enhancement
+   * Implements TP-029 Task 3.4: Transparent fallback when AI is unavailable
+   */
+  private generateBasicTemplateContent(template: ReportTemplate, options: ReportGenerationOptions = {}): string {
+    logger.info('[ComparativeReportService] Generating basic template content as fallback');
+    
+    const basicTemplate = `
+# Comparative Analysis Report (Basic Template)
+
+⚠️ **Notice:** This report was generated using a basic template due to AI service unavailability. 
+For enhanced analysis with AI insights, please try again later or contact support.
+
+## Executive Summary
+This is a basic comparative analysis report generated from your competitive data.
+
+## Key Findings
+- Analysis completed without AI enhancement
+- Basic template applied to available data
+- Limited insights available in this mode
+
+## Recommendations
+- Retry report generation when AI services are restored
+- Contact support if this issue persists
+- Consider manual analysis for immediate insights
+
+---
+*Report generated at: ${new Date().toISOString()}*
+*Report Type: Basic Template (AI Enhancement Unavailable)*
+`;
+
+    return basicTemplate;
   }
 
   /**
