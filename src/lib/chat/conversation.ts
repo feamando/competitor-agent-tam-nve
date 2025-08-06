@@ -1990,13 +1990,13 @@ Now, what is the name of the product that you want to perform competitive analys
     const response = content.toLowerCase().trim();
     
     if (response.includes('yes') || response === 'y' || response.includes('confirm') || response.includes('proceed')) {
-      // BUGFIX: Use the same project creation method to prevent duplication
-      // Extract requirements from chat state for consistent creation
-      const requirements = this.extractRequirementsFromChatState();
-      if (!requirements) {
-        throw new Error('No project requirements found in chat state for confirmation');
-      }
-      return this.createProjectFromComprehensiveData(requirements);
+      // User confirmed - proceed to completion (project was already created)
+      return {
+        message: `🚀 **Analysis Complete!**\n\nYour competitive analysis project is now set up and ready. The system will begin automated analysis and report generation.\n\nThank you for using the Competitor Research Agent! You can start a new project anytime by saying "start new project".`,
+        isComplete: true,
+        nextStep: 3,
+        stepDescription: 'Complete',
+      };
     } else if (response.includes('edit') || response.includes('modify') || response.includes('change')) {
       // User wants to edit - return to comprehensive input
       return {
