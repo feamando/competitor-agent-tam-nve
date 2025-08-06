@@ -92,10 +92,10 @@ export class ComprehensiveRequirementsCollector {
       keywords: ['weekly', 'monthly', 'quarterly', 'daily', 'frequency', 'schedule'],
       cleaner: (value: string) => {
         const normalized = value.toLowerCase().trim();
-        if (normalized.includes('week')) return 'Weekly';
-        if (normalized.includes('month')) return 'Monthly';
-        if (normalized.includes('quarter')) return 'Quarterly';
-        if (normalized.includes('day')) return 'Daily';
+        if (normalized.includes('week')) return 'weekly';
+        if (normalized.includes('month')) return 'monthly';
+        if (normalized.includes('quarter')) return 'quarterly';
+        if (normalized.includes('day')) return 'daily';
         return value;
       }
     },

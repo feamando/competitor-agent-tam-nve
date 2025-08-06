@@ -334,7 +334,7 @@ Please tell me:
 
     // Implement timeout for step0 processing to prevent hanging
     const timeoutPromise = new Promise<ChatResponse>((_, reject) => {
-      setTimeout(() => reject(new Error('Step0 processing timeout')), 5000); // 5 second timeout
+      setTimeout(() => reject(new Error('Step0 processing timeout')), 30000); // 30 second timeout for service initialization and project creation
     });
 
     try {
@@ -2137,6 +2137,7 @@ Now, what is the name of the product that you want to perform competitive analys
       }
 
       message += `🕕 **Automated Scraping Scheduled:** Your competitors will be automatically scraped ${frequencyToString(parsedFreq.frequency).toLowerCase()} to ensure fresh data for reports.\n\n`;
+      message += `📊 **Initial Report:** Your first comparative report is being generated in the background. You'll receive it at ${requirements.userEmail} within a few minutes.\n\n`;
       message += `Reports will be sent to: ${requirements.userEmail}\n\n`;
       message += `🚀 **Ready to start comprehensive competitive analysis?** (yes/no)`;
 
@@ -2910,36 +2911,39 @@ What would you prefer?`,
       // Step 5: Create product entity if data available
       const productResult = await this.createProductEntityIfAvailable(projectResult.project, context);
 
-      // Step 6: Generate initial report - BUGFIX: Remove AWS dependency for consistency with API route
-      let reportResult;
-      try {
-        logger.info('Generating initial report for chat-created project', {
+      // Step 6: Generate initial report asynchronously to prevent timeouts
+      let reportResult = {
+        reportGenerated: false,
+        reportData: null,
+        attempts: 0,
+        async: true,
+        message: 'Report generation started in background'
+      };
+      
+      // Start report generation in background - don't await
+      this.generateInitialReportWithRetry(
+        projectResult.project, 
+        competitorData, 
+        productResult,
+        context
+      ).then((result) => {
+        logger.info('Background initial report generation completed for chat-created project', {
           ...context,
           projectId: projectResult.project.id,
-          awsStatus: awsStatus.available ? 'available' : 'unavailable',
-          proceedingRegardless: true
+          success: result.reportGenerated
         });
-        
-        reportResult = await this.generateInitialReportWithRetry(
-          projectResult.project, 
-          competitorData, 
-          productResult,
-          context
-        );
-      } catch (reportError) {
-        logger.error('Initial report generation failed for chat-created project', reportError as Error, {
+      }).catch((reportError) => {
+        logger.error('Background initial report generation failed for chat-created project', reportError as Error, {
           ...context,
           projectId: projectResult.project.id
         });
-        
-        reportResult = {
-          reportGenerated: false,
-          reportData: null,
-          attempts: 1,
-          error: reportError instanceof Error ? reportError.message : 'Unknown error',
-          skipReason: 'Report generation failed'
-        };
-      }
+      });
+      
+      logger.info('Initial report generation started in background for chat-created project', {
+        ...context,
+        projectId: projectResult.project.id,
+        message: 'User will be notified when complete'
+      });
 
       // Step 7: Schedule periodic reports
       const schedulingResult = await this.schedulePeriodicReportsWithFallback(
@@ -3003,13 +3007,16 @@ What would you prefer?`,
       try {
         switch (service) {
           case 'InitialComparativeReportService':
-            await import('@/services/reports/initialComparativeReportService');
+            const { InitialComparativeReportService } = await import('../../services/reports/initialComparativeReportService');
+            if (!InitialComparativeReportService) throw new Error('Service not available');
             break;
           case 'ProductRepository':
-            await import('@/lib/repositories/productRepository');
+            const { ProductRepository } = await import('../repositories/productRepository');
+            if (!ProductRepository) throw new Error('Service not available');
             break;
           case 'AutoReportGenerationService':
-            await import('@/services/autoReportGenerationService');
+            const { AutoReportGenerationService } = await import('../../services/autoReportGenerationService');
+            if (!AutoReportGenerationService) throw new Error('Service not available');
             break;
         }
       } catch (importError) {

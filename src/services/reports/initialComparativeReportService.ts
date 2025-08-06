@@ -541,7 +541,68 @@ export class InitialComparativeReportService {
       // 6. Quality validation with fallback
       await this.validateReportQualityWithFallback(enhancedReport, reportLogger);
 
-      // 7. Final status update
+      // 7. CRITICAL: Save report to database (was missing!)
+      try {
+        reportLogger.info('Persisting report to database', { 
+          ...context, 
+          reportId: enhancedReport.id 
+        });
+        
+        await prisma.report.create({
+          data: {
+            id: enhancedReport.id,
+            name: enhancedReport.title,
+            title: enhancedReport.title,
+            description: `Initial comparative analysis report for project ${projectId}`,
+            projectId: projectId,
+            status: 'COMPLETED',
+            reportType: 'INITIAL_COMPARATIVE',
+            isInitialReport: true,
+            dataCompletenessScore: Math.round(smartCollectionResult.dataCompletenessScore || 0),
+            dataFreshness: 'CURRENT',
+            competitorSnapshotsCaptured: smartCollectionResult.capturedCount || 0,
+            generationContext: {
+              correlationId,
+              generatedAt: enhancedReport.createdAt.toISOString(),
+              processingTime: Date.now() - startTime,
+              template: options.template || 'comprehensive',
+              isInitialReport: true
+            },
+            generationStartTime: new Date(startTime),
+            generationEndTime: new Date()
+          }
+        });
+
+        // Also create report version for content
+        await prisma.reportVersion.create({
+          data: {
+            reportId: enhancedReport.id,
+            version: 1,
+            content: {
+              title: enhancedReport.title,
+              format: enhancedReport.format,
+              sectionsCount: enhancedReport.sections.length,
+              generatedAt: enhancedReport.createdAt.toISOString(),
+              summary: 'Initial comparative analysis report generated automatically'
+            } as any
+          }
+        });
+
+        reportLogger.info('Report persisted to database successfully', { 
+          ...context, 
+          reportId: enhancedReport.id 
+        });
+
+      } catch (dbError) {
+        reportLogger.error('Failed to persist report to database', dbError as Error, {
+          ...context,
+          reportId: enhancedReport.id
+        });
+        // Don't throw - report was generated successfully, persistence is secondary
+        reportLogger.warn('Continuing with in-memory report despite database save failure');
+      }
+
+      // 8. Final status update
       try {
         realTimeStatusService.sendCompletionUpdate(
           projectId,

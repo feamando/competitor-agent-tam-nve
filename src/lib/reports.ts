@@ -1055,13 +1055,13 @@ Focus on actionable insights and specific improvements based on the competitive 
       });
 
       // Query the junction table to verify relationship exists
-      const relationship = await this.prisma.$queryRaw<{count: number}[]>`
+      const relationship = await this.prisma.$queryRaw<{count: bigint}[]>`
         SELECT COUNT(*) as count 
         FROM "_CompetitorToProject" 
         WHERE "A" = ${competitorId} AND "B" = ${projectId}
       `;
 
-      const relationshipExists = Boolean(relationship && relationship[0] && relationship[0].count > 0);
+      const relationshipExists = Boolean(relationship && relationship[0] && Number(relationship[0].count) > 0);
 
       // Task 3.4: Enhanced logging for relationship validation result
       logger.info('Task 3.4: Project Association Tracking - Relationship Validation Result', {
@@ -1069,10 +1069,13 @@ Focus on actionable insights and specific improvements based on the competitive 
         competitorId,
         relationshipExists,
         queryResult: relationship,
+        rawCount: relationship?.[0]?.count,
+        rawCountType: typeof relationship?.[0]?.count,
+        convertedCount: Number(relationship?.[0]?.count || 0),
         correlationId,
         validationMetrics: {
           queryExecuted: true,
-          resultCount: relationship?.[0]?.count || 0,
+          resultCount: Number(relationship?.[0]?.count || 0),
           validationPassed: relationshipExists
         },
         task: 'Task 3.4 - Enhanced Project Association Tracking',

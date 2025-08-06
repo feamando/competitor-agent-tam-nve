@@ -13,6 +13,21 @@ const nextConfig: NextConfig = {
       };
     }
 
+    // Fix handlebars require.extensions warning
+    config.module.rules.push({
+      test: /\.hbs$/,
+      loader: 'handlebars-loader',
+    });
+
+    // Ignore handlebars require.extensions warning
+    config.ignoreWarnings = [
+      ...(config.ignoreWarnings || []),
+      {
+        module: /node_modules\/handlebars\/lib\/index\.js/,
+        message: /require\.extensions is not supported by webpack/,
+      },
+    ];
+
     return config;
   },
 };
