@@ -25,9 +25,7 @@ export class BedrockService {
     credentialOptions: CredentialProviderOptions = {}
   ): Promise<BedrockService> {
     const config = await getBedrockConfig(provider, configOverrides, credentialOptions);
-    const service = new BedrockService();
-    service.config = config;
-    service.client = service.createClient(config);
+    const service = new BedrockService(config, provider);
     return service;
   }
 
@@ -82,19 +80,33 @@ export class BedrockService {
   }
 
   private async invokeModel(request: BedrockRequest): Promise<BedrockResponse> {
+    const formattedRequest = this.formatRequest(request);
     const command = new InvokeModelCommand({
       modelId: this.config.modelId,
-      body: JSON.stringify(this.formatRequest(request)),
+      body: JSON.stringify(formattedRequest),
       contentType: 'application/json',
       accept: 'application/json',
     });
 
     try {
+      console.log('[BedrockService] Invoking model with request:', {
+        modelId: this.config.modelId,
+        provider: this.config.provider,
+        hasAnthropicVersion: !!formattedRequest.anthropic_version,
+        anthropicVersion: formattedRequest.anthropic_version,
+        messageCount: formattedRequest.messages?.length || 0
+      });
+
       const response = await this.client.send(command);
       const responseBody = new TextDecoder().decode(response.body);
       return JSON.parse(responseBody);
     } catch (error) {
-      console.error('Error invoking Bedrock model:', error);
+      console.error('[BedrockService] Error invoking Bedrock model:', {
+        error: (error as Error).message,
+        modelId: this.config.modelId,
+        provider: this.config.provider,
+        requestBody: JSON.stringify(formattedRequest, null, 2)
+      });
       throw error;
     }
   }
@@ -107,12 +119,10 @@ export class BedrockService {
         top_k: this.config.topK,
         top_p: this.config.topP,
         stop_sequences: this.config.stopSequences,
-        messages: request.messages as BedrockMessage[]
+        messages: request.messages as BedrockMessage[],
+        // Always include anthropic_version for Anthropic models - required by Bedrock
+        anthropic_version: this.config.anthropicVersion || "bedrock-2023-05-31"
       };
-      
-      if (this.config.anthropicVersion) {
-        formattedRequest.anthropic_version = this.config.anthropicVersion;
-      }
       
       return formattedRequest;
     } else {
