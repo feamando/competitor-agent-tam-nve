@@ -8,10 +8,21 @@ export class BedrockService {
   private config: BedrockConfig;
 
   constructor(config: Partial<BedrockConfig> = {}, provider: ModelProvider = 'anthropic') {
+    const defaultConfig = provider === 'anthropic' ? claudeConfig : mistralConfig;
+    
+    // Ensure provider is correct even if config overrides it
     this.config = {
-      ...(provider === 'anthropic' ? claudeConfig : mistralConfig),
-      ...config
+      ...defaultConfig,
+      ...config,
+      provider: provider // Force provider to match the parameter
     };
+
+    console.log('[BedrockService] Constructor - Final config:', {
+      provider: this.config.provider,
+      modelId: this.config.modelId,
+      hasAnthropicVersion: !!this.config.anthropicVersion,
+      anthropicVersion: this.config.anthropicVersion
+    });
 
     this.client = this.createClient(this.config);
   }
@@ -24,7 +35,14 @@ export class BedrockService {
     configOverrides: Partial<BedrockConfig> = {},
     credentialOptions: CredentialProviderOptions = {}
   ): Promise<BedrockService> {
+    console.log('[BedrockService] createWithStoredCredentials called with provider:', provider);
     const config = await getBedrockConfig(provider, configOverrides, credentialOptions);
+    console.log('[BedrockService] getBedrockConfig returned:', {
+      provider: config.provider,
+      modelId: config.modelId,
+      hasAnthropicVersion: !!config.anthropicVersion,
+      anthropicVersion: config.anthropicVersion
+    });
     const service = new BedrockService(config, provider);
     return service;
   }
