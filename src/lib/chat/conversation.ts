@@ -3332,7 +3332,7 @@ What would you prefer?`,
           template: project.parameters?.initialReportConfig?.template || 'comprehensive',
           priority: project.parameters?.initialReportConfig?.priority || 'high',
           timeout: project.parameters?.initialReportConfig?.timeout || 180000,
-          fallbackToPartialData: attempt > 1 ? true : project.parameters?.initialReportConfig?.fallbackToPartialData,
+          fallbackToPartialData: attempt > 2 ? true : false, // Only force partial on 3rd+ attempt
           notifyOnCompletion: true,
           requireFreshSnapshots: attempt === 1 ? false : true, // Try fresh snapshots on retry
           forceGeneration: attempt > 1, // Force on retry attempts

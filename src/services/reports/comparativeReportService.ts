@@ -166,6 +166,19 @@ export class ComparativeReportService {
       // Build report context from analysis
       const reportContext = this.buildReportContext(analysis, product, productSnapshot);
       
+      // Debug logging for report context
+      logger.info('[ComparativeReportService] Report context built', {
+        ...context,
+        contextKeys: Object.keys(reportContext),
+        contextSample: {
+          productName: reportContext.productName,
+          overallPosition: reportContext.overallPosition,
+          keyStrengths: reportContext.keyStrengths?.slice(0, 2),
+          competitorCount: reportContext.competitorCount,
+          hasEmptyFields: Object.entries(reportContext).filter(([k, v]) => !v || (Array.isArray(v) && v.length === 0)).map(([k]) => k)
+        }
+      });
+      
       // ========== AI ENHANCEMENT INTEGRATION ==========
       // Try to generate AI-enhanced content first, fall back to template processing if it fails
       let sections: ComparativeReportSection[] = [];
@@ -245,7 +258,13 @@ export class ComparativeReportService {
         generationTime,
         sectionsCount: sections.length,
         tokensUsed,
-        memoryUsedMB: Math.round(memoryUsed / 1024 / 1024)
+        memoryUsedMB: Math.round(memoryUsed / 1024 / 1024),
+        sectionsPreview: sections.map(s => ({ 
+          title: s.title, 
+          type: s.type, 
+          contentLength: s.content?.length || 0,
+          contentPreview: s.content?.substring(0, 100) || 'EMPTY' 
+        }))
       });
 
       return {
@@ -576,6 +595,22 @@ This is a basic comparative analysis report generated from your competitive data
       const compiledTemplate = Handlebars.compile(sectionTemplate.template);
       const content = compiledTemplate(context);
       
+      // Debug logging for empty content
+      if (!content || content.trim().length === 0) {
+        logger.warn('Section generated with empty content', {
+          sectionId,
+          sectionTitle: sectionTemplate.title,
+          sectionType: sectionTemplate.type,
+          templateLength: sectionTemplate.template?.length || 0,
+          contextKeys: Object.keys(context),
+          contextSample: {
+            productName: context.productName,
+            overallPosition: context.overallPosition,
+            keyStrengths: context.keyStrengths?.length || 0
+          }
+        });
+      }
+      
       return {
         id: sectionId,
         title: sectionTemplate.title,
@@ -648,7 +683,9 @@ This is a basic comparative analysis report generated from your competitive data
       createdAt: now,
       updatedAt: now,
       status: 'completed',
-      format: options.format || 'markdown'
+      format: options.format || 'markdown',
+      // Add rawContent as a fallback for UI display
+      rawContent: this.generateRawContent(sections)
     };
   }
 
@@ -880,6 +917,24 @@ ${uxAnalysis.recommendations.slice(6).map((rec, index) => `${index + 1}. ${rec}`
     });
 
     return rows;
+  }
+
+  /**
+   * Generate raw markdown content from sections for UI fallback
+   */
+  private generateRawContent(sections: ComparativeReportSection[]): string {
+    if (!sections || sections.length === 0) {
+      return `# Report Generated
+
+This report was generated but contains no sections. This may indicate an issue with report generation.
+
+Please contact support if this issue persists.`;
+    }
+
+    return sections
+      .sort((a, b) => a.order - b.order)
+      .map(section => `# ${section.title}\n\n${section.content || 'No content available for this section.'}\n\n`)
+      .join('---\n\n');
   }
 
   /**
