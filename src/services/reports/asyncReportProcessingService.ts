@@ -254,7 +254,7 @@ export class AsyncReportProcessingService {
           template: 'comprehensive',
           priority: options.priority || 'high',
           timeout: (options.timeout || this.DEFAULT_TIMEOUT) - 5000, // Reserve 5s for cleanup
-          fallbackToPartialData: true,
+          fallbackToPartialData: false, // Let service decide based on data completeness
           notifyOnCompletion: options.notifyOnCompletion !== false,
           requireFreshSnapshots: true
         }
