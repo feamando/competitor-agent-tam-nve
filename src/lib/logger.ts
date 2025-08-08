@@ -5,24 +5,16 @@ export enum LogLevel {
   ERROR = 3,
 }
 
-const COLORS = {
-  DEBUG: '\x1b[36m',
-  INFO: '\x1b[32m',
-  WARN: '\x1b[33m',
-  ERROR: '\x1b[31m',
-};
-
-const COLORS_BRIGHT = {
-  DEBUG: '\x1b[96m',
-  INFO: '\x1b[92m',
-  WARN: '\x1b[93m',
-  ERROR: '\x1b[91m',
-};
-
 const COLOR_RESET = '\x1b[0m';
 
-const getColor = (level: string | LogLevel, isBright: boolean = false) => {
-  return isBright ? COLORS_BRIGHT[level as keyof typeof COLORS_BRIGHT] : COLORS[level as keyof typeof COLORS];
+const getColor = (level: LogLevel, bright = false): string => {
+  switch (level) {
+    case LogLevel.DEBUG: return bright ? '\x1b[96m' : '\x1b[36m';
+    case LogLevel.INFO:  return bright ? '\x1b[92m' : '\x1b[32m';
+    case LogLevel.WARN:  return bright ? '\x1b[93m' : '\x1b[33m';
+    case LogLevel.ERROR: return bright ? '\x1b[91m' : '\x1b[31m';
+    default: return '';
+  }
 };
 
 // Type-safe metadata for different contexts
@@ -240,13 +232,13 @@ class Logger {
   }
 
   private formatLog(entry: LogEntry): string {
-    const level = LogLevel[entry.level];
+    const level = entry.level;
     const timestamp = entry.timestamp;
     const message = entry.message;
 
-    const shouldColor = process.stdout.isTTY;
-    const color_bright = getColor(level, true);
-    const color_normal = getColor(level, false);
+    const shouldColor = process.stdout?.isTTY ?? false;
+    const color_bright = getColor(entry.level, true);
+    const color_normal = getColor(entry.level, false);
     
     let formatted = `[${timestamp}] [${level}] ${message}`;
     if (shouldColor) {
@@ -254,7 +246,11 @@ class Logger {
     }
     
     if (entry.context && Object.keys(entry.context).length > 0) {
-      formatted += ` | Context: ${JSON.stringify(entry.context)}`;
+      try {
+        formatted += ` | Context: ${JSON.stringify(entry.context)}`;
+      } catch (e) {
+        formatted += ` | Context: context could not be serialized: ${e}`;
+      }
     }
     
     if (entry.error) {
