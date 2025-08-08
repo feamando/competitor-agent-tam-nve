@@ -552,11 +552,53 @@ This report was generated with the best available data at the time of creation. 
       createdAt: now,
       updatedAt: now,
       status: 'completed',
-      format: options.format || 'markdown'
+      format: options.format || 'markdown',
+      // Add rawContent for UI fallback
+      rawContent: this.generatePartialDataRawContent(sections, options.partialDataInfo)
     };
   }
 
   // Helper methods for generating placeholder content and assessments
+
+  /**
+   * Generate raw markdown content from partial data sections
+   */
+  private generatePartialDataRawContent(sections: ComparativeReportSection[], partialDataInfo: PartialDataInfo): string {
+    if (!sections || sections.length === 0) {
+      return `# Partial Data Report Generated
+
+This report was generated with limited data (${partialDataInfo.dataCompletenessScore}% complete).
+
+Please note that this analysis may be incomplete due to limited competitor data availability.
+
+Contact support to improve data coverage for more comprehensive insights.`;
+    }
+
+    const content = sections
+      .sort((a, b) => a.order - b.order)
+      .map(section => `# ${section.title}\n\n${section.content || 'No content available for this section due to limited data.'}\n\n`)
+      .join('---\n\n');
+
+    // Add data completeness footer
+    const footer = `
+---
+
+## Data Completeness Notice
+
+This report was generated with **${partialDataInfo.dataCompletenessScore}% data completeness**.
+
+**Quality Tier:** ${partialDataInfo.qualityTier}
+**Available Competitors:** ${partialDataInfo.availableCompetitors} out of ${partialDataInfo.totalCompetitors}
+
+${partialDataInfo.dataGaps.length > 0 ? `
+**Data Gaps Identified:**
+${partialDataInfo.dataGaps.map(gap => `- ${gap.type}: ${gap.description}`).join('\n')}
+` : ''}
+
+For more comprehensive analysis, consider improving data collection coverage.`;
+
+    return content + footer;
+  }
 
   private getAnalysisQuality(completenessScore: number): 'basic' | 'limited' | 'partial' {
     if (completenessScore >= 60) return 'partial';

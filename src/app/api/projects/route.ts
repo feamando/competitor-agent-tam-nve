@@ -186,7 +186,7 @@ export async function POST(request: NextRequest) {
             template: json.reportTemplate || 'comprehensive',
             priority: 'high',
             timeout: 120000, // 2 minutes
-            fallbackToPartialData: true,
+            fallbackToPartialData: false, // Let the service decide based on data completeness
             notifyOnCompletion: true,
             requireFreshSnapshots: false // Allow existing data for immediate reports
           }

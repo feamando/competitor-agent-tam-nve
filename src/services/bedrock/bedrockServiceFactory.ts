@@ -6,6 +6,7 @@
 import { BedrockService } from './bedrock.service';
 import { logger } from '@/lib/logger';
 import { BedrockConfig, ModelProvider } from './types';
+import { BedrockInitializationError, BedrockErrorType } from '@/types/bedrockHealth';
 
 export interface BedrockServiceOptions {
   provider?: ModelProvider;
@@ -13,6 +14,13 @@ export interface BedrockServiceOptions {
   useStoredCredentials?: boolean;
   retryOnFailure?: boolean;
   fallbackToEnvironment?: boolean;
+}
+
+interface StrategyError {
+  strategy: string;
+  error: Error;
+  errorType: BedrockErrorType;
+  timestamp: string;
 }
 
 interface CachedInstance {
@@ -122,6 +130,7 @@ export class BedrockServiceFactory {
 
   /**
    * Initialize BedrockService with comprehensive error handling
+   * Implements TP-029 Task 4.1-4.3: Better error aggregation and classification
    */
   private static async initializeService(
     provider: ModelProvider,
@@ -137,23 +146,34 @@ export class BedrockServiceFactory {
       configProvided: Object.keys(config).length > 0
     };
 
-    logger.info('Initializing BedrockService', context);
+    logger.info('[BedrockServiceFactory] Starting BedrockService initialization with 3-strategy approach', context);
 
-    let lastError: Error | null = null;
+    const strategyErrors: StrategyError[] = [];
 
     // Strategy 1: Try with stored credentials (if enabled)
     if (useStoredCredentials) {
       try {
-        logger.debug('Attempting BedrockService initialization with stored credentials', context);
+        logger.debug('[BedrockServiceFactory] Strategy 1: Attempting initialization with stored credentials', context);
         const service = await BedrockService.createWithStoredCredentials(provider, config);
         
-        logger.info('BedrockService initialized successfully with stored credentials', context);
+        // Validate service before returning
+        await this.validateService(service);
+        
+        logger.info('[BedrockServiceFactory] Strategy 1: SUCCESS - Service initialized and validated with stored credentials', context);
         return service;
       } catch (error) {
-        lastError = error as Error;
-        logger.warn('BedrockService initialization failed with stored credentials', {
+        const strategyError: StrategyError = {
+          strategy: 'stored_credentials',
+          error: error as Error,
+          errorType: this.classifyError(error as Error),
+          timestamp: new Date().toISOString()
+        };
+        strategyErrors.push(strategyError);
+        
+        logger.warn('[BedrockServiceFactory] Strategy 1: FAILED - Stored credentials initialization failed', {
           ...context,
-          error: lastError.message
+          error: error.message,
+          errorType: strategyError.errorType
         });
       }
     }
@@ -161,26 +181,34 @@ export class BedrockServiceFactory {
     // Strategy 2: Try with environment variables (if fallback enabled)
     if (fallbackToEnvironment) {
       try {
-        logger.debug('Attempting BedrockService initialization with environment variables', context);
+        logger.debug('[BedrockServiceFactory] Strategy 2: Attempting initialization with environment variables', context);
         const service = new BedrockService(config, provider);
         
-        // Test the service with a simple operation
+        // Validate service before returning
         await this.validateService(service);
         
-        logger.info('BedrockService initialized successfully with environment variables', context);
+        logger.info('[BedrockServiceFactory] Strategy 2: SUCCESS - Service initialized and validated with environment variables', context);
         return service;
       } catch (error) {
-        lastError = error as Error;
-        logger.warn('BedrockService initialization failed with environment variables', {
+        const strategyError: StrategyError = {
+          strategy: 'environment_variables',
+          error: error as Error,
+          errorType: this.classifyError(error as Error),
+          timestamp: new Date().toISOString()
+        };
+        strategyErrors.push(strategyError);
+        
+        logger.warn('[BedrockServiceFactory] Strategy 2: FAILED - Environment variables initialization failed', {
           ...context,
-          error: lastError.message
+          error: error.message,
+          errorType: strategyError.errorType
         });
       }
     }
 
-    // Strategy 3: Create service without credentials (let AWS SDK handle default chain)
+    // Strategy 3: Create service with default AWS credential chain
     try {
-      logger.debug('Attempting BedrockService initialization with default AWS credential chain', context);
+      logger.debug('[BedrockServiceFactory] Strategy 3: Attempting initialization with AWS default credential chain', context);
       
       // Create config without explicit credentials to use AWS default chain
       const configWithoutCredentials = { ...config };
@@ -188,34 +216,131 @@ export class BedrockServiceFactory {
       
       const service = new BedrockService(configWithoutCredentials, provider);
       
-      logger.info('BedrockService initialized with default credential chain', context);
+      // Validate service before returning
+      await this.validateService(service);
+      
+      logger.info('[BedrockServiceFactory] Strategy 3: SUCCESS - Service initialized and validated with default credential chain', context);
       return service;
     } catch (error) {
-      lastError = error as Error;
-      logger.error('BedrockService initialization failed with all strategies', lastError, {
-        provider: context.provider,
-        useStoredCredentials: context.useStoredCredentials,
-        fallbackToEnvironment: context.fallbackToEnvironment,
-        configProvided: context.configProvided
+      const strategyError: StrategyError = {
+        strategy: 'default_credential_chain',
+        error: error as Error,
+        errorType: this.classifyError(error as Error),
+        timestamp: new Date().toISOString()
+      };
+      strategyErrors.push(strategyError);
+      
+      logger.error('[BedrockServiceFactory] Strategy 3: FAILED - Default credential chain initialization failed', {
+        ...context,
+        error: error.message,
+        errorType: strategyError.errorType
       });
     }
 
-    // If all strategies failed, throw the last error
-    throw new Error(
-      `Failed to initialize BedrockService for provider ${provider}. ` +
-      `Last error: ${lastError?.message || 'Unknown error'}`
-    );
+    // All strategies failed - create comprehensive error report
+    logger.error('[BedrockServiceFactory] ALL STRATEGIES FAILED - BedrockService initialization unsuccessful', {
+      provider,
+      totalStrategiesAttempted: strategyErrors.length,
+      strategyErrors: strategyErrors.map(se => ({
+        strategy: se.strategy,
+        errorType: se.errorType,
+        error: se.error.message,
+        timestamp: se.timestamp
+      }))
+    });
+
+    // Throw comprehensive error with all strategy failures
+    const errorMessage = this.buildComprehensiveErrorMessage(provider, strategyErrors);
+    throw new BedrockInitializationError(errorMessage);
   }
 
   /**
-   * Validate service functionality with a lightweight test
+   * Validate service functionality with actual connectivity test
+   * Implements TP-029 Task 4.4: Configuration validation before service creation
    */
   private static async validateService(service: BedrockService): Promise<void> {
-    // For now, we'll just verify the service was created
-    // In production, you might want to make a lightweight API call
     if (!service) {
       throw new Error('Service is null or undefined');
     }
+    
+    try {
+      logger.debug('[BedrockServiceFactory] Validating service functionality with connectivity test');
+      
+      // Use the service's built-in validation method
+      await service.validateServiceAvailability();
+      
+      logger.debug('[BedrockServiceFactory] Service validation successful');
+    } catch (error) {
+      logger.error('[BedrockServiceFactory] Service validation failed', { error: error.message });
+      throw error;
+    }
+  }
+
+  /**
+   * Classify error types for better monitoring and debugging
+   * Implements TP-029 Task 4.3: Strategy-specific error classification
+   */
+  private static classifyError(error: Error): BedrockErrorType {
+    const errorMessage = error.message.toLowerCase();
+    
+    if (errorMessage.includes('timeout')) {
+      return BedrockErrorType.TIMEOUT;
+    } else if (errorMessage.includes('credentials') || errorMessage.includes('unauthorized')) {
+      return BedrockErrorType.AUTHENTICATION;
+    } else if (errorMessage.includes('access') || errorMessage.includes('permission')) {
+      return BedrockErrorType.AUTHORIZATION;
+    } else if (errorMessage.includes('quota') || errorMessage.includes('limit') || errorMessage.includes('throttl')) {
+      return BedrockErrorType.QUOTA_EXCEEDED;
+    } else if (errorMessage.includes('validation')) {
+      return BedrockErrorType.VALIDATION_ERROR;
+    } else {
+      return BedrockErrorType.SERVICE_ERROR;
+    }
+  }
+
+  /**
+   * Build comprehensive error message with all strategy failure details
+   * Implements TP-029 Task 4.2: Detailed logging and error aggregation
+   */
+  private static buildComprehensiveErrorMessage(provider: ModelProvider, strategyErrors: StrategyError[]): string {
+    const baseMessage = `Failed to initialize BedrockService for provider '${provider}' using all available strategies.`;
+    
+    if (strategyErrors.length === 0) {
+      return `${baseMessage} No strategies were attempted.`;
+    }
+
+    const strategyDetails = strategyErrors.map((strategyError, index) => {
+      return `Strategy ${index + 1} (${strategyError.strategy}): ${strategyError.errorType} - ${strategyError.error.message}`;
+    }).join('\n  ');
+
+    const errorTypeSummary = this.summarizeErrorTypes(strategyErrors);
+
+    return `${baseMessage}
+
+Strategy Failures:
+  ${strategyDetails}
+
+Error Type Summary: ${errorTypeSummary}
+
+Troubleshooting:
+- Check AWS credentials configuration
+- Verify Bedrock service availability in your region
+- Ensure proper IAM permissions for Bedrock access
+- Check network connectivity to AWS services`;
+  }
+
+  /**
+   * Summarize error types for quick diagnosis
+   */
+  private static summarizeErrorTypes(strategyErrors: StrategyError[]): string {
+    const errorCounts = strategyErrors.reduce((acc, error) => {
+      acc[error.errorType] = (acc[error.errorType] || 0) + 1;
+      return acc;
+    }, {} as Record<BedrockErrorType, number>);
+
+    return Object.entries(errorCounts)
+      .map(([type, count]) => `${type}(${count})`)
+      .join(', ');
   }
 
   /**

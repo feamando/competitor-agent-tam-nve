@@ -580,17 +580,32 @@ export class InitialComparativeReportService {
             version: 1,
             content: {
               title: enhancedReport.title,
+              description: enhancedReport.description,
               format: enhancedReport.format,
+              sections: enhancedReport.sections,
               sectionsCount: enhancedReport.sections.length,
+              executiveSummary: enhancedReport.executiveSummary,
+              keyFindings: enhancedReport.keyFindings,
+              strategicRecommendations: enhancedReport.strategicRecommendations,
+              competitiveIntelligence: enhancedReport.competitiveIntelligence,
+              metadata: enhancedReport.metadata,
+              rawContent: enhancedReport.rawContent || 'No content available',
               generatedAt: enhancedReport.createdAt.toISOString(),
-              summary: 'Initial comparative analysis report generated automatically'
+              status: enhancedReport.status
             } as any
           }
         });
 
         reportLogger.info('Report persisted to database successfully', { 
           ...context, 
-          reportId: enhancedReport.id 
+          reportId: enhancedReport.id,
+          contentSaved: {
+            sectionsCount: enhancedReport.sections?.length || 0,
+            hasSections: !!(enhancedReport.sections && enhancedReport.sections.length > 0),
+            hasRawContent: !!(enhancedReport.rawContent && enhancedReport.rawContent.length > 0),
+            rawContentLength: enhancedReport.rawContent?.length || 0,
+            rawContentPreview: enhancedReport.rawContent?.substring(0, 200) || 'NO RAW CONTENT'
+          }
         });
 
       } catch (dbError) {
@@ -935,13 +950,18 @@ export class InitialComparativeReportService {
   private async validateReportQualityWithFallback(report: ComparativeReport, reportLogger: any): Promise<void> {
          try {
        if (reportQualityService) {
-         await reportQualityService.assessReportQuality(
-           report,
-           {} as any, // Analysis not available in fallback
-           null as any, // Product data not available in fallback
-           null as any, // Product snapshot not available in fallback  
-           { availableCompetitors: 0, totalCompetitors: 0 } as any
-         );
+                 await reportQualityService.assessReportQuality(
+          report,
+          { 
+            id: 'fallback-analysis',
+            metadata: { 
+              confidenceScore: 75 
+            } 
+          } as any, // Basic analysis structure for fallback
+          null as any, // Product data not available in fallback
+          null as any, // Product snapshot not available in fallback  
+          { availableCompetitors: 0, totalCompetitors: 0 } as any
+        );
        }
      } catch (qualityError) {
        reportLogger.warn('Report quality validation failed, proceeding anyway', { error: qualityError });

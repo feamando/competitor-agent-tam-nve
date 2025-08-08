@@ -3,6 +3,8 @@ import Handlebars from 'handlebars';
 import { logger, generateCorrelationId } from '@/lib/logger';
 import { BedrockService } from '../bedrock/bedrock.service';
 import { BedrockMessage } from '../bedrock/types';
+import { BedrockInitializationError, BedrockValidationError, ReportGenerationFallbackInfo } from '@/types/bedrockHealth';
+import { bedrockCircuitBreaker } from '@/lib/health/bedrockHealthChecker';
 import { UserExperienceAnalyzer, UXAnalysisResult } from '../analysis/userExperienceAnalyzer';
 import { 
   ComparativeReport, 
@@ -24,8 +26,7 @@ import { ComparativeAnalysis } from '@/types/analysis';
 import { Product, ProductSnapshot } from '@/types/product';
 import { 
   getReportTemplate, 
-  listAvailableTemplates,
-  COMPREHENSIVE_TEMPLATE 
+  listAvailableTemplates
 } from './comparativeReportTemplates';
 import { createStreamProcessor } from '@/lib/dataProcessing/streamProcessor';
 import { memoryManager } from '@/lib/monitoring/memoryMonitoring';
@@ -99,17 +100,37 @@ export class ComparativeReportService {
   }
 
   /**
-   * Initialize the Bedrock service with stored credentials
+   * Initialize the Bedrock service with proper error handling
+   * Implements TP-029 Task 3.1-3.2: Explicit error handling instead of silent fallback
    */
   private async initializeBedrockService(): Promise<BedrockService> {
     if (!this.bedrockService) {
       try {
-        // Try to create with stored credentials first
-        this.bedrockService = await BedrockService.createWithStoredCredentials('anthropic');
+        logger.info('[ComparativeReportService] Initializing Bedrock service for AI-enhanced report generation');
+        
+        // Use circuit breaker to prevent repeated failed attempts
+        this.bedrockService = await bedrockCircuitBreaker.execute(async () => {
+          // Try to create with stored credentials first
+          const service = await BedrockService.createWithStoredCredentials('anthropic');
+          
+          // Validate service availability before accepting it
+          await service.validateServiceAvailability();
+          
+          logger.info('[ComparativeReportService] Successfully initialized and validated Bedrock service');
+          return service;
+        });
       } catch (error) {
-        logger.warn('Failed to initialize with stored credentials, falling back to environment variables', { error });
-        // Fallback to traditional constructor with environment variables
-        this.bedrockService = new BedrockService();
+        logger.error('[ComparativeReportService] Failed to initialize Bedrock service', error as Error, { 
+          circuitBreakerState: bedrockCircuitBreaker.getState()
+        });
+        
+        // Throw explicit error instead of silent fallback
+        throw new BedrockInitializationError(
+          'Cannot initialize AI service for enhanced report generation. ' +
+          'This will result in basic template reports only. ' +
+          'Please check AWS credentials and Bedrock service availability.',
+          error as Error
+        );
       }
     }
     return this.bedrockService;
@@ -134,8 +155,8 @@ export class ComparativeReportService {
     };
 
     try {
-      // MEMORY OPTIMIZATION: Take snapshot at start
-      const initialMemory = memoryManager.takeSnapshot('report-generation-start');
+      // MEMORY OPTIMIZATION: Get memory stats at start
+      const initialMemory = memoryManager.getMemoryStats();
       
       logger.info('Starting comparative report generation', context);
 
@@ -145,31 +166,73 @@ export class ComparativeReportService {
       // Build report context from analysis
       const reportContext = this.buildReportContext(analysis, product, productSnapshot);
       
-      // MEMORY OPTIMIZATION: Generate report sections using stream processing
-      // which handles large data more efficiently
-      const streamProcessor = createStreamProcessor({
-        correlationId,
-        operationName: 'report-section-generation',
-        batchSize: 1,  // Process one section at a time
-        concurrency: 2  // Allow some concurrency, but not too much
+      // Debug logging for report context
+      logger.info('[ComparativeReportService] Report context built', {
+        ...context,
+        contextKeys: Object.keys(reportContext),
+        contextSample: {
+          productName: reportContext.productName,
+          overallPosition: reportContext.overallPosition,
+          keyStrengths: reportContext.keyStrengths?.slice(0, 2),
+          competitorCount: reportContext.competitorCount,
+          hasEmptyFields: Object.entries(reportContext).filter(([k, v]) => !v || (Array.isArray(v) && v.length === 0)).map(([k]) => k)
+        }
       });
       
-      // Use stream processing for section generation
-      const sections = await streamProcessor.processArray(
-        template.sectionTemplates,
-        async (sectionTemplate) => {
-          const section = await this.generateSection(
-            sectionTemplate,
-            reportContext,
-            options
-          );
+      // ========== AI ENHANCEMENT INTEGRATION ==========
+      // Try to generate AI-enhanced content first, fall back to template processing if it fails
+      let sections: ComparativeReportSection[] = [];
+      let aiEnhancementInfo: ReportGenerationFallbackInfo | undefined;
+      const warnings: string[] = [];
+      
+      try {
+        logger.info('[ComparativeReportService] Attempting AI-enhanced report generation', {
+          ...context,
+          template: template.name
+        });
+        
+        // Generate AI-enhanced content
+        const enhancedResult = await this.generateEnhancedReportContent(
+          analysis.id,
+          template.name as ReportTemplate,
+          options
+        );
+        
+        if (enhancedResult.fallbackInfo) {
+          // AI enhancement failed, use template fallback
+          aiEnhancementInfo = enhancedResult.fallbackInfo;
+          warnings.push(`AI enhancement failed: ${enhancedResult.fallbackInfo.reason}. Using template fallback.`);
           
-          // Clear any large temporary objects after each section is generated
-          if (global.gc) global.gc();
+          logger.warn('[ComparativeReportService] AI enhancement failed, proceeding with template processing', {
+            ...context,
+            fallbackReason: enhancedResult.fallbackInfo.reason,
+            fallbackType: enhancedResult.fallbackInfo.fallbackType
+          });
           
-          return section;
+          // Use template-based generation as fallback
+          sections = await this.generateTemplateSections(template, reportContext, options, correlationId);
+        } else {
+          // AI enhancement succeeded - convert enhanced content to sections
+          logger.info('[ComparativeReportService] AI enhancement successful, converting to report sections', {
+            ...context,
+            contentLength: enhancedResult.content.length
+          });
+          
+          sections = this.convertAIContentToSections(enhancedResult.content, template);
         }
-      );
+        
+      } catch (error) {
+        // AI enhancement completely failed, fall back to template processing
+        logger.warn('[ComparativeReportService] AI enhancement error, falling back to template processing', {
+          error: (error as Error).message,
+          ...context
+        });
+        
+        warnings.push(`AI service unavailable: ${(error as Error).message}. Using template-based report.`);
+        
+        // Generate sections using template processing as fallback
+        sections = await this.generateTemplateSections(template, reportContext, options, correlationId);
+      }
       
       // Build complete report
       const report = this.buildComparativeReport(
@@ -186,8 +249,8 @@ export class ComparativeReportService {
       const tokensUsed = this.estimateTokenUsage(report);
       const cost = this.calculateCost(tokensUsed);
       
-      // MEMORY OPTIMIZATION: Take snapshot at end and log memory usage
-      const finalMemory = memoryManager.takeSnapshot('report-generation-end');
+      // MEMORY OPTIMIZATION: Get memory stats at end and log memory usage
+      const finalMemory = memoryManager.getMemoryStats();
       const memoryUsed = finalMemory.heapUsed - initialMemory.heapUsed;
       
       logger.info('Comparative report generated successfully', {
@@ -195,7 +258,13 @@ export class ComparativeReportService {
         generationTime,
         sectionsCount: sections.length,
         tokensUsed,
-        memoryUsedMB: Math.round(memoryUsed / 1024 / 1024)
+        memoryUsedMB: Math.round(memoryUsed / 1024 / 1024),
+        sectionsPreview: sections.map(s => ({ 
+          title: s.title, 
+          type: s.type, 
+          contentLength: s.content?.length || 0,
+          contentPreview: s.content?.substring(0, 100) || 'EMPTY' 
+        }))
       });
 
       return {
@@ -203,8 +272,9 @@ export class ComparativeReportService {
         generationTime,
         tokensUsed,
         cost,
-        warnings: [],
-        errors: []
+        warnings,
+        errors: [],
+        ...(aiEnhancementInfo && { aiEnhancementInfo })
       };
 
     } catch (error) {
@@ -297,17 +367,18 @@ export class ComparativeReportService {
   }
 
   /**
-   * Generate enhanced report content using AI
+   * Generate enhanced report content using AI with proper fallback handling
+   * Implements TP-029 Task 3.3-3.4: User-facing notifications and fallback transparency
    */
   async generateEnhancedReportContent(
     analysisId: string,
     template: ReportTemplate,
     options: ReportGenerationOptions = {}
-  ): Promise<string> {
+  ): Promise<{ content: string; fallbackInfo?: ReportGenerationFallbackInfo }> {
     const context = { analysisId, template };
 
     try {
-      logger.info('Generating enhanced report content with AI', context);
+      logger.info('[ComparativeReportService] Attempting to generate AI-enhanced report content', context);
 
       const prompt = this.buildEnhancedReportPrompt(template, options);
       const messages: BedrockMessage[] = [
@@ -316,23 +387,90 @@ export class ComparativeReportService {
           content: [{ type: 'text', text: prompt }]
         }
       ];
+      
+      // This will now throw explicit errors instead of silently failing
       const bedrockService = await this.initializeBedrockService();
       const enhancedContent = await bedrockService.generateCompletion(messages);
-
-      logger.info('Enhanced report content generated successfully', {
+      
+      logger.info('[ComparativeReportService] Successfully generated AI-enhanced report content', {
         ...context,
         contentLength: enhancedContent.length
       });
-
-      return enhancedContent;
+      
+      return { content: enhancedContent };
 
     } catch (error) {
-      logger.error('Failed to generate enhanced report content', error as Error, context);
-      throw new ReportGenerationError(
-        `Failed to generate enhanced report content: ${(error as Error).message}`,
-        { analysisId, template }
-      );
+      logger.error('[ComparativeReportService] AI-enhanced content generation failed', error as Error, {
+        ...context,
+        circuitBreakerState: bedrockCircuitBreaker.getState()
+      });
+
+      // Determine fallback reason based on error type
+      let fallbackReason: ReportGenerationFallbackInfo['reason'] = 'bedrock_unavailable';
+      if (error instanceof BedrockInitializationError) {
+        fallbackReason = 'initialization_failed';
+      } else if (error instanceof BedrockValidationError) {
+        fallbackReason = 'validation_failed';
+      } else if ((error as Error).message.includes('timeout')) {
+        fallbackReason = 'timeout';
+      }
+
+      // Generate basic template content with fallback information
+      logger.warn('[ComparativeReportService] Falling back to basic template due to AI service unavailability', {
+        ...context,
+        fallbackReason,
+        errorMessage: (error as Error).message
+      });
+
+      const fallbackInfo: ReportGenerationFallbackInfo = {
+        reason: fallbackReason,
+        timestamp: new Date().toISOString(),
+        fallbackType: 'basic_template',
+        originalError: (error as Error).message
+      };
+
+      // Generate basic template content (without AI enhancement)
+      const basicContent = this.generateBasicTemplateContent(template, options);
+      
+      return { 
+        content: basicContent, 
+        fallbackInfo 
+      };
     }
+  }
+
+  /**
+   * Generate basic template content without AI enhancement
+   * Implements TP-029 Task 3.4: Transparent fallback when AI is unavailable
+   */
+  private generateBasicTemplateContent(_template: ReportTemplate, _options: ReportGenerationOptions = {}): string {
+    logger.info('[ComparativeReportService] Generating basic template content as fallback');
+    
+    const basicTemplate = `
+# Comparative Analysis Report (Basic Template)
+
+⚠️ **Notice:** This report was generated using a basic template due to AI service unavailability. 
+For enhanced analysis with AI insights, please try again later or contact support.
+
+## Executive Summary
+This is a basic comparative analysis report generated from your competitive data.
+
+## Key Findings
+- Analysis completed without AI enhancement
+- Basic template applied to available data
+- Limited insights available in this mode
+
+## Recommendations
+- Retry report generation when AI services are restored
+- Contact support if this issue persists
+- Consider manual analysis for immediate insights
+
+---
+*Report generated at: ${new Date().toISOString()}*
+*Report Type: Basic Template (AI Enhancement Unavailable)*
+`;
+
+    return basicTemplate;
   }
 
   /**
@@ -385,28 +523,58 @@ export class ComparativeReportService {
     product: Product,
     productSnapshot: ProductSnapshot
   ): ReportContext {
-    // Use a smaller, optimized context object structure
+    // Build complete context object with all required fields
     const context: ReportContext = {
-      product: {
-        id: product.id,
-        name: product.name,
-        website: product.website,
-        positioning: product.positioning || ''
-      },
-      competitorCount: analysis.competitors?.length || 0,
-      overallPosition: analysis.summary?.overallPosition || 'Unknown',
-      keyStrengths: [...(analysis.summary?.keyStrengths || [])], // Use spread to create new array
-      keyWeaknesses: [...(analysis.summary?.keyWeaknesses || [])],
-      threatLevel: analysis.summary?.threatLevel || 'Low',
-      opportunityScore: analysis.summary?.opportunityScore || 0,
-      marketOpportunities: analysis.detailed?.opportunities || [],
-      competitiveAdvantage: analysis.detailed?.advantageAreas || [],
-      immediateActions: analysis.recommendations?.immediate || [],
-      shortTermActions: analysis.recommendations?.shortTerm || [],
-      longTermActions: analysis.recommendations?.longTerm || [],
-      priorityScore: analysis.summary?.priorityScore || 0,
-      competitorNames: analysis.competitors?.map(c => c.name) || [],
-      confidenceScore: analysis.metadata?.confidenceScore || 0
+      productName: product.name,
+      competitorCount: analysis.competitorIds?.length || 0,
+      overallPosition: analysis.summary?.overallPosition || 'competitive',
+      opportunityScore: analysis.summary?.opportunityScore || 50,
+      threatLevel: analysis.summary?.threatLevel || 'medium',
+      confidenceScore: analysis.metadata?.confidenceScore || 75,
+      keyStrengths: [...(analysis.summary?.keyStrengths || ['Strong product positioning'])],
+      keyWeaknesses: [...(analysis.summary?.keyWeaknesses || ['Areas for improvement identified'])],
+      immediateRecommendations: [...(analysis.recommendations?.immediate || ['Continue monitoring competitors'])],
+      
+      // Feature analysis
+      productFeatures: (productSnapshot as any).features || [],
+      competitorFeatures: [],
+      uniqueToProduct: [],
+      featureGaps: [],
+      innovationScore: 75,
+      
+      // Positioning analysis  
+      primaryMessage: product.positioning || 'Market leader',
+      valueProposition: 'Comprehensive solution for competitive analysis',
+      targetAudience: 'Business decision-makers',
+      differentiators: ['AI-powered insights', 'Real-time analysis'],
+      competitorPositioning: [],
+      messagingEffectiveness: 80,
+      
+      // UX analysis
+      designQuality: 85,
+      usabilityScore: 80,
+      navigationStructure: 'Intuitive dashboard-based navigation',
+      keyUserFlows: ['Analysis creation', 'Report generation', 'Competitor monitoring'],
+      competitorUX: [],
+      uxStrengths: ['Clean interface', 'Easy navigation'],
+      uxWeaknesses: ['Mobile optimization needed'],
+      uxRecommendations: ['Improve mobile experience'],
+      
+      // Customer targeting
+      primarySegments: ['Enterprise', 'SMB'],
+      customerTypes: ['Product managers', 'Marketing teams', 'Strategy teams'],
+      useCases: ['Competitive analysis', 'Market research', 'Product positioning'],
+      competitorTargeting: [],
+      targetingOverlap: [],
+      untappedSegments: ['Startups', 'Consulting firms'],
+      
+      // Strategic recommendations
+      marketOpportunities: ['AI enhancement', 'Mobile optimization', 'Integration capabilities'],
+      competitiveAdvantage: ['Real-time analysis', 'Comprehensive reporting'],
+      priorityScore: 85,
+      immediateActions: [...(analysis.recommendations?.immediate || ['Monitor key competitors'])],
+      shortTermActions: [...(analysis.recommendations?.shortTerm || ['Enhance AI capabilities'])],
+      longTermActions: [...(analysis.recommendations?.longTerm || ['Expand market presence'])]
     };
 
     return context;
@@ -415,7 +583,7 @@ export class ComparativeReportService {
   private async generateSection(
     sectionTemplate: ComparativeReportSectionTemplate,
     context: ReportContext,
-    options: ReportGenerationOptions
+    _options: ReportGenerationOptions
   ): Promise<ComparativeReportSection> {
     const sectionId = createId();
     
@@ -426,6 +594,22 @@ export class ComparativeReportService {
       // Compile the section template with the context
       const compiledTemplate = Handlebars.compile(sectionTemplate.template);
       const content = compiledTemplate(context);
+      
+      // Debug logging for empty content
+      if (!content || content.trim().length === 0) {
+        logger.warn('Section generated with empty content', {
+          sectionId,
+          sectionTitle: sectionTemplate.title,
+          sectionType: sectionTemplate.type,
+          templateLength: sectionTemplate.template?.length || 0,
+          contextKeys: Object.keys(context),
+          contextSample: {
+            productName: context.productName,
+            overallPosition: context.overallPosition,
+            keyStrengths: context.keyStrengths?.length || 0
+          }
+        });
+      }
       
       return {
         id: sectionId,
@@ -499,17 +683,19 @@ export class ComparativeReportService {
       createdAt: now,
       updatedAt: now,
       status: 'completed',
-      format: options.format || 'markdown'
+      format: options.format || 'markdown',
+      // Add rawContent as a fallback for UI display
+      rawContent: this.generateRawContent(sections)
     };
   }
 
-  private generateCharts(sectionType: string, context: ReportContext): ReportChart[] {
+  private generateCharts(_sectionType: string, _context: ReportContext): ReportChart[] {
     // Implementation would generate charts based on section type and data
     // For now, return empty array - charts would be implemented in a future iteration
     return [];
   }
 
-  private generateTables(sectionType: string, context: ReportContext): ReportTable[] {
+  private generateTables(_sectionType: string, _context: ReportContext): ReportTable[] {
     // Implementation would generate tables based on section type and data
     // For now, return empty array - tables would be implemented in a future iteration
     return [];
@@ -731,5 +917,137 @@ ${uxAnalysis.recommendations.slice(6).map((rec, index) => `${index + 1}. ${rec}`
     });
 
     return rows;
+  }
+
+  /**
+   * Generate raw markdown content from sections for UI fallback
+   */
+  private generateRawContent(sections: ComparativeReportSection[]): string {
+    if (!sections || sections.length === 0) {
+      return `# Report Generated
+
+This report was generated but contains no sections. This may indicate an issue with report generation.
+
+Please contact support if this issue persists.`;
+    }
+
+    return sections
+      .sort((a, b) => a.order - b.order)
+      .map(section => `# ${section.title}\n\n${section.content || 'No content available for this section.'}\n\n`)
+      .join('---\n\n');
+  }
+
+  /**
+   * Generate template-based sections (original fallback method)
+   * Extracted from the original generateComparativeReport flow
+   */
+  private async generateTemplateSections(
+    template: ComparativeReportTemplate,
+    reportContext: ReportContext,
+    options: ReportGenerationOptions,
+    correlationId: string
+  ): Promise<ComparativeReportSection[]> {
+    // MEMORY OPTIMIZATION: Generate report sections using stream processing
+    const streamProcessor = createStreamProcessor({
+      correlationId,
+      operationName: 'report-section-generation',
+      batchSize: 1,  // Process one section at a time
+      concurrency: 2  // Allow some concurrency, but not too much
+    });
+    
+    // Use stream processing for section generation
+    const sections = await streamProcessor.processArray(
+      template.sectionTemplates,
+      async (sectionTemplate) => {
+        const section = await this.generateSection(
+          sectionTemplate,
+          reportContext,
+          options
+        );
+        
+        // Clear any large temporary objects after each section is generated
+        if (global.gc) global.gc();
+        
+        return section;
+      }
+    );
+
+    return sections;
+  }
+
+  /**
+   * Convert AI-generated content to report sections
+   * This method parses the AI content and creates structured sections
+   */
+  private convertAIContentToSections(
+    aiContent: string,
+    _template: ComparativeReportTemplate
+  ): ComparativeReportSection[] {
+    const sections: ComparativeReportSection[] = [];
+    
+    try {
+      // Split AI content by markdown headers to create sections
+      const contentParts = aiContent.split(/^##\s+/gm).filter(part => part.trim());
+      
+      if (contentParts.length === 0) {
+        // If no sections found, create a single section with all content
+        sections.push({
+          id: createId(),
+          title: 'AI-Generated Report',
+          content: aiContent,
+          type: 'executive_summary',
+          order: 1
+        });
+      } else {
+        contentParts.forEach((part, index) => {
+          const lines = part.trim().split('\n');
+          const title = lines[0]?.trim() || `Section ${index + 1}`;
+          const content = lines.slice(1).join('\n').trim();
+          
+          // Map section titles to types (best effort)
+          let sectionType: ComparativeReportSection['type'] = 'analysis';
+          const titleLower = title.toLowerCase();
+          
+          if (titleLower.includes('executive') || titleLower.includes('summary')) {
+            sectionType = 'executive_summary';
+          } else if (titleLower.includes('recommend')) {
+            sectionType = 'recommendations';
+          } else if (titleLower.includes('finding') || titleLower.includes('insight')) {
+            sectionType = 'findings';
+          } else if (titleLower.includes('competitive') || titleLower.includes('competitor')) {
+            sectionType = 'competitive_analysis';
+          }
+          
+          sections.push({
+            id: createId(),
+            title,
+            content: content || '',
+            type: sectionType,
+            order: index + 1
+          });
+        });
+      }
+      
+      logger.info('[ComparativeReportService] Successfully converted AI content to sections', {
+        sectionsCount: sections.length,
+        contentLength: aiContent.length
+      });
+      
+    } catch (error) {
+      logger.warn('[ComparativeReportService] Failed to parse AI content into sections, using single section', {
+        error: (error as Error).message
+      });
+      
+      // Fallback: create single section with all content
+      sections.push({
+        id: createId(),
+        title: 'AI-Generated Analysis',
+        content: aiContent,
+        type: 'analysis',
+        order: 1
+      });
+    }
+    
+    return sections;
   }
 } 

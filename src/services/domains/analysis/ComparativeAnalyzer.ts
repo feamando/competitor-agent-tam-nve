@@ -54,7 +54,7 @@ class ComparativeAnalyzer implements IComparativeAnalyzer {
     this.bedrockService = bedrockService;
     this.dataIntegrityValidator = dataIntegrityValidator; // CRITICAL DEPENDENCY
     this.configuration = {
-      provider: 'bedrock',
+      provider: 'anthropic', // Fixed: Should be 'anthropic' not 'bedrock'
       model: 'anthropic.claude-3-sonnet-20240229-v1:0',
       maxTokens: 8000,
       temperature: 0.3,
