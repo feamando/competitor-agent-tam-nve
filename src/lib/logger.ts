@@ -243,10 +243,14 @@ class Logger {
     const level = LogLevel[entry.level];
     const timestamp = entry.timestamp;
     const message = entry.message;
+
+    const shouldColor = process.stdout.isTTY;
+    const color_bright = getColor(level, true);
+    const color_normal = getColor(level, false);
     
     let formatted = `[${timestamp}] [${level}] ${message}`;
-    if (process.stdout.isTTY) {
-      formatted = getColor(level, true) + formatted + getColor(level, false);
+    if (shouldColor) {
+      formatted = color_bright + formatted + color_normal;
     }
     
     if (entry.context && Object.keys(entry.context).length > 0) {
@@ -264,7 +268,7 @@ class Logger {
       formatted += ` | Performance: ${entry.performance.operation} took ${entry.performance.duration}ms`;
     }
     
-    return formatted + COLOR_RESET;
+    return formatted + (shouldColor ? COLOR_RESET : '');
   }
 
   private sendToExternalService(entry: LogEntry): void {
