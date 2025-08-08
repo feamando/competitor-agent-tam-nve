@@ -5,6 +5,26 @@ export enum LogLevel {
   ERROR = 3,
 }
 
+const COLORS = {
+  DEBUG: '\x1b[36m',
+  INFO: '\x1b[32m',
+  WARN: '\x1b[33m',
+  ERROR: '\x1b[31m',
+};
+
+const COLORS_BRIGHT = {
+  DEBUG: '\x1b[96m',
+  INFO: '\x1b[92m',
+  WARN: '\x1b[93m',
+  ERROR: '\x1b[91m',
+};
+
+const COLOR_RESET = '\x1b[0m';
+
+const getColor = (level: string | LogLevel, isBright: boolean = false) => {
+  return isBright ? COLORS_BRIGHT[level as keyof typeof COLORS_BRIGHT] : COLORS[level as keyof typeof COLORS];
+};
+
 // Type-safe metadata for different contexts
 export interface DatabaseContext {
   recordId?: string;
@@ -225,6 +245,9 @@ class Logger {
     const message = entry.message;
     
     let formatted = `[${timestamp}] [${level}] ${message}`;
+    if (process.stdout.isTTY) {
+      formatted = getColor(level, true) + formatted + getColor(level, false);
+    }
     
     if (entry.context && Object.keys(entry.context).length > 0) {
       formatted += ` | Context: ${JSON.stringify(entry.context)}`;
@@ -241,7 +264,7 @@ class Logger {
       formatted += ` | Performance: ${entry.performance.operation} took ${entry.performance.duration}ms`;
     }
     
-    return formatted;
+    return formatted + COLOR_RESET;
   }
 
   private sendToExternalService(entry: LogEntry): void {
