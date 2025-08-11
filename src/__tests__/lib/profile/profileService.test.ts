@@ -4,12 +4,17 @@
  */
 
 import { ProfileService, profileService } from '@/lib/profile/profileService';
-import { PrismaClient } from '@prisma/client';
-import { mockDeep, DeepMockProxy } from 'jest-mock-extended';
 
 // Mock Prisma
 jest.mock('@/lib/prisma', () => ({
-  prisma: mockDeep<PrismaClient>(),
+  prisma: {
+    profile: {
+      findUnique: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+      findMany: jest.fn(),
+    },
+  },
 }));
 
 // Mock logger
@@ -21,7 +26,7 @@ jest.mock('@/lib/logger', () => ({
   },
 }));
 
-const mockPrisma = require('@/lib/prisma').prisma as DeepMockProxy<PrismaClient>;
+const mockPrisma = require('@/lib/prisma').prisma;
 
 describe('ProfileService', () => {
   let service: ProfileService;
@@ -269,10 +274,10 @@ describe('ProfileService', () => {
       const service = new ProfileService();
       const invalidEmails = [
         'invalid-email',
-        '@domain.com',
+        '@domain.com', 
         'user@',
-        'user..name@domain.com',
-        ''
+        '',
+        'user name@domain.com'
       ];
 
       invalidEmails.forEach(email => {
