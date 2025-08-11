@@ -5,6 +5,18 @@ export enum LogLevel {
   ERROR = 3,
 }
 
+const COLOR_RESET = '\x1b[0m';
+
+const getColor = (level: LogLevel, bright = false): string => {
+  switch (level) {
+    case LogLevel.DEBUG: return bright ? '\x1b[96m' : '\x1b[36m';
+    case LogLevel.INFO:  return bright ? '\x1b[92m' : '\x1b[32m';
+    case LogLevel.WARN:  return bright ? '\x1b[93m' : '\x1b[33m';
+    case LogLevel.ERROR: return bright ? '\x1b[91m' : '\x1b[31m';
+    default: return '';
+  }
+};
+
 // Type-safe metadata for different contexts
 export interface DatabaseContext {
   recordId?: string;
@@ -220,14 +232,25 @@ class Logger {
   }
 
   private formatLog(entry: LogEntry): string {
-    const level = LogLevel[entry.level];
+    const level = entry.level;
     const timestamp = entry.timestamp;
     const message = entry.message;
+
+    const shouldColor = process.stdout?.isTTY ?? false;
+    const color_bright = getColor(entry.level, true);
+    const color_normal = getColor(entry.level, false);
     
     let formatted = `[${timestamp}] [${level}] ${message}`;
+    if (shouldColor) {
+      formatted = color_bright + formatted + color_normal;
+    }
     
     if (entry.context && Object.keys(entry.context).length > 0) {
-      formatted += ` | Context: ${JSON.stringify(entry.context)}`;
+      try {
+        formatted += ` | Context: ${JSON.stringify(entry.context)}`;
+      } catch (e) {
+        formatted += ` | Context: context could not be serialized: ${e}`;
+      }
     }
     
     if (entry.error) {
@@ -241,7 +264,7 @@ class Logger {
       formatted += ` | Performance: ${entry.performance.operation} took ${entry.performance.duration}ms`;
     }
     
-    return formatted;
+    return formatted + (shouldColor ? COLOR_RESET : '');
   }
 
   private sendToExternalService(entry: LogEntry): void {
