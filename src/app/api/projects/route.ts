@@ -5,39 +5,19 @@ import { prisma } from '@/lib/prisma';
 import { productRepository } from '@/lib/repositories';
 import { getAutoReportService } from '@/services/autoReportGenerationService';
 import { ensureServicesInitialized } from '@/lib/startup';
-
-// Default mock user for testing without authentication
-const DEFAULT_USER_EMAIL = 'mock@example.com';
-
-async function getOrCreateMockUser() {
-  let mockUser = await prisma.user.findFirst({
-    where: { email: DEFAULT_USER_EMAIL }
-  });
-  
-  if (!mockUser) {
-    mockUser = await prisma.user.create({
-      data: {
-        email: DEFAULT_USER_EMAIL,
-        name: 'Mock User'
-      }
-    });
-  }
-  return mockUser;
-}
+import { getOrCreateMockUserWithProfile, ProfileScopedQueries, getCurrentProfileId } from '@/lib/profile/profileUtils';
+import { SessionManager, ServerSessionManager } from '@/lib/profile/sessionManager';
 
 // GET /api/projects
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const correlationId = generateCorrelationId();
     const context = { operation: 'GET /api/projects', correlationId };
 
     logger.info('Fetching projects', context);
 
-    // Get or create mock user for testing
-    const mockUser = await getOrCreateMockUser();
-
-    // Fetch projects for mock user
-    const projects = await projectService.getProjectsByUserId(mockUser.id);
+    // Get profile-scoped projects
+    const projects = await ProfileScopedQueries.getProjectsForCurrentProfile();
 
     logger.info('Projects fetched successfully', {
       ...context,
@@ -72,11 +52,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Project name is required' }, { status: 400 });
     }
 
-    // Get or create mock user for testing
-    const mockUser = await getOrCreateMockUser();
+    // Get user and profile
+    const { user: mockUser, profile } = await getOrCreateMockUserWithProfile();
 
-    // Auto-assign all competitors
+    // Auto-assign all competitors for current profile
     const allCompetitors = await prisma.competitor.findMany({
+      where: { profileId: profile.id },
       select: { id: true, name: true }
     });
     const competitorIds = allCompetitors.map(c => c.id);
@@ -95,6 +76,7 @@ export async function POST(request: NextRequest) {
           description: json.description || `Competitive analysis project`,
           status: 'ACTIVE', // Auto-activate projects
           userId: mockUser.id,
+          profileId: profile.id,
           parameters: {
             ...json.parameters || {},
             autoAssignedCompetitors: competitorIds.length > 0,

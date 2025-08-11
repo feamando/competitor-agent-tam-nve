@@ -2,6 +2,8 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { Navigation } from "@/components/Navigation";
 import AuthProvider from "./providers/AuthProvider";
+import { ProfileProvider } from "@/components/profile/ProfileProvider";
+import { ProfileAccessGate, SessionWarning } from "@/components/profile/ProfileAccessGate";
 import Script from "next/script";
 
 export const metadata: Metadata = {
@@ -36,10 +38,15 @@ export default function RootLayout({
       </head>
       <body>
         <AuthProvider>
-          <Navigation />
-          <main className="min-h-screen" style={{ backgroundColor: '#EFE9DE' }}>
-            {children}
-          </main>
+          <ProfileProvider>
+            <ProfileAccessGate>
+              <SessionWarning />
+              <Navigation />
+              <main className="min-h-screen" style={{ backgroundColor: '#EFE9DE' }}>
+                {children}
+              </main>
+            </ProfileAccessGate>
+          </ProfileProvider>
         </AuthProvider>
       </body>
     </html>

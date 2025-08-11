@@ -33,17 +33,34 @@ model Session {
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
+model Profile {
+  id            String      @id @default(cuid())
+  email         String      @unique
+  name          String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  users         User[]
+  projects      Project[]
+  competitors   Competitor[]
+  
+  @@index([email])
+}
+
 model User {
   id            String    @id @default(cuid())
   name          String?
   email         String?   @unique
   emailVerified DateTime?
   image         String?
+  profileId     String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   accounts      Account[]
   projects      Project[]
   sessions      Session[]
+  profile       Profile?  @relation(fields: [profileId], references: [id])
+  
+  @@index([profileId])
 }
 
 model Competitor {
@@ -57,12 +74,16 @@ model Competitor {
   founded       Int?
   headquarters  String?
   socialMedia   Json?
+  profileId     String
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
   analyses      Analysis[]
   reports       Report[]
   snapshots     Snapshot[]
   projects      Project[]  @relation("CompetitorToProject")
+  profile       Profile    @relation(fields: [profileId], references: [id])
+  
+  @@index([profileId])
 }
 
 model Report {
@@ -181,6 +202,7 @@ model Project {
   status            ProjectStatus            @default(DRAFT)
   priority          ProjectPriority          @default(MEDIUM)
   userId            String
+  profileId         String
   startDate         DateTime                 @default(now())
   endDate           DateTime?
   parameters        Json
@@ -190,11 +212,13 @@ model Project {
   scrapingFrequency ReportScheduleFrequency? @default(WEEKLY)
   userEmail         String?
   user              User                     @relation(fields: [userId], references: [id])
+  profile           Profile                  @relation(fields: [profileId], references: [id])
   reports           Report[]
   competitors       Competitor[]             @relation("CompetitorToProject")
   products          Product[]
 
   @@index([userId])
+  @@index([profileId])
   @@index([status])
 }
 
