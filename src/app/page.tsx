@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { useState, useEffect } from 'react';
+import { useProfile } from '@/components/profile/ProfileProvider';
 
 interface ReportFile {
   filename: string;
@@ -14,14 +15,28 @@ interface ReportFile {
 export default function Home() {
   const [recentReports, setRecentReports] = useState<ReportFile[]>([]);
   const [loading, setLoading] = useState(true);
+  
+  // Get profile session for API calls
+  const { session, isAuthenticated } = useProfile();
 
   useEffect(() => {
     fetchRecentReports();
-  }, []);
+  }, [session, isAuthenticated]); // Re-fetch when session changes
 
   const fetchRecentReports = async () => {
     try {
-      const response = await fetch('/api/reports/list?limit=3');
+      // Only fetch if user is authenticated with a profile session
+      if (!isAuthenticated || !session?.profileId) {
+        setRecentReports([]);
+        setLoading(false);
+        return;
+      }
+      
+      const response = await fetch('/api/reports/list?limit=3', {
+        headers: {
+          'x-profile-id': session.profileId
+        }
+      });
       const data = await response.json();
       
       if (response.ok) {

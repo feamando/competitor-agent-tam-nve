@@ -14,7 +14,7 @@ interface ProfileAccessGateProps {
 }
 
 export function ProfileAccessGate({ children }: ProfileAccessGateProps) {
-  const { profile, isLoading, isAuthenticated } = useProfile();
+  const { profile, isLoading, isAuthenticated, login } = useProfile();
   const [showModal, setShowModal] = useState(false);
 
   // Show loading spinner while checking session
@@ -80,6 +80,7 @@ export function ProfileAccessGate({ children }: ProfileAccessGateProps) {
         <ProfileAccessModal
           isOpen={showModal}
           onClose={() => setShowModal(false)}
+          login={login}
           onSuccess={() => setShowModal(false)}
         />
       </>

@@ -6,16 +6,16 @@
  */
 
 import React, { useState } from 'react';
-import { SessionManager } from '@/lib/profile/sessionManager';
 import { EmailValidation } from '@/lib/profile/profileUtils';
 
 interface ProfileAccessModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: (profileData: any) => void;
+  login: (email: string) => Promise<void>;
+  onSuccess: () => void;
 }
 
-export function ProfileAccessModal({ isOpen, onClose, onSuccess }: ProfileAccessModalProps) {
+export function ProfileAccessModal({ isOpen, onClose, login, onSuccess }: ProfileAccessModalProps) {
   const [email, setEmail] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -34,26 +34,10 @@ export function ProfileAccessModal({ isOpen, onClose, onSuccess }: ProfileAccess
         throw new Error('Please enter a valid email address');
       }
 
-      // Call profile API
-      const response = await fetch('/api/profile', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ email: normalizedEmail })
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to create profile');
-      }
-
-      const data = await response.json();
+      // Use the ProfileProvider's login function
+      await login(normalizedEmail);
       
-      // Create session client-side
-      SessionManager.createSession(data.profile.id, data.profile.email);
-      
-      onSuccess(data.profile);
+      onSuccess();
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
