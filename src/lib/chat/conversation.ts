@@ -13,6 +13,7 @@ import { getAutoReportService } from '@/services/autoReportGenerationService';
 import { dataIntegrityValidator } from '@/lib/validation/dataIntegrity';
 import { registerService } from '@/services/serviceRegistry';
 import { ConversationMemoryOptimizer, MAX_MESSAGES_PER_CONVERSATION } from './memoryOptimization';
+import { getOrCreateMockUserWithProfile } from '@/lib/profile/profileUtils';
 import { ChatAWSStatusChecker, AWSStatusResult } from '@/lib/chat/awsStatusChecker';
 // Removed duplicate imports that were causing module resolution errors
 
@@ -2893,18 +2894,19 @@ What would you prefer?`,
       // Step 2: Validate prerequisites
       await this.validateProjectCreationPrerequisites(context);
 
-      // Step 2: Get or create user
-      const mockUser = await this.getOrCreateMockUser(context);
+      // Step 2: Get or create user with profile
+      const { user: mockUser, profile } = await getOrCreateMockUserWithProfile();
 
       // Step 3: Get competitors with validation
       const competitorData = await this.getAndValidateCompetitors(context);
       
-      // Step 4: Create project in transaction
+            // Step 4: Create project in transaction
       const projectResult = await this.createProjectInTransaction(
-        projectName, 
-        userEmail, 
-        mockUser, 
-        competitorData, 
+        projectName,
+        userEmail,
+        mockUser,
+        profile,
+        competitorData,
         context
       );
 
@@ -3120,6 +3122,7 @@ What would you prefer?`,
     projectName: string,
     userEmail: string,
     mockUser: any,
+    profile: any,
     competitorData: any,
     context: any
   ): Promise<{ project: any }> {
@@ -3137,7 +3140,12 @@ What would you prefer?`,
             description: `Enhanced competitive analysis project created via chat interface - Task 5.2`,
             status: 'ACTIVE',
             priority: 'HIGH', // High priority for chat-created projects
-            userId: mockUser.id,
+            user: {
+              connect: { id: mockUser.id }
+            },
+            profile: {
+              connect: { id: profile.id }
+            },
             userEmail: userEmail,
             parameters: {
               // Enhanced metadata for Task 5.2

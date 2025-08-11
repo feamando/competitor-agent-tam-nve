@@ -8,8 +8,6 @@ import {
   trackCorrelation,
   trackError 
 } from '@/lib/logger'
-import { CompetitorSnapshotTrigger } from '@/services/competitorSnapshotTrigger'
-import redisCacheService, { withRedisCache } from '@/lib/redis-cache'
 import { withCache } from '@/lib/cache'
 import { profileOperation, PERFORMANCE_THRESHOLDS } from '@/lib/profiling'
 
@@ -36,107 +34,23 @@ const competitorSchema = z.object({
 
 export async function POST(request: Request) {
   const correlationId = generateCorrelationId();
-  const context = {
-    endpoint: '/api/competitors',
-    method: 'POST',
-    correlationId
-  };
-
+  
   try {
-    trackCorrelation(correlationId, 'competitor_creation_request_received', context);
-    logger.info('Competitor creation request received', context);
-
     // Parse and validate request body
-    let json;
-    try {
-      json = await request.json();
-      trackCorrelation(correlationId, 'request_body_parsed', {
-        ...context,
-        hasBody: true,
-        bodyKeys: Object.keys(json)
-      });
-    } catch (parseError) {
-      trackCorrelation(correlationId, 'request_body_parse_failed', context);
-      logger.warn('Invalid JSON in request body', context);
-      return NextResponse.json({ 
-        error: 'Invalid JSON in request body',
-        correlationId 
-      }, { status: 400 });
-    }
+    const json = await request.json();
+    const validatedData = competitorSchema.parse(json);
 
-    // Validate input schema
-    let validatedData;
-    try {
-      validatedData = competitorSchema.parse(json);
-      trackCorrelation(correlationId, 'input_validation_passed', {
-        ...context,
-        competitorName: validatedData.name
-      });
-    } catch (validationError) {
-      trackCorrelation(correlationId, 'input_validation_failed', {
-        ...context,
-        validationErrors: validationError instanceof z.ZodError ? validationError.errors : []
-      });
-      
-      logger.warn('Competitor validation failed', {
-        ...context,
-        validationErrors: validationError instanceof z.ZodError ? validationError.errors : []
-      });
-
-      const errors = validationError instanceof z.ZodError 
-        ? validationError.errors.map(err => ({
-            field: err.path.join('.'),
-            message: err.message
-          }))
-        : [{ field: 'unknown', message: 'Validation failed' }];
-
-      return NextResponse.json({ 
-        error: 'Validation failed',
-        validationErrors: errors,
-        correlationId 
-      }, { status: 400 });
-    }
-
-    // Check for duplicate competitors
-    trackCorrelation(correlationId, 'duplicate_check_started', context);
-    trackDatabaseOperation('findFirst', 'competitor', {
-      ...context,
-      query: 'duplicate check by name and website'
-    });
-
+    // Check for duplicate competitors by name
     const existingCompetitor = await prisma.competitor.findFirst({
       where: {
-        OR: [
-          { name: validatedData.name },
-          { website: validatedData.website }
-        ]
+        name: validatedData.name
       }
     });
 
     if (existingCompetitor) {
-      trackCorrelation(correlationId, 'duplicate_competitor_found', {
-        ...context,
-        existingCompetitorId: existingCompetitor.id,
-        duplicateField: existingCompetitor.name === validatedData.name ? 'name' : 'website'
-      });
-
-      trackDatabaseOperation('findFirst', 'competitor', {
-        ...context,
-        success: true,
-        recordData: { found: true, duplicateField: existingCompetitor.name === validatedData.name ? 'name' : 'website' }
-      });
-
-      logger.warn('Duplicate competitor detected', {
-        ...context,
-        existingCompetitorId: existingCompetitor.id,
-        duplicateField: existingCompetitor.name === validatedData.name ? 'name' : 'website'
-      });
-
       return NextResponse.json({ 
         error: 'Competitor already exists',
-        message: existingCompetitor.name === validatedData.name 
-          ? 'A competitor with this name already exists'
-          : 'A competitor with this website already exists',
+        message: 'A competitor with this name already exists',
         existingCompetitor: {
           id: existingCompetitor.id,
           name: existingCompetitor.name,
@@ -146,81 +60,19 @@ export async function POST(request: Request) {
       }, { status: 409 });
     }
 
-    trackCorrelation(correlationId, 'duplicate_check_passed', context);
-    trackDatabaseOperation('findFirst', 'competitor', {
-      ...context,
-      success: true,
-      recordData: { found: false }
-    });
-
-    // Create competitor
-    trackCorrelation(correlationId, 'competitor_creation_started', context);
-    trackDatabaseOperation('create', 'competitor', {
-      ...context,
-      recordData: {
-        name: validatedData.name,
-        website: validatedData.website,
-        industry: validatedData.industry
+    // Create competitor (without profileId - shared across all users)
+    const competitor = await prisma.competitor.create({
+      data: {
+        ...validatedData
+        // profileId is optional and not set - competitors are shared
       }
     });
 
-    const competitor = await prisma.competitor.create({
-      data: {
-        ...validatedData,
-      },
-    });
-
-    trackCorrelation(correlationId, 'competitor_creation_completed', {
-      ...context,
-      competitorId: competitor.id
-    });
-
-    trackDatabaseOperation('create', 'competitor', {
-      ...context,
-      recordId: competitor.id,
-      success: true
-    });
-
     logger.info('Competitor created successfully', {
-      ...context,
       competitorId: competitor.id,
-      competitorName: competitor.name
+      competitorName: competitor.name,
+      correlationId
     });
-
-    // Task 3.2: Trigger immediate snapshot collection for new competitor
-    try {
-      const snapshotTrigger = CompetitorSnapshotTrigger.getInstance();
-      await snapshotTrigger.triggerImmediateSnapshot({
-        competitorId: competitor.id,
-        priority: 'high',
-        correlationId
-      });
-
-      logger.info('Snapshot collection triggered for new competitor', {
-        ...context,
-        competitorId: competitor.id,
-        competitorName: competitor.name
-      });
-
-      trackCorrelation(correlationId, 'snapshot_trigger_initiated', {
-        ...context,
-        competitorId: competitor.id
-      });
-
-    } catch (snapshotError) {
-      // Don't fail competitor creation if snapshot trigger fails
-      logger.warn('Failed to trigger snapshot for new competitor', snapshotError as Error, {
-        ...context,
-        competitorId: competitor.id,
-        competitorName: competitor.name
-      });
-
-      trackCorrelation(correlationId, 'snapshot_trigger_failed', {
-        ...context,
-        competitorId: competitor.id,
-        error: snapshotError instanceof Error ? snapshotError.message : String(snapshotError)
-      });
-    }
 
     return NextResponse.json({
       ...competitor,
@@ -228,31 +80,19 @@ export async function POST(request: Request) {
     }, { status: 201 });
 
   } catch (error) {
-    trackCorrelation(correlationId, 'competitor_creation_error', {
-      ...context,
-      errorMessage: (error as Error).message
-    });
+    logger.error('Failed to create competitor', error as Error, { correlationId });
+    
+    if (error instanceof z.ZodError) {
+      const errors = error.errors.map(err => ({
+        field: err.path.join('.'),
+        message: err.message
+      }));
 
-    logger.error('Failed to create competitor', error as Error, context);
-    trackError(error as Error, 'competitor_creation', context);
-
-    // Determine specific error type
-    if (error instanceof Error) {
-      if (error.message.includes('Unique constraint')) {
-        return NextResponse.json({ 
-          error: 'Competitor already exists',
-          message: 'A competitor with this name or website already exists',
-          correlationId 
-        }, { status: 409 });
-      }
-      
-      if (error.message.includes('Foreign key constraint')) {
-        return NextResponse.json({ 
-          error: 'Invalid reference',
-          message: 'Referenced data does not exist',
-          correlationId 
-        }, { status: 400 });
-      }
+      return NextResponse.json({ 
+        error: 'Validation failed',
+        validationErrors: errors,
+        correlationId 
+      }, { status: 400 });
     }
 
     return NextResponse.json({ 
@@ -275,43 +115,27 @@ export async function GET(request: NextRequest) {
   const limit = parseInt(url.searchParams.get('limit') || '10');
   const search = url.searchParams.get('search') || '';
   
-  // Logging context
   const context = {
     endpoint: '/api/competitors',
     method: 'GET',
-    correlationId
-  };
-  
-  const enhancedContext = {
-    ...context,
+    correlationId,
     queryParams: { page, limit, search }
   };
   
   return profileOperation(async () => {
     try {
-      trackCorrelation(correlationId, 'competitors_request_received', enhancedContext);
-      logger.info('Competitors request received', enhancedContext);
-      
       // Cache key parameters
       const cacheParams = { page, limit, search };
       
       // Use cache wrapper to efficiently cache results
       const result = await withCache(
-        () => fetchCompetitorsWithBatching(page, limit, search, enhancedContext),
+        () => fetchCompetitorsWithBatching(page, limit, search, context),
         'competitors_list',
         cacheParams,
         COMPETITORS_CACHE_TTL
       );
       
       const responseTime = performance.now() - startTime;
-      
-      // Track response time
-      trackCorrelation(correlationId, 'competitors_request_completed', {
-        ...enhancedContext,
-        responseTime: `${responseTime.toFixed(2)}ms`,
-        resultsCount: result.competitors.length,
-        totalCount: result.total
-      });
       
       // Set performance headers
       const headers = {
@@ -335,7 +159,7 @@ export async function GET(request: NextRequest) {
         'competitors_request_failed',
         correlationId,
         {
-          ...enhancedContext,
+          ...context,
           responseTime: `${errorTime.toFixed(2)}ms`
         }
       );
@@ -374,7 +198,6 @@ async function fetchCompetitorsWithBatching(
   context: Record<string, any>
 ) {
   const startTime = performance.now();
-  trackCorrelation(context.correlationId, 'competitors_query_started', context);
 
   // Calculate offset for pagination
   const offset = (page - 1) * limit;
@@ -392,7 +215,7 @@ async function fetchCompetitorsWithBatching(
     : {};
 
   try {
-    // OPTIMIZATION 1: Use Promise.all to batch queries
+    // Use Promise.all to batch queries
     const [total, competitors] = await Promise.all([
       // Count query
       profileOperation(
@@ -407,7 +230,6 @@ async function fetchCompetitorsWithBatching(
           skip: offset,
           take: limit,
           orderBy: { createdAt: 'desc' },
-          // OPTIMIZATION 2: Optimize select with only necessary fields
           select: {
             id: true,
             name: true,
@@ -416,14 +238,12 @@ async function fetchCompetitorsWithBatching(
             industry: true,
             createdAt: true,
             updatedAt: true,
-            // OPTIMIZATION 3: Use _count for efficient counting without fetching related data
             _count: {
               select: {
                 reports: true,
                 snapshots: true
               }
             },
-            // OPTIMIZATION 4: Only fetch minimal data for related entities
             reports: {
               select: {
                 id: true,
@@ -447,7 +267,7 @@ async function fetchCompetitorsWithBatching(
       )
     ]);
 
-    // OPTIMIZATION 5: Efficient data transformation
+    // Efficient data transformation
     const enhancedCompetitors = competitors.map(competitor => ({
       id: competitor.id,
       name: competitor.name,
@@ -466,13 +286,6 @@ async function fetchCompetitorsWithBatching(
     }));
 
     const queryTime = performance.now() - startTime;
-    
-    trackCorrelation(context.correlationId, 'competitors_query_completed', {
-      ...context,
-      queryTime: `${queryTime.toFixed(2)}ms`,
-      resultsCount: competitors.length,
-      totalCount: total
-    });
 
     return {
       competitors: enhancedCompetitors,
@@ -493,4 +306,4 @@ async function fetchCompetitorsWithBatching(
     
     throw error;
   }
-} 
+}

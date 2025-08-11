@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { DocumentTextIcon, ArrowDownTrayIcon, ClockIcon, EyeIcon } from '@heroicons/react/24/outline';
 import { useObservability } from '@/hooks/useObservability';
+import { useProfile } from '@/components/profile/ProfileProvider';
 import ErrorBoundary from '@/components/ErrorBoundary';
 
 interface ReportFile {
@@ -27,28 +28,41 @@ function ReportsPageContent() {
   const [reports, setReports] = useState<ReportFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // Get profile session for API calls
+  const { session, isAuthenticated } = useProfile();
 
   // Initialize observability tracking
   const observability = useObservability({
     feature: 'reports_list',
-    userId: 'anonymous', // You can get this from auth context
+    userId: session?.profileId || 'anonymous',
     sessionId: 'session_' + Date.now(),
   });
 
   useEffect(() => {
     fetchReports();
-  }, []);
+  }, [session, isAuthenticated]); // Re-fetch when session changes
 
   const fetchReports = async () => {
     try {
       setLoading(true);
       setError(null);
       
+      // Only fetch if user is authenticated with a profile session
+      if (!isAuthenticated || !session?.profileId) {
+        setReports([]);
+        return;
+      }
+      
       // Track API call with observability
       const data = await observability.trackApiCall(
         'fetch_reports_list',
         async () => {
-          const response = await fetch('/api/reports/list');
+          const response = await fetch('/api/reports/list', {
+            headers: {
+              'x-profile-id': session.profileId
+            }
+          });
           const responseData = await response.json();
           
           if (!response.ok) {

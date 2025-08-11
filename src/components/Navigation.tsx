@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { HomeIcon, DocumentTextIcon, UserGroupIcon, ChatBubbleLeftRightIcon, FolderIcon } from '@heroicons/react/24/outline'
+import { LogoutButton } from '@/components/profile/LogoutButton'
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: HomeIcon },
@@ -39,6 +40,7 @@ export function Navigation() {
             <div className="text-sm text-gray-500">
               Competitor Research Agent
             </div>
+            <LogoutButton />
           </div>
         </div>
       </div>
