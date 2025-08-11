@@ -55,9 +55,8 @@ export async function POST(request: NextRequest) {
     // Get user and profile
     const { user: mockUser, profile } = await getOrCreateMockUserWithProfile();
 
-    // Auto-assign all competitors for current profile
+    // Auto-assign all competitors (shared across all users)
     const allCompetitors = await prisma.competitor.findMany({
-      where: { profileId: profile.id },
       select: { id: true, name: true }
     });
     const competitorIds = allCompetitors.map(c => c.id);
@@ -75,8 +74,12 @@ export async function POST(request: NextRequest) {
           name: json.name,
           description: json.description || `Competitive analysis project`,
           status: 'ACTIVE', // Auto-activate projects
-          userId: mockUser.id,
-          profileId: profile.id,
+          user: {
+            connect: { id: mockUser.id }
+          },
+          profile: {
+            connect: { id: profile.id }
+          },
           parameters: {
             ...json.parameters || {},
             autoAssignedCompetitors: competitorIds.length > 0,

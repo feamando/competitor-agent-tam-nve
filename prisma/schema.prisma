@@ -74,14 +74,14 @@ model Competitor {
   founded       Int?
   headquarters  String?
   socialMedia   Json?
-  profileId     String
+  profileId     String?    // Optional - competitors are shared across all users
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
   analyses      Analysis[]
   reports       Report[]
   snapshots     Snapshot[]
   projects      Project[]  @relation("CompetitorToProject")
-  profile       Profile    @relation(fields: [profileId], references: [id])
+  profile       Profile?   @relation(fields: [profileId], references: [id])
   
   @@index([profileId])
 }

@@ -72,12 +72,10 @@ export class ProfileScopedQueries {
   }
 
   /**
-   * Get competitors for current profile
+   * Get all competitors (shared across all users)
    */
-  static async getCompetitorsForCurrentProfile() {
-    const profileId = await getCurrentProfileId();
+  static async getAllCompetitors() {
     return prisma.competitor.findMany({
-      where: { profileId },
       include: {
         projects: true,
         snapshots: true,
@@ -121,14 +119,13 @@ export class ProfileScopedQueries {
   }
 
   /**
-   * Create competitor with current profile association
+   * Create competitor (shared across all users, no profile association)
    */
-  static async createCompetitorForCurrentProfile(competitorData: any) {
-    const profileId = await getCurrentProfileId();
+  static async createSharedCompetitor(competitorData: any) {
     return prisma.competitor.create({
       data: {
-        ...competitorData,
-        profileId
+        ...competitorData
+        // No profileId - competitors are shared
       }
     });
   }
@@ -148,8 +145,9 @@ export class ProfileScopedQueries {
           return !!project;
           
         case 'competitor':
+          // Competitors are shared across all users - just check if it exists
           const competitor = await prisma.competitor.findFirst({
-            where: { id: resourceId, profileId }
+            where: { id: resourceId }
           });
           return !!competitor;
           
