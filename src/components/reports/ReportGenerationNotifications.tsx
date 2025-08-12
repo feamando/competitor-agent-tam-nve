@@ -2,6 +2,11 @@
 
 import React, { useState, useEffect } from 'react';
 import { ReportGenerationFallbackInfo } from '@/types/bedrockHealth';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { LoadingButton } from '@/components/composed/LoadingButton';
+import { cn } from '@/lib/utils';
 
 interface ReportGenerationNotificationsProps {
   projectId?: string;
@@ -225,7 +230,11 @@ export function ReportGenerationNotifications({
   const styles = getSeverityStyles(config.severity);
 
   return (
-    <div className={`border rounded-lg p-4 ${styles.container} ${className}`}>
+    <Alert className={cn(styles.container, className)} variant={
+      config.severity === 'error' ? 'destructive' : 
+      config.severity === 'warning' ? 'default' : 
+      'default'
+    }>
       <div className="flex">
         <div className="flex-shrink-0">
           <div className={styles.icon}>
@@ -239,20 +248,22 @@ export function ReportGenerationNotifications({
               <h3 className={`text-sm font-medium ${styles.title}`}>
                 {config.title}
               </h3>
-              <div className={`mt-2 text-sm ${styles.message}`}>
-                <p>{config.message}</p>
-              </div>
+              <AlertDescription className={`mt-2 ${styles.message}`}>
+                {config.message}
+              </AlertDescription>
             </div>
             
-            <button
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={handleDismiss}
-              className="ml-4 inline-flex text-gray-400 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
+              className="ml-4 h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
             >
               <span className="sr-only">Dismiss</span>
-              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
               </svg>
-            </button>
+            </Button>
           </div>
 
           {/* Actions */}
@@ -260,23 +271,28 @@ export function ReportGenerationNotifications({
             <div className="mt-4">
               <div className="flex gap-2 flex-wrap">
                 {config.actions.map((action, index) => (
-                  <button
-                    key={index}
-                    onClick={action.action}
-                    disabled={isRetrying && action.primary}
-                    className={`
-                      inline-flex items-center px-3 py-2 border text-sm leading-4 font-medium rounded-md
-                      focus:outline-none focus:ring-2 focus:ring-offset-2
-                      disabled:opacity-50 disabled:cursor-not-allowed
-                      ${getButtonStyles(action.variant || 'secondary')}
-                    `}
-                    title={action.description}
-                  >
-                    {isRetrying && action.primary && (
-                      <div className="animate-spin -ml-1 mr-2 h-4 w-4 border-2 border-white border-t-transparent rounded-full"></div>
-                    )}
-                    {action.label}
-                  </button>
+                  action.primary ? (
+                    <LoadingButton
+                      key={index}
+                      onClick={action.action}
+                      loading={isRetrying && action.primary}
+                      variant={action.variant === 'primary' ? 'default' : action.variant === 'outline' ? 'outline' : 'secondary'}
+                      size="sm"
+                      title={action.description}
+                    >
+                      {action.label}
+                    </LoadingButton>
+                  ) : (
+                    <Button
+                      key={index}
+                      onClick={action.action}
+                      variant={action.variant === 'primary' ? 'default' : action.variant === 'outline' ? 'outline' : 'secondary'}
+                      size="sm"
+                      title={action.description}
+                    >
+                      {action.label}
+                    </Button>
+                  )
                 ))}
               </div>
             </div>
@@ -285,27 +301,31 @@ export function ReportGenerationNotifications({
           {/* Details Toggle */}
           {fallbackInfo.originalError && (
             <div className="mt-3">
-              <button
+              <Button
+                variant="link"
+                size="sm"
                 onClick={() => setShowDetails(!showDetails)}
-                className="text-xs text-gray-500 hover:text-gray-700 underline"
+                className="h-auto p-0 text-xs underline"
               >
                 {showDetails ? 'Hide technical details' : 'Show technical details'}
-              </button>
+              </Button>
               
               {showDetails && (
-                <div className="mt-2 p-2 bg-gray-100 rounded text-xs text-gray-600 font-mono">
-                  <div><strong>Fallback Type:</strong> {fallbackInfo.fallbackType}</div>
-                  <div><strong>Timestamp:</strong> {new Date(fallbackInfo.timestamp).toLocaleString()}</div>
-                  <div><strong>Error:</strong> {fallbackInfo.originalError}</div>
-                  {reportId && <div><strong>Report ID:</strong> {reportId}</div>}
-                  {projectId && <div><strong>Project ID:</strong> {projectId}</div>}
-                </div>
+                <Card className="mt-2">
+                  <CardContent className="p-2 text-xs font-mono space-y-1">
+                    <div><strong>Fallback Type:</strong> {fallbackInfo.fallbackType}</div>
+                    <div><strong>Timestamp:</strong> {new Date(fallbackInfo.timestamp).toLocaleString()}</div>
+                    <div><strong>Error:</strong> {fallbackInfo.originalError}</div>
+                    {reportId && <div><strong>Report ID:</strong> {reportId}</div>}
+                    {projectId && <div><strong>Project ID:</strong> {projectId}</div>}
+                  </CardContent>
+                </Card>
               )}
             </div>
           )}
         </div>
       </div>
-    </div>
+    </Alert>
   );
 }
 

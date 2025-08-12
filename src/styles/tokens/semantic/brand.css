@@ -1,0 +1,53 @@
+/**
+ * Semantic Brand Tokens
+ * Brand-specific color tokens mapped from base colors
+ */
+
+:root {
+  /* Brand Colors */
+  --brand-primary: var(--color-green-600);
+  --brand-primary-hover: var(--color-green-700);
+  --brand-primary-active: var(--color-green-800);
+  --brand-primary-foreground: var(--color-white);
+
+  --brand-secondary: var(--color-secondary-200);
+  --brand-secondary-hover: var(--color-secondary-300);
+  --brand-secondary-active: var(--color-secondary-400);
+  --brand-secondary-foreground: var(--color-green-800);
+
+  --brand-accent: var(--color-highlight-400);
+  --brand-accent-hover: var(--color-highlight-500);
+  --brand-accent-active: var(--color-highlight-600);
+  --brand-accent-foreground: var(--color-green-900);
+
+  /* Logo and Identity */
+  --brand-logo-primary: var(--color-green-600);
+  --brand-logo-secondary: var(--color-green-500);
+  --brand-text-primary: var(--color-green-800);
+  --brand-text-secondary: var(--color-green-600);
+}
+
+/* Dark Mode Brand Overrides */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --brand-primary: var(--color-green-500);
+    --brand-primary-hover: var(--color-green-400);
+    --brand-primary-active: var(--color-green-300);
+    --brand-primary-foreground: var(--color-green-950);
+
+    --brand-secondary: var(--color-secondary-800);
+    --brand-secondary-hover: var(--color-secondary-700);
+    --brand-secondary-active: var(--color-secondary-600);
+    --brand-secondary-foreground: var(--color-green-100);
+
+    --brand-accent: var(--color-highlight-500);
+    --brand-accent-hover: var(--color-highlight-400);
+    --brand-accent-active: var(--color-highlight-300);
+    --brand-accent-foreground: var(--color-green-950);
+
+    --brand-logo-primary: var(--color-green-400);
+    --brand-logo-secondary: var(--color-green-500);
+    --brand-text-primary: var(--color-green-200);
+    --brand-text-secondary: var(--color-green-300);
+  }
+}

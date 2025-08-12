@@ -8,6 +8,16 @@ import { useInitialReportStatus } from '@/hooks/useInitialReportStatus';
 import InitialReportProgressIndicator from './InitialReportProgressIndicator';
 import { ProjectCreationErrorState, categorizeError, ErrorDisplay } from './ErrorHandling';
 import { OnboardingTooltip, IMMEDIATE_REPORTS_TOOLTIPS } from '../ui/OnboardingTooltip';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
+import { LoadingButton } from '@/components/composed/LoadingButton';
 
 const PriorityEnum = {
   LOW: 'LOW',
@@ -314,89 +324,86 @@ export default function ProjectCreationWizard({
       case 'basic':
         return (
           <div className="space-y-6">
-            <div>
-              <label htmlFor="name" className="block text-sm font-medium text-gray-700">
-                Project Name *
-              </label>
-              <input
+            <div className="space-y-2">
+              <Label htmlFor="name">Project Name *</Label>
+              <Input
                 type="text"
                 id="name"
                 data-testid="project-name"
                 {...register('name')}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
                 placeholder="Enter a descriptive name for your project"
               />
               {errors.name && (
-                <p className="mt-1 text-sm text-red-500">{errors.name.message}</p>
+                <p className="text-sm text-destructive">{errors.name.message}</p>
               )}
             </div>
 
-            <div>
-              <label htmlFor="description" className="block text-sm font-medium text-gray-700">
-                Description
-              </label>
-              <textarea
+            <div className="space-y-2">
+              <Label htmlFor="description">Description</Label>
+              <Textarea
                 id="description"
                 rows={3}
                 {...register('description')}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
                 placeholder="Briefly describe the goals and scope of this competitive analysis"
               />
             </div>
 
-            <div>
-              <label htmlFor="priority" className="block text-sm font-medium text-gray-700">
-                Priority
-              </label>
-              <select
-                id="priority"
-                {...register('priority')}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+            <div className="space-y-2">
+              <Label htmlFor="priority">Priority</Label>
+              <Select
+                value={watch('priority')}
+                onValueChange={(value) => setValue('priority', value as typeof PriorityEnum[keyof typeof PriorityEnum])}
               >
-                <option value="LOW">Low</option>
-                <option value="MEDIUM">Medium</option>
-                <option value="HIGH">High</option>
-                <option value="URGENT">Urgent</option>
-              </select>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select priority" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="LOW">Low</SelectItem>
+                  <SelectItem value="MEDIUM">Medium</SelectItem>
+                  <SelectItem value="HIGH">High</SelectItem>
+                  <SelectItem value="URGENT">Urgent</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700">
-                Tags
-              </label>
-              <div className="mt-1 flex flex-wrap gap-2">
+            <div className="space-y-2">
+              <Label>Tags</Label>
+              <div className="flex flex-wrap gap-2">
                 {tags.map((tag, index) => (
-                  <span
+                  <Badge
                     key={index}
-                    className="inline-flex items-center px-2 py-1 rounded-md bg-indigo-100 text-indigo-800 text-xs font-medium"
+                    variant="secondary"
+                    className="cursor-pointer"
                   >
                     {tag}
-                    <button
+                    <Button
                       type="button"
+                      variant="ghost"
+                      size="sm"
                       onClick={() => removeTag(tag)}
-                      className="ml-1 inline-flex items-center justify-center w-4 h-4 rounded-full bg-indigo-200 hover:bg-indigo-300"
+                      className="ml-1 h-4 w-4 p-0 hover:bg-destructive/20"
                     >
                       <span className="text-xs">×</span>
-                    </button>
-                  </span>
+                    </Button>
+                  </Badge>
                 ))}
               </div>
-              <div className="mt-2 flex">
-                <input
+              <div className="flex gap-2">
+                <Input
                   type="text"
                   value={newTag}
                   onChange={(e) => setNewTag(e.target.value)}
                   onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addTag())}
                   placeholder="Add a tag"
-                  className="flex-1 rounded-l-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                  className="flex-1"
                 />
-                <button
+                <Button
                   type="button"
+                  variant="secondary"
                   onClick={addTag}
-                  className="px-3 py-2 border border-l-0 border-gray-300 rounded-r-md bg-gray-50 hover:bg-gray-100 text-gray-700 text-sm"
                 >
                   Add
-                </button>
+                </Button>
               </div>
             </div>
           </div>
@@ -405,89 +412,75 @@ export default function ProjectCreationWizard({
       case 'product':
         return (
           <div className="space-y-6">
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <div className="flex">
-                <OnboardingTooltip tooltipKey="productInfo" placement="right">
-                  <svg className="h-5 w-5 text-blue-400 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                  </svg>
-                </OnboardingTooltip>
-                <div className="text-sm text-blue-700">
-                  Product information helps generate more accurate competitive insights and positioning analysis.
-                </div>
-              </div>
-            </div>
+            <Alert>
+              <OnboardingTooltip tooltipKey="productInfo" placement="right">
+                <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                </svg>
+              </OnboardingTooltip>
+              <AlertDescription>
+                Product information helps generate more accurate competitive insights and positioning analysis.
+              </AlertDescription>
+            </Alert>
 
-            <div>
-              <label htmlFor="productName" className="block text-sm font-medium text-gray-700">
+            <div className="space-y-2">
+              <Label htmlFor="productName">
                 Product Name {generateInitialReport && '*'}
-              </label>
-              <input
+              </Label>
+              <Input
                 type="text"
                 id="productName"
                 data-testid="product-name"
                 {...register('productName')}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
                 placeholder="Enter your product name"
               />
               {errors.productName && (
-                <p className="mt-1 text-sm text-red-500">{errors.productName.message}</p>
+                <p className="text-sm text-destructive">{errors.productName.message}</p>
               )}
             </div>
 
-            <div>
-              <label htmlFor="productWebsite" className="block text-sm font-medium text-gray-700">
+            <div className="space-y-2">
+              <Label htmlFor="productWebsite">
                 Product Website {generateInitialReport && '*'}
-              </label>
-              <input
+              </Label>
+              <Input
                 type="url"
                 id="productWebsite"
                 data-testid="product-website"
                 {...register('productWebsite')}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
                 placeholder="https://your-product.com"
-                style={{ display: 'block' }}
               />
               {errors.productWebsite && (
-                <p className="mt-1 text-sm text-red-500">{errors.productWebsite.message}</p>
+                <p className="text-sm text-destructive">{errors.productWebsite.message}</p>
               )}
             </div>
 
-            <div>
-              <label htmlFor="industry" className="block text-sm font-medium text-gray-700">
-                Industry
-              </label>
-              <input
+            <div className="space-y-2">
+              <Label htmlFor="industry">Industry</Label>
+              <Input
                 type="text"
                 id="industry"
                 {...register('industry')}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
                 placeholder="e.g., SaaS, E-commerce, FinTech"
               />
             </div>
 
-            <div>
-              <label htmlFor="positioning" className="block text-sm font-medium text-gray-700">
-                Product Positioning
-              </label>
-              <textarea
+            <div className="space-y-2">
+              <Label htmlFor="positioning">Product Positioning</Label>
+              <Textarea
                 id="positioning"
                 rows={3}
                 {...register('positioning')}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
                 placeholder="How do you position your product in the market? What makes it unique?"
               />
             </div>
 
-            <div>
-              <label htmlFor="userProblem" className="block text-sm font-medium text-gray-700">
-                Problem You're Solving
-              </label>
-              <textarea
+            <div className="space-y-2">
+              <Label htmlFor="userProblem">Problem You're Solving</Label>
+              <Textarea
                 id="userProblem"
                 rows={3}
                 {...register('userProblem')}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
                 placeholder="What problem does your product solve for customers?"
               />
             </div>
@@ -497,73 +490,71 @@ export default function ProjectCreationWizard({
       case 'competitors':
         return (
           <div className="space-y-6">
-            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-              <div className="flex">
-                <svg className="h-5 w-5 text-yellow-400 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                </svg>
-                <div className="text-sm text-yellow-700">
-                  Add competitor websites for analysis. Fresh snapshots will be captured for the most accurate comparison.
-                </div>
-              </div>
-            </div>
+            <Alert variant="default" className="border-amber-200 bg-amber-50">
+              <svg className="h-4 w-4 text-amber-600" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+              </svg>
+              <AlertDescription className="text-amber-700">
+                Add competitor websites for analysis. Fresh snapshots will be captured for the most accurate comparison.
+              </AlertDescription>
+            </Alert>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-3">
-                Competitors
-              </label>
+            <div className="space-y-4">
+              <Label className="text-base font-medium">Competitors</Label>
               {competitorUrls.map((url, index) => (
-                <div key={index} className="space-y-2 mb-4 p-4 border border-gray-200 rounded-lg">
-                  <div>
-                    <label htmlFor={`competitor-name-${index}`} className="block text-sm font-medium text-gray-600">
-                      Competitor Name
-                    </label>
-                    <input
-                      type="text"
-                      id={`competitor-name-${index}`}
-                      placeholder={`Competitor ${index + 1}`}
-                      data-testid={`competitor-name-${index}`}
-                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-                    />
-                  </div>
-                  <div className="flex">
-                    <div className="flex-1">
-                      <label htmlFor={`competitor-website-${index}`} className="block text-sm font-medium text-gray-600">
-                        Website
-                      </label>
-                      <input
-                        type="url"
-                        id={`competitor-website-${index}`}
-                        value={url}
-                        onChange={(e) => updateCompetitorUrl(index, e.target.value)}
-                        placeholder="https://competitor.com"
-                        data-testid={`competitor-website-${index}`}
-                        className="mt-1 block w-full rounded-l-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                <Card key={index}>
+                  <CardContent className="p-4 space-y-3">
+                    <div className="space-y-2">
+                      <Label htmlFor={`competitor-name-${index}`} className="text-sm">
+                        Competitor Name
+                      </Label>
+                      <Input
+                        type="text"
+                        id={`competitor-name-${index}`}
+                        placeholder={`Competitor ${index + 1}`}
+                        data-testid={`competitor-name-${index}`}
                       />
                     </div>
-                    <div className="flex items-end">
-                      <button
-                        type="button"
-                        onClick={() => removeCompetitorUrl(index)}
-                        disabled={competitorUrls.length === 1}
-                        className="ml-2 px-3 py-2 border border-gray-300 rounded-md bg-gray-50 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed text-gray-700 text-sm"
-                      >
-                        Remove
-                      </button>
+                    <div className="flex gap-2">
+                      <div className="flex-1 space-y-2">
+                        <Label htmlFor={`competitor-website-${index}`} className="text-sm">
+                          Website
+                        </Label>
+                        <Input
+                          type="url"
+                          id={`competitor-website-${index}`}
+                          value={url}
+                          onChange={(e) => updateCompetitorUrl(index, e.target.value)}
+                          placeholder="https://competitor.com"
+                          data-testid={`competitor-website-${index}`}
+                        />
+                      </div>
+                      <div className="flex items-end">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => removeCompetitorUrl(index)}
+                          disabled={competitorUrls.length === 1}
+                          className="mb-0"
+                        >
+                          Remove
+                        </Button>
+                      </div>
                     </div>
-                  </div>
-                </div>
+                  </CardContent>
+                </Card>
               ))}
-              <button
+              <Button
                 type="button"
+                variant="outline"
                 onClick={addCompetitorUrl}
-                className="mt-2 inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-indigo-700 bg-indigo-100 hover:bg-indigo-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                className="w-full"
               >
-                <svg className="h-4 w-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                 </svg>
                 Add Another Competitor
-              </button>
+              </Button>
             </div>
           </div>
         );
@@ -806,63 +797,51 @@ export default function ProjectCreationWizard({
         <p className="mt-1 text-sm text-gray-500">{STEP_DESCRIPTIONS[currentStep]}</p>
         
         <div className="mt-4">
-          <div className="bg-gray-200 rounded-full h-2">
-            <div
-              className="bg-indigo-600 h-2 rounded-full transition-all duration-300"
-              style={{ width: `${((getCurrentStepIndex() + 1) / getTotalSteps()) * 100}%` }}
-            />
-          </div>
+          <Progress 
+            value={((getCurrentStepIndex() + 1) / getTotalSteps()) * 100} 
+            className="h-2"
+          />
         </div>
       </div>
 
       {/* Step content */}
       <form onSubmit={handleSubmit(handleFormSubmit)}>
-        <div className="bg-white shadow rounded-lg p-6 mb-6">
-          {renderStepContent()}
-        </div>
+        <Card className="mb-6">
+          <CardContent className="p-6">
+            {renderStepContent()}
+          </CardContent>
+        </Card>
 
         {/* Navigation buttons */}
         {!['progress', 'success'].includes(currentStep) && (
           <div className="flex justify-between">
-            <button
+            <Button
               type="button"
+              variant="outline"
               onClick={prevStep}
               disabled={getCurrentStepIndex() === 0}
-              className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Previous
-            </button>
+            </Button>
 
             {currentStep === 'review' ? (
-              <button
+              <LoadingButton
                 type="submit"
                 data-testid="create-project"
-                disabled={isSubmitting || !canGoNext()}
-                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                style={{ display: 'inline-flex' }}
+                loading={isSubmitting}
+                disabled={!canGoNext()}
               >
-                {isSubmitting ? (
-                  <>
-                    <svg className="animate-spin -ml-1 mr-3 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                    </svg>
-                    Creating Project...
-                  </>
-                ) : (
-                  'Create Project'
-                )}
-              </button>
+                Create Project
+              </LoadingButton>
             ) : (
-              <button
+              <Button
                 type="button"
                 data-testid="next-button"
                 onClick={nextStep}
                 disabled={!canGoNext()}
-                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Next
-              </button>
+              </Button>
             )}
           </div>
         )}

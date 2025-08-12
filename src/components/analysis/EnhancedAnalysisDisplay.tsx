@@ -10,6 +10,13 @@
 
 import React, { useState, useEffect } from 'react';
 import { logger } from '@/lib/logger';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
+import { LoadingButton } from '@/components/composed/LoadingButton';
+import { cn } from '@/lib/utils';
 
 export interface AnalysisData {
   id: string;
@@ -133,20 +140,23 @@ export default function EnhancedAnalysisDisplay({
           const priority = typeof rec === 'object' && rec.priority ? rec.priority : null;
           
           return (
-            <div key={index} className="flex items-start space-x-3 p-3 bg-blue-50 rounded-lg">
-              <span className="flex-shrink-0 w-6 h-6 bg-blue-500 text-white rounded-full flex items-center justify-center text-sm font-medium">
+            <div key={index} className="flex items-start space-x-3 p-3 bg-primary/5 rounded-lg">
+              <Badge variant="default" className="flex-shrink-0 w-6 h-6 rounded-full p-0 justify-center">
                 {index + 1}
-              </span>
+              </Badge>
               <div className="flex-1">
-                <p className="text-gray-800">{recommendation}</p>
+                <p>{recommendation}</p>
                 {priority && (
-                  <span className={`inline-block mt-1 px-2 py-1 text-xs rounded-full ${
-                    priority === 'high' ? 'bg-red-100 text-red-800' :
-                    priority === 'medium' ? 'bg-yellow-100 text-yellow-800' :
-                    'bg-green-100 text-green-800'
-                  }`}>
+                  <Badge
+                    variant={
+                      priority === 'high' ? 'destructive' :
+                      priority === 'medium' ? 'secondary' :
+                      'default'
+                    }
+                    className="mt-1 text-xs"
+                  >
                     {priority} priority
-                  </span>
+                  </Badge>
                 )}
               </div>
             </div>
@@ -158,13 +168,13 @@ export default function EnhancedAnalysisDisplay({
 
   if (loading) {
     return (
-      <div className={`animate-pulse space-y-4 ${className}`}>
-        <div className="h-6 bg-gray-200 rounded w-3/4"></div>
-        <div className="h-4 bg-gray-200 rounded w-1/2"></div>
+      <div className={cn("space-y-4", className)}>
+        <Skeleton className="h-6 w-3/4" />
+        <Skeleton className="h-4 w-1/2" />
         <div className="space-y-2">
-          <div className="h-4 bg-gray-200 rounded"></div>
-          <div className="h-4 bg-gray-200 rounded w-5/6"></div>
-          <div className="h-4 bg-gray-200 rounded w-4/6"></div>
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-5/6" />
+          <Skeleton className="h-4 w-4/6" />
         </div>
       </div>
     );
@@ -172,147 +182,168 @@ export default function EnhancedAnalysisDisplay({
 
   if (error) {
     return (
-      <div className={`border border-red-200 rounded-lg p-6 ${className}`}>
-        <div className="flex items-center space-x-2 text-red-600 mb-4">
-          <span className="text-xl">⚠️</span>
-          <h3 className="font-semibold">Analysis Error</h3>
-        </div>
-        <p className="text-red-700 mb-4">{error}</p>
-        <button
-          onClick={() => fetchAnalysis()}
-          className="px-4 py-2 bg-red-50 text-red-700 rounded-md hover:bg-red-100 transition-colors"
-        >
-          Retry Analysis
-        </button>
-      </div>
+      <Alert variant="destructive" className={className}>
+        <span className="text-xl">⚠️</span>
+        <AlertDescription>
+          <div className="space-y-4">
+            <div>
+              <h3 className="font-semibold">Analysis Error</h3>
+              <p className="mt-2">{error}</p>
+            </div>
+            <Button
+              variant="outline"
+              onClick={() => fetchAnalysis()}
+              className="bg-destructive/10 text-destructive border-destructive/20 hover:bg-destructive/20"
+            >
+              Retry Analysis
+            </Button>
+          </div>
+        </AlertDescription>
+      </Alert>
     );
   }
 
   if (!analysisData) {
     return (
-      <div className={`text-center py-8 text-gray-500 ${className}`}>
-        <p>No analysis data available</p>
-        <button
+      <div className={cn("text-center py-8", className)}>
+        <p className="text-muted-foreground">No analysis data available</p>
+        <Button
+          variant="outline"
           onClick={() => fetchAnalysis()}
-          className="mt-2 px-4 py-2 bg-blue-50 text-blue-700 rounded-md hover:bg-blue-100 transition-colors"
+          className="mt-2"
         >
           Load Analysis
-        </button>
+        </Button>
       </div>
     );
   }
 
   return (
-    <div className={`space-y-6 ${className}`}>
+    <div className={cn("space-y-6", className)}>
       {/* Header with refresh button */}
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold text-gray-900">Analysis Results</h2>
+        <h2 className="text-2xl font-bold">Analysis Results</h2>
         {enableRefresh && (
-          <button
+          <LoadingButton
+            variant="ghost"
             onClick={handleRefresh}
-            disabled={refreshing}
-            className="flex items-center space-x-2 px-3 py-2 text-blue-600 hover:bg-blue-50 rounded-md transition-colors disabled:opacity-50"
+            loading={refreshing}
+            className="h-auto p-2"
           >
-            <span className={`text-sm ${refreshing ? 'animate-spin' : ''}`}>🔄</span>
-            <span>{refreshing ? 'Refreshing...' : 'Refresh'}</span>
-          </button>
+            <span className="text-sm mr-2">🔄</span>
+            <span>Refresh</span>
+          </LoadingButton>
         )}
       </div>
 
       {/* Competitive Position (if available from consolidated service) */}
       {analysisData.analysis.competitivePosition && (
         <div className="flex items-center space-x-2">
-          <span className="text-sm font-medium text-gray-600">Competitive Position:</span>
-          <span className={`px-3 py-1 rounded-full text-sm font-medium ${getPositionColor(analysisData.analysis.competitivePosition)}`}>
+          <span className="text-sm font-medium">Competitive Position:</span>
+          <Badge className={getPositionColor(analysisData.analysis.competitivePosition)}>
             {analysisData.analysis.competitivePosition}
-          </span>
+          </Badge>
         </div>
       )}
 
       {/* Analysis Summary */}
-      <div className="bg-white border border-gray-200 rounded-lg p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Executive Summary</h3>
-        <div className="prose max-w-none">
-          <p className="text-gray-700 leading-relaxed whitespace-pre-wrap">
-            {analysisData.analysis.summary}
-          </p>
-        </div>
-      </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Executive Summary</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="prose max-w-none">
+            <p className="text-foreground leading-relaxed whitespace-pre-wrap">
+              {analysisData.analysis.summary}
+            </p>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Key Insights (enhanced feature from consolidated service) */}
       {analysisData.analysis.keyInsights && analysisData.analysis.keyInsights.length > 0 && (
-        <div className="bg-white border border-gray-200 rounded-lg p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Key Insights</h3>
-          <div className="space-y-3">
+        <Card>
+          <CardHeader>
+            <CardTitle>Key Insights</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
             {analysisData.analysis.keyInsights.map((insight, index) => (
-              <div key={index} className="flex items-start space-x-3 p-3 bg-gray-50 rounded-lg">
-                <span className={`px-2 py-1 text-xs rounded-full ${
-                  insight.type === 'strength' ? 'bg-green-100 text-green-800' :
-                  insight.type === 'weakness' ? 'bg-red-100 text-red-800' :
-                  insight.type === 'opportunity' ? 'bg-blue-100 text-blue-800' :
-                  'bg-gray-100 text-gray-800'
-                }`}>
+              <div key={index} className="flex items-start space-x-3 p-3 bg-muted/50 rounded-lg">
+                <Badge variant={
+                  insight.type === 'strength' ? 'default' :
+                  insight.type === 'weakness' ? 'destructive' :
+                  insight.type === 'opportunity' ? 'secondary' :
+                  'outline'
+                }>
                   {insight.type}
-                </span>
+                </Badge>
                 <div className="flex-1">
-                  <p className="text-gray-800">{insight.description}</p>
+                  <p>{insight.description}</p>
                   {insight.confidence && (
-                    <div className="mt-1 text-xs text-gray-600">
+                    <div className="mt-1 text-xs text-muted-foreground">
                       Confidence: {Math.round(insight.confidence * 100)}%
                     </div>
                   )}
                 </div>
               </div>
             ))}
-          </div>
-        </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* Recommendations */}
       {analysisData.analysis.recommendations && (
-        <div className="bg-white border border-gray-200 rounded-lg p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Recommendations</h3>
-          {renderRecommendations(analysisData.analysis.recommendations)}
-        </div>
+        <Card>
+          <CardHeader>
+            <CardTitle>Recommendations</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {renderRecommendations(analysisData.analysis.recommendations)}
+          </CardContent>
+        </Card>
       )}
 
       {/* Metadata */}
       {showMetadata && (
-        <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-          <h4 className="text-sm font-semibold text-gray-700 mb-3">Analysis Metadata</h4>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-            <div>
-              <span className="block text-gray-600">Processing Time</span>
-              <span className="font-medium">{analysisData.metadata.processingTime}ms</span>
+        <Card className="bg-muted/30">
+          <CardHeader>
+            <CardTitle className="text-sm">Analysis Metadata</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+              <div>
+                <span className="block text-muted-foreground">Processing Time</span>
+                <span className="font-medium">{analysisData.metadata.processingTime}ms</span>
+              </div>
+              <div>
+                <span className="block text-muted-foreground">Confidence Score</span>
+                <Badge variant="outline" className={getConfidenceColor(analysisData.metadata.confidenceScore)}>
+                  {Math.round(analysisData.metadata.confidenceScore * 100)}%
+                </Badge>
+              </div>
+              <div>
+                <span className="block text-muted-foreground">Analysis Depth</span>
+                <span className="font-medium capitalize">{analysisData.metadata.analysisDepth}</span>
+              </div>
+              <div>
+                <span className="block text-muted-foreground">Focus Areas</span>
+                <Badge variant="secondary">{analysisData.metadata.focusAreas.length} areas</Badge>
+              </div>
             </div>
-            <div>
-              <span className="block text-gray-600">Confidence Score</span>
-              <span className={`font-medium px-2 py-1 rounded ${getConfidenceColor(analysisData.metadata.confidenceScore)}`}>
-                {Math.round(analysisData.metadata.confidenceScore * 100)}%
-              </span>
-            </div>
-            <div>
-              <span className="block text-gray-600">Analysis Depth</span>
-              <span className="font-medium capitalize">{analysisData.metadata.analysisDepth}</span>
-            </div>
-            <div>
-              <span className="block text-gray-600">Focus Areas</span>
-              <span className="font-medium">{analysisData.metadata.focusAreas.length} areas</span>
-            </div>
-          </div>
-          {analysisData.metadata.generatedBy && (
-            <div className="mt-3 pt-3 border-t border-gray-200">
-              <span className="text-xs text-gray-500">
-                Generated by: {analysisData.metadata.generatedBy}
-                {analysisData.metadata.generatedBy.includes('consolidated') && (
-                  <span className="ml-2 px-2 py-1 bg-green-100 text-green-800 rounded-full text-xs">
-                    v1.5 Enhanced
-                  </span>
-                )}
-              </span>
-            </div>
-          )}
-        </div>
+            {analysisData.metadata.generatedBy && (
+              <div className="mt-3 pt-3 border-t">
+                <span className="text-xs text-muted-foreground">
+                  Generated by: {analysisData.metadata.generatedBy}
+                  {analysisData.metadata.generatedBy.includes('consolidated') && (
+                    <Badge variant="default" className="ml-2 text-xs">
+                      v1.5 Enhanced
+                    </Badge>
+                  )}
+                </span>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       )}
     </div>
   );
