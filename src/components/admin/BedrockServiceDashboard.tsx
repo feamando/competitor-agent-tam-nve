@@ -5,6 +5,13 @@ import { BedrockServiceMetrics, BedrockHealthStatus } from '@/types/bedrockHealt
 import ServiceMetricsDisplay from './ServiceMetricsDisplay';
 import ServiceHistoryCharts from './ServiceHistoryCharts';
 import ServiceControlPanel from './ServiceControlPanel';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Skeleton } from '@/components/ui/skeleton';
+import { LoadingButton } from '@/components/composed/LoadingButton';
 
 interface DashboardData {
   health: BedrockHealthStatus;
@@ -148,41 +155,44 @@ export function BedrockServiceDashboard({
 
   if (isLoading) {
     return (
-      <div className={`bg-white border border-gray-200 rounded-lg p-6 ${className}`}>
-        <div className="animate-pulse">
-          <div className="flex items-center justify-between mb-4">
-            <div className="h-6 bg-gray-200 rounded w-48"></div>
-            <div className="h-6 bg-gray-200 rounded w-32"></div>
-          </div>
+      <Card className={className}>
+        <CardContent className="p-6">
           <div className="space-y-4">
-            <div className="h-24 bg-gray-200 rounded"></div>
-            <div className="h-32 bg-gray-200 rounded"></div>
-            <div className="h-20 bg-gray-200 rounded"></div>
+            <div className="flex items-center justify-between mb-4">
+              <Skeleton className="h-6 w-48" />
+              <Skeleton className="h-6 w-32" />
+            </div>
+            <div className="space-y-4">
+              <Skeleton className="h-24 w-full" />
+              <Skeleton className="h-32 w-full" />
+              <Skeleton className="h-20 w-full" />
+            </div>
           </div>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
     );
   }
 
   if (error) {
     return (
-      <div className={`bg-white border border-red-200 rounded-lg p-6 ${className}`}>
-        <div className="text-center">
-          <div className="text-red-500 mb-2">
-            <svg className="w-8 h-8 mx-auto" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-            </svg>
+      <Alert variant="destructive" className={className}>
+        <span className="text-xl">⚠️</span>
+        <AlertDescription>
+          <div className="text-center space-y-4">
+            <div>
+              <h3 className="font-semibold">Dashboard Error</h3>
+              <p className="mt-2">{error}</p>
+            </div>
+            <LoadingButton
+              variant="outline"
+              onClick={fetchDashboardData}
+              className="bg-destructive/10 text-destructive border-destructive/20 hover:bg-destructive/20"
+            >
+              Retry
+            </LoadingButton>
           </div>
-          <h3 className="text-sm font-medium text-gray-900 mb-2">Dashboard Error</h3>
-          <p className="text-sm text-gray-600 mb-4">{error}</p>
-          <button
-            onClick={fetchDashboardData}
-            className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-          >
-            Retry
-          </button>
-        </div>
-      </div>
+        </AlertDescription>
+      </Alert>
     );
   }
 
@@ -199,98 +209,101 @@ export function BedrockServiceDashboard({
 
   if (compact) {
     return (
-      <div className={`bg-white border border-gray-200 rounded-lg p-4 ${className}`}>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            {getStatusIcon(dashboardData.health.status)}
-            <div>
-              <div className="font-medium text-sm">
-                Bedrock Service Status
-              </div>
-              <div className="text-xs text-gray-600">
-                {dashboardData.metrics.successfulRequests}/{dashboardData.metrics.totalRequests} successful
+      <Card className={className}>
+        <CardContent className="p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              {getStatusIcon(dashboardData.health.status)}
+              <div>
+                <div className="font-medium text-sm">
+                  Bedrock Service Status
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {dashboardData.metrics.successfulRequests}/{dashboardData.metrics.totalRequests} successful
+                </div>
               </div>
             </div>
+            
+            <Badge variant="outline" className="text-xs">
+              Updated {lastUpdated?.toLocaleTimeString()}
+            </Badge>
           </div>
-          
-          <div className="text-xs text-gray-500">
-            Updated {lastUpdated?.toLocaleTimeString()}
-          </div>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
     );
   }
 
   return (
-    <div className={`bg-white border border-gray-200 rounded-lg ${className}`}>
+    <Card className={className}>
       {/* Header */}
-      <div className="px-6 py-4 border-b border-gray-200">
+      <CardHeader>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             {getStatusIcon(dashboardData.health.status)}
             <div>
-              <h2 className="text-lg font-semibold text-gray-900">
+              <CardTitle className="text-lg">
                 Bedrock Service Dashboard
-              </h2>
-              <p className="text-sm text-gray-600">
+              </CardTitle>
+              <CardDescription>
                 AWS Bedrock AI service monitoring and management
-              </p>
+              </CardDescription>
             </div>
           </div>
           
           <div className="flex items-center gap-4">
-            <button
+            <Button
+              variant="outline"
+              size="sm"
               onClick={fetchDashboardData}
-              className="inline-flex items-center gap-1 px-3 py-1 border border-gray-300 text-sm rounded-md text-gray-700 bg-white hover:bg-gray-50"
             >
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+              <svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
               </svg>
               Refresh
-            </button>
+            </Button>
             
             {lastUpdated && (
-              <div className="text-xs text-gray-500">
+              <Badge variant="outline" className="text-xs">
                 Last updated: {lastUpdated.toLocaleTimeString()}
-              </div>
+              </Badge>
             )}
           </div>
         </div>
-      </div>
+      </CardHeader>
 
       {/* Status Overview */}
-      <div className="px-6 py-4 bg-gray-50">
-        <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm font-medium border ${getStatusColor(dashboardData.health.status)}`}>
-          {getStatusIcon(dashboardData.health.status)}
-          <span>
-            Service {dashboardData.health.status.charAt(0).toUpperCase() + dashboardData.health.status.slice(1)}
-          </span>
-          {dashboardData.health.details?.responseTime && (
-            <span className="text-xs">
-              ({dashboardData.health.details.responseTime})
+      <CardContent className="pt-0">
+        <div className="p-4 bg-muted/30 rounded-lg">
+          <Badge 
+            variant={
+              dashboardData.health.status === 'healthy' ? 'default' :
+              dashboardData.health.status === 'degraded' ? 'secondary' :
+              'destructive'
+            }
+            className="gap-2"
+          >
+            {getStatusIcon(dashboardData.health.status)}
+            <span>
+              Service {dashboardData.health.status.charAt(0).toUpperCase() + dashboardData.health.status.slice(1)}
             </span>
-          )}
+            {dashboardData.health.details?.responseTime && (
+              <span className="text-xs">
+                ({dashboardData.health.details.responseTime})
+              </span>
+            )}
+          </Badge>
         </div>
-      </div>
+      </CardContent>
 
       {/* Tabs */}
-      <div className="border-b border-gray-200">
-        <nav className="px-6 flex space-x-8">
+      <Tabs value={selectedTab} onValueChange={(value) => setSelectedTab(value as any)} className="w-full">
+        <TabsList className="grid w-full grid-cols-4">
           {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setSelectedTab(tab.id as any)}
-              className={`py-3 px-1 border-b-2 font-medium text-sm ${
-                selectedTab === tab.id
-                  ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
+            <TabsTrigger key={tab.id} value={tab.id}>
               {tab.label}
-            </button>
+            </TabsTrigger>
           ))}
-        </nav>
-      </div>
+        </TabsList>
 
       {/* Tab Content */}
       <div className="p-6">

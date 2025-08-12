@@ -2,6 +2,10 @@
 
 import React, { useState, useEffect } from 'react';
 import { BedrockHealthStatus } from '@/types/bedrockHealth';
+import { Card, CardContent } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { cn } from '@/lib/utils';
 
 interface ServiceStatusIndicatorProps {
   className?: string;
@@ -170,55 +174,67 @@ export function ServiceStatusIndicator({
 
   if (compact) {
     return (
-      <div className={`flex items-center gap-2 ${className}`}>
+      <div className={cn("flex items-center gap-2", className)}>
         {status && getStatusIcon(status.status)}
-        <span className="text-sm font-medium">
+        <Badge 
+          variant={status?.status === 'healthy' ? 'default' : status?.status === 'degraded' ? 'secondary' : 'destructive'}
+          className="text-sm font-medium"
+        >
           {status ? getStatusText(status.status) : 'Unknown'}
-        </span>
+        </Badge>
       </div>
     );
   }
 
   return (
-    <div className={`border rounded-lg p-3 ${status ? getStatusColor(status.status) : 'border-gray-200'} ${className}`}>
-      <div className="flex items-start justify-between">
-        <div className="flex items-center gap-2">
-          {status && getStatusIcon(status.status)}
-          <div>
-            <div className="font-medium text-sm">
-              {status ? getStatusText(status.status) : 'Service Status Unknown'}
-            </div>
-            <div className="text-xs mt-1">
-              {status ? getStatusDescription(status.status, status.error) : 'Unable to determine service status'}
+    <Card className={cn(
+      status ? getStatusColor(status.status) : 'border-gray-200',
+      className
+    )}>
+      <CardContent className="p-3">
+        <div className="flex items-start justify-between">
+          <div className="flex items-center gap-2">
+            {status && getStatusIcon(status.status)}
+            <div>
+              <div className="font-medium text-sm">
+                {status ? getStatusText(status.status) : 'Service Status Unknown'}
+              </div>
+              <div className="text-xs mt-1 text-muted-foreground">
+                {status ? getStatusDescription(status.status, status.error) : 'Unable to determine service status'}
+              </div>
             </div>
           </div>
+          
+          <div className="text-xs text-muted-foreground ml-2">
+            {lastUpdated && (
+              <div>Updated {lastUpdated.toLocaleTimeString()}</div>
+            )}
+            {status?.responseTime && (
+              <div className="mt-1">Response: {status.responseTime}</div>
+            )}
+          </div>
         </div>
-        
-        <div className="text-xs text-gray-500 ml-2">
-          {lastUpdated && (
-            <div>Updated {lastUpdated.toLocaleTimeString()}</div>
-          )}
-          {status?.responseTime && (
-            <div className="mt-1">Response: {status.responseTime}</div>
-          )}
-        </div>
-      </div>
 
-      {status?.details?.circuitBreakerState && status.details.circuitBreakerState !== 'CLOSED' && (
-        <div className="mt-2 text-xs p-2 bg-yellow-50 border border-yellow-200 rounded">
-          <strong>Circuit Breaker:</strong> {status.details.circuitBreakerState}
-          {status.details.circuitBreakerState === 'OPEN' && 
-            <span className="ml-1">- Automatic retry in progress</span>
-          }
-        </div>
-      )}
+        {status?.details?.circuitBreakerState && status.details.circuitBreakerState !== 'CLOSED' && (
+          <Alert className="mt-2" variant="default">
+            <AlertDescription className="text-xs">
+              <strong>Circuit Breaker:</strong> {status.details.circuitBreakerState}
+              {status.details.circuitBreakerState === 'OPEN' && 
+                <span className="ml-1">- Automatic retry in progress</span>
+              }
+            </AlertDescription>
+          </Alert>
+        )}
 
-      {error && (
-        <div className="mt-2 text-xs p-2 bg-red-50 border border-red-200 rounded">
-          <strong>Error:</strong> {error}
-        </div>
-      )}
-    </div>
+        {error && (
+          <Alert className="mt-2" variant="destructive">
+            <AlertDescription className="text-xs">
+              <strong>Error:</strong> {error}
+            </AlertDescription>
+          </Alert>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

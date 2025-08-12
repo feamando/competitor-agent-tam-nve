@@ -1,0 +1,64 @@
+/**
+ * Component Tokens - Button
+ * Button-specific design tokens
+ */
+
+:root {
+  /* Primary Button */
+  --button-primary-bg: var(--brand-primary);
+  --button-primary-bg-hover: var(--brand-primary-hover);
+  --button-primary-bg-active: var(--brand-primary-active);
+  --button-primary-fg: var(--brand-primary-foreground);
+  --button-primary-border: var(--brand-primary);
+  --button-primary-border-hover: var(--brand-primary-hover);
+  --button-primary-shadow: var(--shadow-sm);
+  --button-primary-shadow-hover: var(--shadow-md);
+
+  /* Secondary Button */
+  --button-secondary-bg: var(--surface-card);
+  --button-secondary-bg-hover: var(--surface-hover);
+  --button-secondary-bg-active: var(--surface-active);
+  --button-secondary-fg: var(--surface-text-primary);
+  --button-secondary-border: var(--surface-border);
+  --button-secondary-border-hover: var(--surface-border-hover);
+  --button-secondary-shadow: var(--shadow-sm);
+  --button-secondary-shadow-hover: var(--shadow-md);
+
+  /* Ghost Button */
+  --button-ghost-bg: transparent;
+  --button-ghost-bg-hover: var(--surface-hover);
+  --button-ghost-bg-active: var(--surface-active);
+  --button-ghost-fg: var(--surface-text-primary);
+  --button-ghost-fg-hover: var(--surface-text-primary);
+  --button-ghost-border: transparent;
+  --button-ghost-border-hover: transparent;
+
+  /* Destructive Button */
+  --button-destructive-bg: var(--feedback-error);
+  --button-destructive-bg-hover: var(--feedback-error-hover);
+  --button-destructive-bg-active: var(--feedback-error-active);
+  --button-destructive-fg: var(--feedback-error-foreground);
+  --button-destructive-border: var(--feedback-error);
+  --button-destructive-border-hover: var(--feedback-error-hover);
+
+  /* Button Sizes */
+  --button-height-sm: 2rem;      /* 32px */
+  --button-height-md: 2.5rem;    /* 40px */
+  --button-height-lg: 3rem;      /* 48px */
+  
+  --button-padding-x-sm: var(--spacing-3);
+  --button-padding-x-md: var(--spacing-4);
+  --button-padding-x-lg: var(--spacing-6);
+  
+  --button-font-size-sm: var(--font-size-sm);
+  --button-font-size-md: var(--font-size-base);
+  --button-font-size-lg: var(--font-size-lg);
+  
+  --button-radius: var(--radius-md);
+  --button-font-weight: var(--font-weight-medium);
+
+  /* Button States */
+  --button-disabled-opacity: 0.5;
+  --button-focus-ring: var(--shadow-focus-ring);
+  --button-transition: all 0.15s ease-in-out;
+}

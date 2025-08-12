@@ -381,6 +381,28 @@ Please tell me:
       // Set legacy fallback flag for this session
       this.chatState.useComprehensiveFlow = false;
 
+      // TP-032: Add duplicate prevention check before project creation
+      if (this.chatState.databaseProjectCreated && this.chatState.projectId) {
+        const existingProjectId = this.chatState.projectId;
+        const existingProjectName = this.chatState.projectName || extractedData.projectName;
+        
+        logger.info('Duplicate project creation prevented (legacy fallback)', {
+          conversationId: this.conversationId,
+          existingProjectId,
+          existingProjectName,
+          requestedProjectName: extractedData.projectName
+        });
+
+        return {
+          message: `✅ **Project Already Created!**\n\n` +
+                  `Your project "${existingProjectName}" (ID: ${existingProjectId}) is already set up and running.\n\n` +
+                  `The system is currently populating it with competitor data and generating your initial reports.`,
+          isComplete: true,
+          projectCreated: true,
+          projectId: existingProjectId
+        };
+      }
+
       // Create project with extracted data (simplified for Phase 5.2 compatibility)
       const databaseProject = { 
         id: `project_${Date.now()}`, 
@@ -523,6 +545,28 @@ Once we have these basics, I'll guide you through the rest of the information ne
     );
 
     try {
+      // TP-032: Add duplicate prevention check before project creation
+      if (this.chatState.databaseProjectCreated && this.chatState.projectId) {
+        const existingProjectId = this.chatState.projectId;
+        const existingProjectName = this.chatState.projectName || extractedData.projectName;
+        
+        logger.info('Duplicate project creation prevented (legacy step0)', {
+          conversationId: this.conversationId,
+          existingProjectId,
+          existingProjectName,
+          requestedProjectName: extractedData.projectName
+        });
+
+        return {
+          message: `✅ **Project Already Created!**\n\n` +
+                  `Your project "${existingProjectName}" (ID: ${existingProjectId}) is already set up and running.\n\n` +
+                  `The system is currently populating it with competitor data and generating your initial reports.`,
+          isComplete: true,
+          projectCreated: true,
+          projectId: existingProjectId
+        };
+      }
+
       // Create actual database project with all competitors auto-assigned
                   // Create project with extracted data (simplified for legacy compatibility)
             const databaseProject = { 
@@ -2091,6 +2135,29 @@ Now, what is the name of the product that you want to perform competitive analys
           positioning: requirements.positioning,
           customerData: requirements.customerData,
           userProblem: requirements.userProblem
+        };
+      }
+      
+      // TP-032: Add duplicate prevention check before project creation
+      if (this.chatState.databaseProjectCreated && this.chatState.projectId) {
+        // Project already exists, return success message with existing project
+        const existingProjectId = this.chatState.projectId;
+        const existingProjectName = this.chatState.projectName || requirements.projectName;
+        
+        logger.info('Duplicate project creation prevented', {
+          conversationId: this.conversationId,
+          existingProjectId,
+          existingProjectName,
+          requestedProjectName: requirements.projectName
+        });
+
+        return {
+          message: `✅ **Project Already Created!**\n\n` +
+                  `Your project "${existingProjectName}" (ID: ${existingProjectId}) is already set up and running.\n\n` +
+                  `The system is currently populating it with competitor data and generating your initial reports. You can check the progress in your projects dashboard.`,
+          isComplete: true,
+          projectCreated: true,
+          projectId: existingProjectId
         };
       }
       

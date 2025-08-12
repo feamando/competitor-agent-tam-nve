@@ -2,6 +2,13 @@
 
 import React, { useState } from 'react';
 import { logger } from '@/lib/logger';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { LoadingButton } from '@/components/composed/LoadingButton';
 
 interface AWSCredentialsModalProps {
   isOpen: boolean;
@@ -349,61 +356,41 @@ export function AWSCredentialsModal({
     onClose();
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-lg shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between p-6 border-b">
-          <h2 className="text-lg font-semibold text-gray-900">
-            AWS Credentials
-          </h2>
-          <button
-            onClick={handleClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
-          >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
+    <Dialog open={isOpen} onOpenChange={handleClose}>
+      <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>AWS Credentials</DialogTitle>
+        </DialogHeader>
 
-        <div className="p-6 space-y-4">
+        <div className="space-y-4">
           {errors.general && (
-            <div className="bg-red-50 border border-red-200 rounded-md p-3">
-              <p className="text-sm text-red-800">{errors.general}</p>
-            </div>
+            <Alert variant="destructive">
+              <AlertDescription>{errors.general}</AlertDescription>
+            </Alert>
           )}
 
           {validationResult && (
-            <div className={`border rounded-md p-3 ${
-              validationResult.isValid 
-                ? 'bg-green-50 border-green-200' 
-                : 'bg-red-50 border-red-200'
-            }`}>
-              <p className={`text-sm ${
-                validationResult.isValid ? 'text-green-800' : 'text-red-800'
-              }`}>
+            <Alert variant={validationResult.isValid ? "default" : "destructive"}>
+              <AlertDescription>
                 {validationResult.isValid 
                   ? `✅ Credentials are valid${validationResult.latency ? ` (${validationResult.latency}ms)` : ''}`
                   : `❌ ${validationResult.error}`
                 }
-              </p>
-            </div>
+              </AlertDescription>
+            </Alert>
           )}
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              AWS Credentials
-            </label>
-            <p className="text-sm text-gray-600 mb-2">
+          <div className="space-y-2">
+            <Label>AWS Credentials</Label>
+            <p className="text-sm text-muted-foreground">
               Paste your AWS credentials file content below:
             </p>
-            <textarea
+            <Textarea
               value={formData.credentialsText}
               onChange={(e) => handleInputChange('credentialsText', e.target.value)}
-              className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm ${
-                errors.credentialsText ? 'border-red-500' : 'border-gray-300'
+              className={`font-mono text-sm ${
+                errors.credentialsText ? 'border-destructive' : ''
               }`}
               rows={10}
               placeholder={`[default]
@@ -416,59 +403,58 @@ aws_access_key_id = YOUR_ACCESS_KEY
 aws_secret_access_key = YOUR_SECRET_KEY`}
             />
             {errors.credentialsText && (
-              <p className="mt-1 text-sm text-red-600">{errors.credentialsText}</p>
+              <p className="text-sm text-destructive">{errors.credentialsText}</p>
             )}
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              AWS Region
-            </label>
-            <select
+          <div className="space-y-2">
+            <Label>AWS Region</Label>
+            <Select
               value={formData.awsRegion}
-              onChange={(e) => handleInputChange('awsRegion', e.target.value)}
-              className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                errors.awsRegion ? 'border-red-500' : 'border-gray-300'
-              }`}
+              onValueChange={(value) => handleInputChange('awsRegion', value)}
             >
-              {awsRegions.map(region => (
-                <option key={region.value} value={region.value}>
-                  {region.label}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger className={errors.awsRegion ? 'border-destructive' : ''}>
+                <SelectValue placeholder="Select AWS Region" />
+              </SelectTrigger>
+              <SelectContent>
+                {awsRegions.map(region => (
+                  <SelectItem key={region.value} value={region.value}>
+                    {region.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             {errors.awsRegion && (
-              <p className="mt-1 text-sm text-red-600">{errors.awsRegion}</p>
+              <p className="text-sm text-destructive">{errors.awsRegion}</p>
             )}
           </div>
         </div>
 
-        <div className="flex items-center justify-between p-6 border-t bg-gray-50">
-          <button
+        <div className="flex items-center justify-between pt-4 border-t">
+          <LoadingButton
+            variant="ghost"
             onClick={() => handleValidate(true)}
-            disabled={isValidating}
-            className="px-4 py-2 text-sm font-medium text-blue-600 hover:text-blue-500 disabled:opacity-50"
+            loading={isValidating}
           >
-            {isValidating ? 'Validating...' : 'Test Connection'}
-          </button>
+            Test Connection
+          </LoadingButton>
           
           <div className="flex space-x-3">
-            <button
+            <Button
+              variant="outline"
               onClick={handleClose}
-              className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-500"
             >
               Cancel
-            </button>
-            <button
+            </Button>
+            <LoadingButton
               onClick={handleSave}
-              disabled={isLoading}
-              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md disabled:opacity-50"
+              loading={isLoading}
             >
-              {isLoading ? 'Saving...' : 'Save'}
-            </button>
+              Save
+            </LoadingButton>
           </div>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 } 
