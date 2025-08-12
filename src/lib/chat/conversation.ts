@@ -15,6 +15,7 @@ import { registerService } from '@/services/serviceRegistry';
 import { ConversationMemoryOptimizer, MAX_MESSAGES_PER_CONVERSATION } from './memoryOptimization';
 import { getOrCreateMockUserWithProfile } from '@/lib/profile/profileUtils';
 import { ChatAWSStatusChecker, AWSStatusResult } from '@/lib/chat/awsStatusChecker';
+import { CompetitorResolutionService } from '@/services/competitorResolutionService';
 // Removed duplicate imports that were causing module resolution errors
 
 // Type definitions for enhanced error handling - Task 1: Move interfaces outside class
@@ -3129,57 +3130,165 @@ What would you prefer?`,
   }
 
   /**
-   * Task 5.2: Get and validate competitors with enhanced validation
+   * TP-027: Get and validate competitors based on user input, not auto-assignment
    */
   private async getAndValidateCompetitors(context: any): Promise<{
     competitors: any[];
     competitorIds: string[];
     validationPassed: boolean;
+    userSpecified: boolean;
   }> {
     try {
-      const allCompetitors = await prisma.competitor.findMany({
-        select: { id: true, name: true, website: true, industry: true }
+      // Get competitor input from user (from chatState.collectedData.competitors)
+      const userCompetitorInput = this.chatState.collectedData?.competitors;
+      
+      logger.info('TP-027: Processing competitor selection', {
+        ...context,
+        hasUserInput: !!userCompetitorInput,
+        userInputType: Array.isArray(userCompetitorInput) ? 'array' : typeof userCompetitorInput,
+        userInputLength: Array.isArray(userCompetitorInput) ? userCompetitorInput.length : 0
       });
 
-      if (allCompetitors.length === 0) {
-        throw new Error('No competitors available in database - cannot create meaningful project');
+      // If user provided specific competitors, resolve them
+      if (userCompetitorInput && Array.isArray(userCompetitorInput) && userCompetitorInput.length > 0) {
+        return await this.resolveUserSpecifiedCompetitors(userCompetitorInput, context);
       }
 
-      // Validate competitor data quality
-      const validCompetitors = allCompetitors.filter(competitor => 
-        competitor.name && 
-        competitor.name.trim().length > 0 &&
-        competitor.website &&
-        competitor.website.trim().length > 0
-      );
+      // If user provided a string (comma-separated), parse it
+      if (userCompetitorInput && typeof userCompetitorInput === 'string' && userCompetitorInput.trim()) {
+        const competitorArray = userCompetitorInput.split(',').map(c => c.trim()).filter(c => c.length > 0);
+        if (competitorArray.length > 0) {
+          return await this.resolveUserSpecifiedCompetitors(competitorArray, context);
+        }
+      }
 
-      if (validCompetitors.length < allCompetitors.length * 0.5) {
-        logger.warn('Many competitors have incomplete data', {
+      // Fallback: If no user input, auto-assign all competitors (backward compatibility)
+      logger.info('TP-027: No user competitor input, falling back to all competitors', context);
+      return await this.getAllCompetitorsAsFallback(context);
+
+    } catch (error) {
+      logger.error('TP-027: Failed to get and validate competitors', error as Error, context);
+      throw new Error(`Competitor setup failed: ${(error as Error).message}`);
+    }
+  }
+
+  /**
+   * TP-027: Resolve user-specified competitors using CompetitorResolutionService
+   */
+  private async resolveUserSpecifiedCompetitors(
+    competitorInputs: string[], 
+    context: any
+  ): Promise<{
+    competitors: any[];
+    competitorIds: string[];
+    validationPassed: boolean;
+    userSpecified: boolean;
+  }> {
+    const competitorResolver = new CompetitorResolutionService(context.correlationId);
+    
+    try {
+      const resolution = await competitorResolver.resolveCompetitorInput(competitorInputs);
+      
+      // Log resolution results
+      logger.info('TP-027: Competitor resolution completed', {
+        ...context,
+        inputCount: competitorInputs.length,
+        successfulCount: resolution.successful.length,
+        failedCount: resolution.failed.length,
+        resolvedIds: resolution.resolvedIds
+      });
+
+      // If some competitors failed to resolve, log warnings but continue
+      if (resolution.failed.length > 0) {
+        const failureDetails = resolution.failed.map(f => 
+          `"${f.input}": ${f.error}${f.suggestions?.length ? ` (suggestions: ${f.suggestions.join(', ')})` : ''}`
+        );
+        
+        logger.warn('TP-027: Some competitors could not be resolved', {
           ...context,
-          totalCompetitors: allCompetitors.length,
-          validCompetitors: validCompetitors.length,
-          dataQualityScore: Math.round((validCompetitors.length / allCompetitors.length) * 100)
+          failures: failureDetails
         });
       }
 
-      const competitorIds = allCompetitors.map(c => c.id);
-      
-      logger.info('Task 5.2: Competitors validated and prepared', {
-        ...context,
-        totalCompetitors: allCompetitors.length,
-        validCompetitors: validCompetitors.length,
-        competitorNames: allCompetitors.map(c => c.name).join(', ')
+      // If no competitors were resolved successfully, throw error
+      if (resolution.successful.length === 0) {
+        const errorMsg = resolution.failed.length > 0 
+          ? `Could not resolve any competitors:\n${resolution.failed.map(f => `- ${f.input}: ${f.error}`).join('\n')}`
+          : 'No competitors could be resolved from the provided input';
+        throw new Error(errorMsg);
+      }
+
+      // Fetch full competitor data for resolved IDs
+      const competitors = await prisma.competitor.findMany({
+        where: { id: { in: resolution.resolvedIds } },
+        select: { id: true, name: true, website: true, industry: true }
       });
 
       return {
-        competitors: allCompetitors,
-        competitorIds,
-        validationPassed: validCompetitors.length >= Math.min(3, allCompetitors.length)
+        competitors,
+        competitorIds: resolution.resolvedIds,
+        validationPassed: true,
+        userSpecified: true
       };
+
     } catch (error) {
-      logger.error('Failed to get and validate competitors', error as Error, context);
-      throw new Error(`Competitor setup failed: ${(error as Error).message}`);
+      logger.error('TP-027: Failed to resolve user-specified competitors', error as Error, {
+        ...context,
+        inputs: competitorInputs
+      });
+      throw error;
     }
+  }
+
+  /**
+   * TP-027: Fallback method to get all competitors (backward compatibility)
+   */
+  private async getAllCompetitorsAsFallback(context: any): Promise<{
+    competitors: any[];
+    competitorIds: string[];
+    validationPassed: boolean;
+    userSpecified: boolean;
+  }> {
+    const allCompetitors = await prisma.competitor.findMany({
+      select: { id: true, name: true, website: true, industry: true }
+    });
+
+    if (allCompetitors.length === 0) {
+      throw new Error('No competitors available in database - cannot create meaningful project');
+    }
+
+    // Validate competitor data quality
+    const validCompetitors = allCompetitors.filter(competitor => 
+      competitor.name && 
+      competitor.name.trim().length > 0 &&
+      competitor.website &&
+      competitor.website.trim().length > 0
+    );
+
+    if (validCompetitors.length < allCompetitors.length * 0.5) {
+      logger.warn('TP-027: Many competitors have incomplete data', {
+        ...context,
+        totalCompetitors: allCompetitors.length,
+        validCompetitors: validCompetitors.length,
+        dataQualityScore: Math.round((validCompetitors.length / allCompetitors.length) * 100)
+      });
+    }
+
+    const competitorIds = allCompetitors.map(c => c.id);
+    
+    logger.info('TP-027: Fallback - All competitors assigned', {
+      ...context,
+      totalCompetitors: allCompetitors.length,
+      validCompetitors: validCompetitors.length,
+      competitorNames: allCompetitors.map(c => c.name).slice(0, 5).join(', ') + (allCompetitors.length > 5 ? '...' : '')
+    });
+
+    return {
+      competitors: allCompetitors,
+      competitorIds,
+      validationPassed: validCompetitors.length >= Math.min(3, allCompetitors.length),
+      userSpecified: false
+    };
   }
 
   /**

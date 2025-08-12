@@ -64,26 +64,28 @@ model User {
 }
 
 model Competitor {
-  id            String     @id @default(cuid())
-  name          String
-  website       String
-  description   String?
-  industry      String
-  employeeCount Int?
-  revenue       Float?
-  founded       Int?
-  headquarters  String?
-  socialMedia   Json?
-  profileId     String?    // Optional - competitors are shared across all users
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
-  analyses      Analysis[]
-  reports       Report[]
-  snapshots     Snapshot[]
-  projects      Project[]  @relation("CompetitorToProject")
-  profile       Profile?   @relation(fields: [profileId], references: [id])
+  id                String     @id @default(cuid())
+  name              String
+  website           String
+  normalizedWebsite String?    // TP-028: For website-based deduplication
+  description       String?
+  industry          String
+  employeeCount     Int?
+  revenue           Float?
+  founded           Int?
+  headquarters      String?
+  socialMedia       Json?
+  profileId         String?    // Optional - competitors are shared across all users
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+  analyses          Analysis[]
+  reports           Report[]
+  snapshots         Snapshot[]
+  projects          Project[]  @relation("CompetitorToProject")
+  profile           Profile?   @relation(fields: [profileId], references: [id])
   
   @@index([profileId])
+  @@index([normalizedWebsite])  // TP-028: Index for efficient website matching
 }
 
 model Report {
