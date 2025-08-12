@@ -142,6 +142,7 @@
     "@types/supertest": "^6.0.2",
     "artillery": "^2.0.22",
     "cross-env": "^7.0.3",
+    "electron": "^37.2.6",
     "eslint": "^9",
     "eslint-config-next": "15.3.2",
     "handlebars-loader": "^1.7.3",
