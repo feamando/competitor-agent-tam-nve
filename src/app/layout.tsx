@@ -4,6 +4,7 @@ import { Navigation } from "@/components/Navigation";
 import AuthProvider from "./providers/AuthProvider";
 import { ProfileProvider } from "@/components/profile/ProfileProvider";
 import { ProfileAccessGate, SessionWarning } from "@/components/profile/ProfileAccessGate";
+import { ThemeProvider } from "@/lib/design-system/theme";
 import Script from "next/script";
 
 export const metadata: Metadata = {
@@ -37,17 +38,19 @@ export default function RootLayout({
         />
       </head>
       <body>
-        <AuthProvider>
-          <ProfileProvider>
-            <ProfileAccessGate>
-              <SessionWarning />
-              <Navigation />
-              <main className="min-h-screen" style={{ backgroundColor: '#EFE9DE' }}>
-                {children}
-              </main>
-            </ProfileAccessGate>
-          </ProfileProvider>
-        </AuthProvider>
+        <ThemeProvider defaultTheme="system" enableSystem>
+          <AuthProvider>
+            <ProfileProvider>
+              <ProfileAccessGate>
+                <SessionWarning />
+                <Navigation />
+                <main className="min-h-screen" style={{ backgroundColor: '#EFE9DE' }}>
+                  {children}
+                </main>
+              </ProfileAccessGate>
+            </ProfileProvider>
+          </AuthProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

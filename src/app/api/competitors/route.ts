@@ -10,6 +10,7 @@ import {
 } from '@/lib/logger'
 import { withCache } from '@/lib/cache'
 import { profileOperation, PERFORMANCE_THRESHOLDS } from '@/lib/profiling'
+import { CompetitorMatchingService } from '@/lib/competitors/competitorMatching'
 
 const competitorSchema = z.object({
   name: z.string().min(1, 'Company name is required').max(255, 'Company name too long'),
@@ -40,47 +41,31 @@ export async function POST(request: Request) {
     const json = await request.json();
     const validatedData = competitorSchema.parse(json);
 
-    // Check for duplicate competitors by name
-    const existingCompetitor = await prisma.competitor.findFirst({
-      where: {
-        name: validatedData.name
-      }
-    });
+    // TP-028: Use website-based matching with profile association
+    const matchResult = await CompetitorMatchingService.createOrAssociateCompetitor(validatedData);
 
-    if (existingCompetitor) {
-      return NextResponse.json({ 
-        error: 'Competitor already exists',
-        message: 'A competitor with this name already exists',
-        existingCompetitor: {
-          id: existingCompetitor.id,
-          name: existingCompetitor.name,
-          website: existingCompetitor.website
-        },
-        correlationId 
-      }, { status: 409 });
-    }
-
-    // Create competitor (without profileId - shared across all users)
-    const competitor = await prisma.competitor.create({
-      data: {
-        ...validatedData
-        // profileId is optional and not set - competitors are shared
-      }
-    });
-
-    logger.info('Competitor created successfully', {
-      competitorId: competitor.id,
-      competitorName: competitor.name,
+    logger.info('Competitor creation/matching completed', {
+      competitorId: matchResult.competitor.id,
+      competitorName: matchResult.competitor.name,
+      created: matchResult.created,
+      claimed: matchResult.claimed,
+      message: matchResult.message,
       correlationId
     });
 
+    // Return appropriate status based on what happened
+    const statusCode = matchResult.created ? 201 : 200;
+    
     return NextResponse.json({
-      ...competitor,
+      ...matchResult.competitor,
+      created: matchResult.created,
+      claimed: matchResult.claimed,
+      message: matchResult.message,
       correlationId
-    }, { status: 201 });
+    }, { status: statusCode });
 
   } catch (error) {
-    logger.error('Failed to create competitor', error as Error, { correlationId });
+    logger.error('Failed to create/match competitor', error as Error, { correlationId });
     
     if (error instanceof z.ZodError) {
       const errors = error.errors.map(err => ({
@@ -95,9 +80,18 @@ export async function POST(request: Request) {
       }, { status: 400 });
     }
 
+    // Handle specific competitor matching errors
+    if (error instanceof Error && error.message.includes('already exists under a different profile')) {
+      return NextResponse.json({
+        error: 'Competitor exists under different profile',
+        message: error.message,
+        correlationId
+      }, { status: 409 });
+    }
+
     return NextResponse.json({ 
       error: 'Internal Server Error',
-      message: 'Failed to create competitor',
+      message: 'Failed to create/match competitor',
       correlationId 
     }, { status: 500 });
   }
@@ -215,57 +209,52 @@ async function fetchCompetitorsWithBatching(
     : {};
 
   try {
-    // Use Promise.all to batch queries
-    const [total, competitors] = await Promise.all([
-      // Count query
-      profileOperation(
-        () => prisma.competitor.count({ where: whereClause }),
-        { label: 'COUNT competitors query', correlationId: context.correlationId }
-      ),
+    // TP-028: Use profile-accessible competitors instead of all competitors
+    const profileAccessibleCompetitors = await CompetitorMatchingService.getProfileAccessibleCompetitors();
+    
+    // Filter accessible competitors by search criteria
+    const filteredCompetitors = profileAccessibleCompetitors.filter(competitor => {
+      if (!search) return true;
       
-      // Main data query with optimized select
-      profileOperation(
-        () => prisma.competitor.findMany({
-          where: whereClause,
-          skip: offset,
-          take: limit,
-          orderBy: { createdAt: 'desc' },
-          select: {
-            id: true,
-            name: true,
-            website: true,
-            description: true,
-            industry: true,
-            createdAt: true,
-            updatedAt: true,
-            _count: {
-              select: {
-                reports: true,
-                snapshots: true
-              }
-            },
-            reports: {
-              select: {
-                id: true,
-                name: true,
-                createdAt: true
-              },
-              take: 3,
-              orderBy: { createdAt: 'desc' }
-            },
-            snapshots: {
-              select: {
-                id: true,
-                createdAt: true
-              },
-              take: 1,
-              orderBy: { createdAt: 'desc' }
-            }
-          }
-        }),
-        { label: 'SELECT competitors query', correlationId: context.correlationId }
-      )
-    ]);
+      const searchLower = search.toLowerCase();
+      return (
+        competitor.name.toLowerCase().includes(searchLower) ||
+        competitor.website.toLowerCase().includes(searchLower) ||
+        (competitor.description && competitor.description.toLowerCase().includes(searchLower)) ||
+        competitor.industry.toLowerCase().includes(searchLower)
+      );
+    });
+    
+    const total = filteredCompetitors.length;
+    const paginatedCompetitors = filteredCompetitors.slice(offset, offset + limit);
+    
+    // Enhance competitors with report/snapshot counts
+    const competitors = await Promise.all(
+      paginatedCompetitors.map(async (competitor) => {
+        const [reportCount, snapshotCount, recentReports, recentSnapshot] = await Promise.all([
+          prisma.report.count({ where: { competitorId: competitor.id } }),
+          prisma.snapshot.count({ where: { competitorId: competitor.id } }),
+          prisma.report.findMany({
+            where: { competitorId: competitor.id },
+            select: { id: true, name: true, createdAt: true },
+            take: 3,
+            orderBy: { createdAt: 'desc' }
+          }),
+          prisma.snapshot.findFirst({
+            where: { competitorId: competitor.id },
+            select: { id: true, createdAt: true },
+            orderBy: { createdAt: 'desc' }
+          })
+        ]);
+        
+        return {
+          ...competitor,
+          _count: { reports: reportCount, snapshots: snapshotCount },
+          reports: recentReports,
+          snapshots: recentSnapshot ? [recentSnapshot] : []
+        };
+      })
+    );
 
     // Efficient data transformation
     const enhancedCompetitors = competitors.map(competitor => ({

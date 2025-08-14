@@ -5,6 +5,8 @@
  * Part of Phase 5: Systematic Component Migration & Enhancement
  */
 
+import * as React from 'react';
+
 interface ComponentMapping {
   from: string;
   to: string;
@@ -96,4 +98,133 @@ export function validateMigration(componentPath: string, content: string) {
   
   validation.score = score;
   return validation;
+}
+
+/**
+ * Migration tracking interface
+ */
+interface MigrationEvent {
+  componentName: string;
+  action: 'migrated' | 'deprecated_used' | 'enhanced' | 'warning_shown';
+  timestamp?: Date;
+  metadata?: Record<string, any>;
+}
+
+/**
+ * Track migration events for analytics and monitoring
+ */
+export function trackMigrationEvent(event: MigrationEvent): void {
+  const trackingEvent = {
+    ...event,
+    timestamp: event.timestamp || new Date(),
+    source: 'design-system-migration'
+  };
+  
+  // In development, log to console
+  if (process.env.NODE_ENV === 'development') {
+    console.group(`🔄 Migration Event: ${event.componentName}`);
+    console.log(`Action: ${event.action}`);
+    if (event.metadata) {
+      console.log('Metadata:', event.metadata);
+    }
+    console.groupEnd();
+  }
+  
+  // In production, you might want to send to analytics service
+  // analytics.track('component_migration', trackingEvent);
+}
+
+/**
+ * Higher-Order Component for progressive enhancement
+ * Renders new component if available, falls back to legacy component
+ */
+export function withProgressiveEnhancement<P extends object>(
+  LegacyComponent: React.ComponentType<P>,
+  NewComponent: React.ComponentType<P>,
+  featureFlag?: string,
+  enableFallback: boolean = true
+): React.ComponentType<P> {
+  return React.forwardRef<any, P>((props, ref) => {
+    const [hasError, setHasError] = React.useState(false);
+    const [shouldUseNew, setShouldUseNew] = React.useState(true);
+    
+    // Check feature flag if provided
+    React.useEffect(() => {
+      if (featureFlag && typeof window !== 'undefined') {
+        const stored = localStorage.getItem(`feature-${featureFlag}`);
+        setShouldUseNew(stored !== 'false');
+      }
+    }, [featureFlag]);
+    
+    // Error boundary logic
+    React.useEffect(() => {
+      if (hasError && enableFallback) {
+        trackMigrationEvent({
+          componentName: NewComponent.displayName || 'Unknown',
+          action: 'deprecated_used',
+          metadata: { reason: 'error_fallback' }
+        });
+      }
+    }, [hasError, enableFallback]);
+    
+    // If there's an error and fallback is enabled, use legacy component
+    if (hasError && enableFallback) {
+      return React.createElement(LegacyComponent, props);
+    }
+    
+    // If feature flag says to use legacy, use it
+    if (!shouldUseNew) {
+      return React.createElement(LegacyComponent, props);
+    }
+    
+    // Try to render new component with error boundary
+    try {
+      return React.createElement(NewComponent, { ...props, ref });
+    } catch (error) {
+      if (enableFallback) {
+        setHasError(true);
+        return React.createElement(LegacyComponent, props);
+      }
+      throw error;
+    }
+  });
+}
+
+/**
+ * Higher-Order Component that shows migration warnings
+ */
+export function withMigrationWarning<P extends object>(
+  Component: React.ComponentType<P>,
+  componentName: string,
+  newComponentPath: string,
+  deprecationVersion?: string
+): React.ComponentType<P> {
+  return React.forwardRef<any, P>((props, ref) => {
+    React.useEffect(() => {
+      const warningKey = `migration-warning-${componentName}`;
+      const hasShownWarning = sessionStorage.getItem(warningKey);
+      
+      if (!hasShownWarning && process.env.NODE_ENV === 'development') {
+        console.warn(
+          `⚠️  Migration Warning: ${componentName}\n` +
+          `This component is deprecated and will be removed in version ${deprecationVersion || 'next major version'}.\n` +
+          `Please migrate to: ${newComponentPath}\n` +
+          `This warning will only show once per session.`
+        );
+        
+        sessionStorage.setItem(warningKey, 'true');
+        
+        trackMigrationEvent({
+          componentName,
+          action: 'warning_shown',
+          metadata: {
+            newPath: newComponentPath,
+            deprecationVersion
+          }
+        });
+      }
+    }, []);
+    
+    return React.createElement(Component, { ...props, ref });
+  });
 }
