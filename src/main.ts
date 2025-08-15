@@ -17,7 +17,6 @@ app.whenReady().then(() => {
     });
   } else {
     window.loadURL("http://localhost:3000");
-    window.webContents.openDevTools();
     window.webContents.on("did-fail-load", (e, code, desc) => {
       logger.error(`${e} (${code}) ${desc}`);
       window.webContents.reloadIgnoringCache();
