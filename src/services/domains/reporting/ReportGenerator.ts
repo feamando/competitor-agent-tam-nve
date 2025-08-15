@@ -66,7 +66,12 @@ export class ReportGenerator implements IReportGenerator {
   private activeTasks: Map<string, Promise<InitialReportResponse>> = new Map(); // Task 11.4: Concurrent request handling
 
   constructor(config: ReportGeneratorConfig) {
-    this.config = config || {} as ReportGeneratorConfig; // ✅ DEFENSIVE GUARD ADDED
+    if (config) {
+      this.config = config;
+    } else {
+      this.config = {} as ReportGeneratorConfig;
+      logger.warn("ReportGenerator constructed without config")
+    }
     this.uxAnalyzer = new UserExperienceAnalyzer();
     
     logger.info('ReportGenerator initialized', {
