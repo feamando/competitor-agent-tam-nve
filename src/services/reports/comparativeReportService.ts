@@ -193,7 +193,7 @@ export class ComparativeReportService {
         
         // Generate AI-enhanced content
         const enhancedResult = await this.generateEnhancedReportContent(
-          analysis.id,
+          analysis,
           template.name as ReportTemplate,
           options
         );
@@ -371,16 +371,16 @@ export class ComparativeReportService {
    * Implements TP-029 Task 3.3-3.4: User-facing notifications and fallback transparency
    */
   async generateEnhancedReportContent(
-    analysisId: string,
+    analysis: ComparativeAnalysis,  // ✅ CHANGE: Pass analysis data directly instead of ID
     template: ReportTemplate,
     options: ReportGenerationOptions = {}
   ): Promise<{ content: string; fallbackInfo?: ReportGenerationFallbackInfo }> {
-    const context = { analysisId, template };
+    const context = { analysisId: analysis.id, template };  // ✅ CHANGE: Use analysis.id for logging
 
     try {
       logger.info('[ComparativeReportService] Attempting to generate AI-enhanced report content', context);
 
-      const prompt = this.buildEnhancedReportPrompt(template, options);
+      const prompt = this.buildEnhancedReportPrompt(template, options, analysis);  // ✅ CHANGE: Pass analysis to prompt
       const messages: BedrockMessage[] = [
         {
           role: 'user',
@@ -701,67 +701,6 @@ This is a basic comparative analysis report generated from your competitive data
     return [];
   }
 
-  private buildEnhancedReportPrompt(template: ReportTemplate, options: ReportGenerationOptions): string {
-    return `Generate an enhanced ${template} comparative analysis report with the following requirements:
-
-Format: Professional business report
-Length: ${options.maxTokens ? Math.floor(options.maxTokens / 4) : 1000} words
-Style: Executive-level analysis
-Focus: Strategic insights and actionable recommendations
-
-Please include:
-1. Executive summary with key findings
-2. Detailed competitive analysis
-3. Strategic recommendations with priorities
-4. Market opportunity assessment
-
-Use clear headings, bullet points, and professional business language.`;
-  }
-
-  private generateReportTitle(productName: string, templateName: string): string {
-    const timestamp = new Date().toISOString().split('T')[0];
-    return `${productName} - ${templateName} (${timestamp})`;
-  }
-
-  private generateReportDescription(productName: string, competitorCount: number, templateDescription: string): string {
-    return `${templateDescription} for ${productName} analyzing ${competitorCount} competitors. Generated ${new Date().toLocaleDateString()}.`;
-  }
-
-  private extractExecutiveSummary(sections: ComparativeReportSection[]): string {
-    const executiveSection = sections.find(s => s.type === 'executive_summary');
-    return executiveSection?.content || 'Executive summary not available.';
-  }
-
-  private extractKeyFindings(context: ReportContext): string[] {
-    return [
-      ...context.keyStrengths.map(s => `Strength: ${s}`),
-      ...context.keyWeaknesses.map(w => `Weakness: ${w}`),
-      `Market Position: ${context.overallPosition}`,
-      `Opportunity Score: ${context.opportunityScore}/100`
-    ];
-  }
-
-  private extractKeyThreats(context: ReportContext): string[] {
-    return [
-      `Overall threat level: ${context.threatLevel}`,
-      ...(context.featureGaps || []).slice(0, 3), // ✅ DEFENSIVE GUARD ADDED
-      ...(context.uxWeaknesses || []).slice(0, 2) // ✅ DEFENSIVE GUARD ADDED
-    ];
-  }
-
-  private estimateTokenUsage(report: ComparativeReport): number {
-    // Rough estimation: 4 characters per token
-    const totalCharacters = report.sections.reduce((total, section) => 
-      total + section.content.length, 0
-    );
-    return Math.ceil(totalCharacters / 4);
-  }
-
-  private calculateCost(tokens: number): number {
-    // Rough estimation based on Claude pricing: $0.003 per 1K tokens
-    return (tokens / 1000) * 0.003;
-  }
-
   /**
    * Enhance a standard comparative report with UX analysis insights
    */
@@ -851,6 +790,75 @@ Use clear headings, bullet points, and professional business language.`;
         ...uxAnalysis.opportunities.slice(0, 2)
       ]
     };
+  }
+
+  private buildEnhancedReportPrompt(
+    template: ReportTemplate, 
+    options: ReportGenerationOptions,
+    analysis: ComparativeAnalysis  // Add analysis parameter
+  ): string {
+    return `Generate an enhanced ${template} comparative analysis report based on the following analysis data:
+
+ANALYSIS DATA:
+${JSON.stringify(analysis, null, 2)}
+
+Requirements:
+- Format: Professional business report
+- Length: ${options.maxTokens ? Math.floor(options.maxTokens / 4) : 1000} words
+- Style: Executive-level analysis
+- Focus: Strategic insights and actionable recommendations based on the provided analysis
+
+Please include:
+1. Executive summary with key findings from the analysis
+2. Detailed competitive analysis using the provided data
+3. Strategic recommendations with priorities
+4. Market opportunity assessment
+
+Use clear headings, bullet points, and professional business language.`;
+  }
+
+  private generateReportTitle(productName: string, templateName: string): string {
+    const timestamp = new Date().toISOString().split('T')[0];
+    return `${productName} - ${templateName} (${timestamp})`;
+  }
+
+  private generateReportDescription(productName: string, competitorCount: number, templateDescription: string): string {
+    return `${templateDescription} for ${productName} analyzing ${competitorCount} competitors. Generated ${new Date().toLocaleDateString()}.`;
+  }
+
+  private extractExecutiveSummary(sections: ComparativeReportSection[]): string {
+    const executiveSection = sections.find(s => s.type === 'executive_summary');
+    return executiveSection?.content || 'Executive summary not available.';
+  }
+
+  private extractKeyFindings(context: ReportContext): string[] {
+    return [
+      ...context.keyStrengths.map(s => `Strength: ${s}`),
+      ...context.keyWeaknesses.map(w => `Weakness: ${w}`),
+      `Market Position: ${context.overallPosition}`,
+      `Opportunity Score: ${context.opportunityScore}/100`
+    ];
+  }
+
+  private extractKeyThreats(context: ReportContext): string[] {
+    return [
+      `Overall threat level: ${context.threatLevel}`,
+      ...(context.featureGaps || []).slice(0, 3), // ✅ DEFENSIVE GUARD ADDED
+      ...(context.uxWeaknesses || []).slice(0, 2) // ✅ DEFENSIVE GUARD ADDED
+    ];
+  }
+
+  private estimateTokenUsage(report: ComparativeReport): number {
+    // Rough estimation: 4 characters per token
+    const totalCharacters = report.sections.reduce((total, section) => 
+      total + section.content.length, 0
+    );
+    return Math.ceil(totalCharacters / 4);
+  }
+
+  private calculateCost(tokens: number): number {
+    // Rough estimation based on Claude pricing: $0.003 per 1K tokens
+    return (tokens / 1000) * 0.003;
   }
 
   private buildUXAnalysisContent(uxAnalysis: UXAnalysisResult): string {
