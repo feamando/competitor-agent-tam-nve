@@ -27,6 +27,8 @@ import { BedrockService } from '@/services/bedrock/bedrock.service';
 import { BedrockMessage } from '@/services/bedrock/types';
 import { logger } from '@/lib/logger';
 import { getAnalysisPrompt, COMPREHENSIVE_ANALYSIS_PROMPT } from '@/services/analysis/analysisPrompts';
+import { CompAIPromptBuilder } from '@/services/analysis/compaiPromptBuilder';
+import { CompAIPromptOptions } from '@/types/prompts';
 import { createId } from '@paralleldrive/cuid2';
 import { dataIntegrityValidator } from '@/lib/validation/dataIntegrity';
 
@@ -44,6 +46,7 @@ class ComparativeAnalyzer implements IComparativeAnalyzer {
   private dataIntegrityValidator: any; // CRITICAL DEPENDENCY
   private logger = logger;
   private configuration: AnalysisConfiguration;
+  private compaiBuilder: CompAIPromptBuilder; // TP-014: CompAI integration
 
   constructor(
     bedrockService: BedrockService,
@@ -64,6 +67,8 @@ class ComparativeAnalyzer implements IComparativeAnalyzer {
       analysisDepth: 'detailed',
       ...configuration
     };
+    
+    this.compaiBuilder = new CompAIPromptBuilder(); // TP-014: CompAI integration
 
     logger.info('ComparativeAnalyzer initialized with data validation and structured analysis');
   }
@@ -97,7 +102,13 @@ class ComparativeAnalyzer implements IComparativeAnalyzer {
       const promptTemplate = getAnalysisPrompt(analysisConfig.focusAreas, analysisConfig.depth);
 
       // CRITICAL: Build analysis prompt (PRESERVE EXACTLY)
-      const analysisPrompt = this.buildAnalysisPrompt(input, promptTemplate);
+      // TP-014: Add CompAI support with fallback to legacy format
+      const analysisPrompt = await this.buildAnalysisPrompt(
+        input, 
+        promptTemplate,
+        false, // Default to legacy format for backward compatibility
+        undefined
+      );
 
       // CRITICAL: Execute AI analysis (PRESERVE EXACTLY)
       const rawAnalysisResult = await this.executeAnalysis(analysisPrompt);
@@ -284,8 +295,83 @@ class ComparativeAnalyzer implements IComparativeAnalyzer {
   /**
    * Build analysis prompt from input and template
    * CRITICAL: Preserves exact ComparativeAnalysisService.buildAnalysisPrompt() implementation
+   * TP-014: Extended with CompAI format support
    */
-  private buildAnalysisPrompt(input: ComparativeAnalysisInput, template: any): string {
+  private async buildAnalysisPrompt(
+    input: ComparativeAnalysisInput, 
+    template: any, 
+    useCompAIFormat = false, // TP-014: CompAI integration
+    compaiOptions?: CompAIPromptOptions // TP-014: CompAI options
+  ): Promise<string> {
+    // TP-014: Use CompAI format if requested
+    if (useCompAIFormat) {
+      try {
+        logger.info('Building CompAI prompt for comparative analysis', {
+          productName: input.product.name,
+          competitorCount: input.competitors.length,
+          useCompAIFormat,
+          compaiOptions
+        });
+
+        // Transform ComparativeAnalysisInput to project format expected by CompAI builder
+        // Note: ComparativeAnalysisInput doesn't have project info, so we create a mock project
+        const projectData = {
+          id: 'comparative-analysis',
+          name: input.product.name,
+          description: `Competitive analysis for ${input.product.name}`,
+          status: 'ACTIVE' as const,
+          priority: 'MEDIUM' as const,
+          userId: 'comparative-analyzer',
+          profileId: 'comparative-analyzer',
+          startDate: new Date(),
+          endDate: null,
+          parameters: {},
+          tags: {},
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          scrapingFrequency: 'WEEKLY' as const,
+          userEmail: null,
+          industry: input.product.industry,
+          products: [input.product],
+          competitors: input.competitors.map(c => c.competitor)
+        };
+
+        // Use mock freshness status since ComparativeAnalyzer doesn't have access to SmartScheduling
+        const mockFreshnessStatus = {
+          overallStatus: 'fresh' as const,
+          products: [{
+            id: input.product.id,
+            name: input.product.name,
+            needsScraping: false,
+            lastSnapshot: input.productSnapshot?.createdAt?.toISOString() || new Date().toISOString(),
+            daysSinceLastSnapshot: 0
+          }],
+          competitors: input.competitors.map(c => ({
+            id: c.competitor.id,
+            name: c.competitor.name,
+            needsScraping: false,
+            lastSnapshot: c.snapshot?.createdAt?.toISOString() || new Date().toISOString(),
+            daysSinceLastSnapshot: 0
+          })),
+          recommendedActions: []
+        };
+
+        return await this.compaiBuilder.buildCompAIPrompt(
+          projectData,
+          'competitive',
+          mockFreshnessStatus,
+          compaiOptions
+        );
+      } catch (error) {
+        logger.error('Failed to build CompAI prompt, falling back to legacy format', {
+          error: error instanceof Error ? error.message : 'Unknown error',
+          productName: input.product.name
+        });
+        // Fall through to legacy format
+      }
+    }
+
+    // Legacy prompt format (backward compatibility)
     const productContent = this.extractContent(input.productSnapshot);
     const competitorData = input.competitors.map(c => ({
       competitorId: c.competitor.id,
