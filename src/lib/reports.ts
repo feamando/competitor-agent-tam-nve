@@ -24,6 +24,8 @@ import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { StreamingDataProcessor, streamingReportUtils } from './reports/streamingProcessor';
 import { MemoryOptimizedReportGenerator } from './reports/memoryOptimizedReports';
+import { CompAIPromptBuilder } from '@/services/analysis/compaiPromptBuilder';
+import { CompAIPromptOptions } from '@/types/prompts';
 
 // Validation schemas
 const reportSectionSchema = z.object({
@@ -71,6 +73,7 @@ export class ReportGenerator {
   private trendAnalyzer: TrendAnalyzer;
   private streamingProcessor: StreamingDataProcessor;
   private memoryOptimizedGenerator: MemoryOptimizedReportGenerator;
+  private compaiBuilder: CompAIPromptBuilder; // TP-014: CompAI integration
   private readonly defaultOptions: ReportGenerationOptions = {
     maxRetries: 3,
     retryDelay: 1000,
@@ -101,11 +104,13 @@ export class ReportGenerator {
       this.trendAnalyzer = new TrendAnalyzer();
       this.streamingProcessor = new StreamingDataProcessor();
       this.memoryOptimizedGenerator = new MemoryOptimizedReportGenerator();
+      this.compaiBuilder = new CompAIPromptBuilder(); // TP-014: CompAI integration
       
       logger.info('ReportGenerator initialized successfully', {
         region: process.env.AWS_REGION || 'us-east-1',
         usingExplicitCredentials: !!(process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY),
-        memoryOptimizationEnabled: true
+        memoryOptimizationEnabled: true,
+        compaiIntegrationEnabled: true // TP-014: CompAI integration
       });
     } catch (error) {
       logger.error('Failed to initialize ReportGenerator', error as Error);
@@ -863,7 +868,14 @@ export class ReportGenerator {
     competitorComparisons: string;
     confidence: number;
   }> {
-    const prompt = this.buildComparativeAnalysisPrompt(product, competitors, options);
+    // TP-014: Support CompAI format (default to legacy for backward compatibility)
+    const prompt = await this.buildComparativeAnalysisPrompt(
+      product, 
+      competitors, 
+      options,
+      false, // Default to legacy format
+      undefined
+    );
     
     try {
       const command = new InvokeModelCommand({
@@ -898,7 +910,82 @@ export class ReportGenerator {
     }
   }
 
-  private buildComparativeAnalysisPrompt(product: any, competitors: any[], options: any): string {
+  private async buildComparativeAnalysisPrompt(
+    product: any, 
+    competitors: any[], 
+    options: any,
+    useCompAIFormat = false, // TP-014: CompAI integration
+    compaiOptions?: CompAIPromptOptions // TP-014: CompAI options
+  ): Promise<string> {
+    // TP-014: Use CompAI format if requested
+    if (useCompAIFormat) {
+      try {
+        logger.info('Building CompAI prompt for ReportGenerator', {
+          productName: product.name,
+          competitorCount: competitors.length,
+          focusArea: options.focusArea,
+          useCompAIFormat,
+          compaiOptions
+        });
+
+        // Transform product and competitors to project format expected by CompAI builder
+        const projectData = {
+          id: 'report-generator',
+          name: product.name,
+          description: `Report generation for ${product.name}`,
+          status: 'ACTIVE' as const,
+          priority: 'MEDIUM' as const,
+          userId: 'report-generator',
+          profileId: 'report-generator',
+          startDate: new Date(),
+          endDate: null,
+          parameters: {},
+          tags: {},
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          scrapingFrequency: 'WEEKLY' as const,
+          userEmail: null,
+          industry: product.industry,
+          products: [product],
+          competitors: competitors
+        };
+
+        // Create mock freshness status since ReportGenerator doesn't have access to SmartScheduling
+        const mockFreshnessStatus = {
+          overallStatus: 'fresh' as const,
+          products: [{
+            id: product.id,
+            name: product.name,
+            needsScraping: false,
+            lastSnapshot: product.snapshots?.[0]?.createdAt?.toISOString() || new Date().toISOString(),
+            daysSinceLastSnapshot: 0
+          }],
+          competitors: competitors.map(competitor => ({
+            id: competitor.id,
+            name: competitor.name,
+            needsScraping: false,
+            lastSnapshot: competitor.snapshots?.[0]?.createdAt?.toISOString() || new Date().toISOString(),
+            daysSinceLastSnapshot: 0
+          })),
+          recommendedActions: []
+        };
+
+        return await this.compaiBuilder.buildCompAIPrompt(
+          projectData,
+          'competitive',
+          mockFreshnessStatus,
+          compaiOptions
+        );
+      } catch (error) {
+        logger.error('Failed to build CompAI prompt in ReportGenerator, falling back to legacy format', {
+          error: error instanceof Error ? error.message : 'Unknown error',
+          productName: product.name
+        });
+        // Fall through to legacy format
+      }
+    }
+
+    // Legacy prompt format (backward compatibility)
     const focusArea = options.focusArea || 'overall';
     const template = options.template || 'comprehensive';
 
