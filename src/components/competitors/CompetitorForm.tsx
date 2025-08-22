@@ -59,7 +59,7 @@ export function CompetitorForm({ onSubmit }: CompetitorFormProps) {
         <input
           {...register('name')}
           type="text"
-          className={`mt-1 block w-full rounded-md shadow-sm focus:ring-2 focus:ring-green-500 focus:border-green-500 sm:text-sm ${
+          className={`mt-1 block w-full rounded-md shadow-sm focus:ring-2 focus:ring-green-500 focus:border-green-500 sm:text-sm text-gray-700 ${
             errors.name ? 'border-red-300' : 'border-gray-300'
           }`}
         />
@@ -75,7 +75,7 @@ export function CompetitorForm({ onSubmit }: CompetitorFormProps) {
         <input
           {...register('website')}
           type="url"
-          className={`mt-1 block w-full rounded-md shadow-sm focus:ring-2 focus:ring-green-500 focus:border-green-500 sm:text-sm ${
+          className={`mt-1 block w-full rounded-md shadow-sm focus:ring-2 focus:ring-green-500 focus:border-green-500 sm:text-sm text-gray-700 ${
             errors.website ? 'border-red-300' : 'border-gray-300'
           }`}
         />
@@ -91,7 +91,7 @@ export function CompetitorForm({ onSubmit }: CompetitorFormProps) {
         <textarea
           {...register('description')}
           rows={3}
-          className={`mt-1 block w-full rounded-md shadow-sm focus:ring-2 focus:ring-green-500 focus:border-green-500 sm:text-sm ${
+          className={`mt-1 block w-full rounded-md shadow-sm focus:ring-2 focus:ring-green-500 focus:border-green-500 sm:text-sm text-gray-700 ${
             errors.description ? 'border-red-300' : 'border-gray-300'
           }`}
         />
