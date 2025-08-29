@@ -41,7 +41,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
-dist
 
 # IDE
 .idea/
@@ -66,3 +65,6 @@ logs
 .env.backup.*
 .env.*.backup
 .env.bak
+
+dist
+dist-electron
