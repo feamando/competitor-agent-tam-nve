@@ -13,6 +13,7 @@
 import { logger, generateCorrelationId, trackErrorWithCorrelation, trackBusinessEvent } from '@/lib/logger';
 import { createId } from '@paralleldrive/cuid2';
 import { prisma } from '@/lib/prisma';
+import { enhancedRetryMechanism } from '@/lib/retry/enhancedRetryMechanism';
 
 // Import types
 import {
@@ -63,8 +64,28 @@ export class ProductScrapingModule implements ProductScrapingInterface {
         throw new Error(`Product ${productId} has no website URL`);
       }
 
-      // Enhanced scraping with retry logic
-      const scrapedData = await this.scrapeWithRetry(product.website, this.MAX_RETRIES, correlationId);
+      // Enhanced scraping with retry logic (Task 2.2)
+      const retryOptions = enhancedRetryMechanism.createProductScrapingRetryOptions();
+      const retryResult = await enhancedRetryMechanism.executeWithRetry(
+        () => this.webScrapingModule.scrapeUrl(product.website, {
+          timeout: 30000,
+          enableJavaScript: true,
+          takeScreenshot: false
+        }),
+        retryOptions,
+        {
+          operationType: 'product_scraping',
+          productId,
+          url: product.website,
+          correlationId
+        }
+      );
+
+      if (!retryResult.success || !retryResult.result) {
+        throw retryResult.error || new Error('Product scraping failed after retries');
+      }
+
+      const scrapedData = retryResult.result;
       
       // Validate scraped content
       if (!scrapedData.html || scrapedData.html.length < this.MIN_CONTENT_LENGTH) {

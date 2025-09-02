@@ -1,0 +1,75 @@
+/**
+ * Semantic Feedback Tokens
+ * Success, error, warning, and info color tokens
+ */
+
+:root {
+  /* Success States */
+  --feedback-success: var(--color-green-600);
+  --feedback-success-hover: var(--color-green-700);
+  --feedback-success-active: var(--color-green-800);
+  --feedback-success-foreground: var(--color-white);
+  --feedback-success-background: var(--color-green-50);
+  --feedback-success-border: var(--color-green-200);
+
+  /* Error States */
+  --feedback-error: var(--color-red-600);
+  --feedback-error-hover: var(--color-red-700);
+  --feedback-error-active: var(--color-red-800);
+  --feedback-error-foreground: var(--color-white);
+  --feedback-error-background: var(--color-red-50);
+  --feedback-error-border: var(--color-red-200);
+
+  /* Warning States */
+  --feedback-warning: var(--color-yellow-600);
+  --feedback-warning-hover: var(--color-yellow-700);
+  --feedback-warning-active: var(--color-yellow-800);
+  --feedback-warning-foreground: var(--color-white);
+  --feedback-warning-background: var(--color-yellow-50);
+  --feedback-warning-border: var(--color-yellow-200);
+
+  /* Info States */
+  --feedback-info: var(--color-blue-600);
+  --feedback-info-hover: var(--color-blue-700);
+  --feedback-info-active: var(--color-blue-800);
+  --feedback-info-foreground: var(--color-white);
+  --feedback-info-background: var(--color-blue-50);
+  --feedback-info-border: var(--color-blue-200);
+}
+
+/* Dark Mode Feedback Overrides */
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* Success States */
+    --feedback-success: var(--color-green-500);
+    --feedback-success-hover: var(--color-green-400);
+    --feedback-success-active: var(--color-green-300);
+    --feedback-success-foreground: var(--color-green-950);
+    --feedback-success-background: var(--color-green-950);
+    --feedback-success-border: var(--color-green-800);
+
+    /* Error States */
+    --feedback-error: var(--color-red-500);
+    --feedback-error-hover: var(--color-red-400);
+    --feedback-error-active: var(--color-red-300);
+    --feedback-error-foreground: var(--color-red-950);
+    --feedback-error-background: var(--color-red-950);
+    --feedback-error-border: var(--color-red-800);
+
+    /* Warning States */
+    --feedback-warning: var(--color-yellow-500);
+    --feedback-warning-hover: var(--color-yellow-400);
+    --feedback-warning-active: var(--color-yellow-300);
+    --feedback-warning-foreground: var(--color-yellow-950);
+    --feedback-warning-background: var(--color-yellow-950);
+    --feedback-warning-border: var(--color-yellow-800);
+
+    /* Info States */
+    --feedback-info: var(--color-blue-500);
+    --feedback-info-hover: var(--color-blue-400);
+    --feedback-info-active: var(--color-blue-300);
+    --feedback-info-foreground: var(--color-blue-950);
+    --feedback-info-background: var(--color-blue-950);
+    --feedback-info-border: var(--color-blue-800);
+  }
+}

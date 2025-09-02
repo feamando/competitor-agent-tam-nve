@@ -689,13 +689,13 @@ export class ComparativeReportStorageService {
       });
 
       // Query the junction table to verify relationship exists
-      const relationship = await prisma.$queryRaw<{count: number}[]>`
+      const relationship = await prisma.$queryRaw<{count: bigint}[]>`
         SELECT COUNT(*) as count 
         FROM "_CompetitorToProject" 
         WHERE "A" = ${competitorId} AND "B" = ${projectId}
       `;
 
-      const relationshipExists = Boolean(relationship && relationship[0] && relationship[0].count > 0);
+      const relationshipExists = Boolean(relationship && relationship[0] && Number(relationship[0].count) > 0);
 
       logger.info('Task 3.3: Project-competitor relationship query result in storage service', {
         projectId,

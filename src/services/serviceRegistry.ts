@@ -345,11 +345,11 @@ export class ServiceRegistry {
     try {
       logger.info(`Initializing service ${serviceName}`);
 
-      // Resolve dependencies first
-      await this.resolveDependencies(serviceName);
+      // Resolve dependencies first and get their instances
+      const dependencyInstances = await this.resolveDependencies(serviceName);
 
-      // Create service instance
-      const service = new serviceClass();
+      // Create service instance with dependency injection
+      const service = new serviceClass(...dependencyInstances);
       
       // Store singleton instance
       if (config.singleton) {
@@ -385,10 +385,10 @@ export class ServiceRegistry {
   /**
    * Resolve service dependencies
    */
-  private async resolveDependencies(serviceName: string): Promise<void> {
+  private async resolveDependencies(serviceName: string): Promise<any[]> {
     const dependencies = this.dependencyGraph.get(serviceName);
     if (!dependencies || dependencies.size === 0) {
-      return;
+      return []; // ✅ RETURN EMPTY ARRAY FOR NO DEPENDENCIES
     }
 
     logger.debug(`Resolving dependencies for ${serviceName}`, {
@@ -398,7 +398,8 @@ export class ServiceRegistry {
     // Check for circular dependencies
     this.checkCircularDependencies(serviceName, new Set());
 
-    // Initialize dependencies
+    // Initialize dependencies and collect instances
+    const dependencyInstances: any[] = [];
     for (const depName of dependencies) {
       if (!this.services.has(depName)) {
         const depConfig = this.serviceConfigs.get(depName);
@@ -406,11 +407,21 @@ export class ServiceRegistry {
           throw new Error(`Dependency ${depName} not registered for service ${serviceName}`);
         }
         
-        // Find and initialize dependency service
-        // Note: In a real implementation, you'd need a way to map service names to classes
-        logger.warn(`Dependency ${depName} not found for ${serviceName}. Manual initialization required.`);
+        // Get service class and initialize dependency
+        const depClass = this.serviceClasses.get(depName);
+        if (depClass) {
+          const depInstance = await this.getService(depName);
+          dependencyInstances.push(depInstance);
+        } else {
+          logger.warn(`Dependency ${depName} class not found for ${serviceName}. Skipping injection.`);
+        }
+      } else {
+        // Use existing instance
+        dependencyInstances.push(this.services.get(depName));
       }
     }
+    
+    return dependencyInstances; // ✅ RETURN DEPENDENCY INSTANCES
   }
 
   /**

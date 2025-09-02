@@ -1,0 +1,76 @@
+/**
+ * Component Tokens - Form
+ * Form input and control specific design tokens
+ */
+
+:root {
+  /* Input Fields */
+  --form-input-bg: var(--surface-input);
+  --form-input-bg-hover: var(--surface-input);
+  --form-input-bg-focus: var(--surface-input);
+  --form-input-bg-disabled: var(--surface-muted);
+  --form-input-fg: var(--surface-input-foreground);
+  --form-input-fg-disabled: var(--surface-text-disabled);
+  --form-input-border: var(--surface-input-border);
+  --form-input-border-hover: var(--surface-input-border-hover);
+  --form-input-border-focus: var(--surface-input-border-focus);
+  --form-input-border-error: var(--feedback-error);
+  --form-input-placeholder: var(--surface-input-placeholder);
+
+  /* Input Sizes */
+  --form-input-height-sm: 2rem;      /* 32px */
+  --form-input-height-md: 2.5rem;    /* 40px */
+  --form-input-height-lg: 3rem;      /* 48px */
+  
+  --form-input-padding-x-sm: var(--spacing-3);
+  --form-input-padding-x-md: var(--spacing-3);
+  --form-input-padding-x-lg: var(--spacing-4);
+  
+  --form-input-font-size-sm: var(--font-size-sm);
+  --form-input-font-size-md: var(--font-size-base);
+  --form-input-font-size-lg: var(--font-size-lg);
+  
+  --form-input-radius: var(--radius-md);
+  --form-input-border-width: var(--border-width-1);
+
+  /* Labels */
+  --form-label-fg: var(--surface-text-primary);
+  --form-label-fg-disabled: var(--surface-text-disabled);
+  --form-label-font-size: var(--font-size-sm);
+  --form-label-font-weight: var(--font-weight-medium);
+  --form-label-margin-bottom: var(--spacing-2);
+
+  /* Help Text */
+  --form-help-fg: var(--surface-text-secondary);
+  --form-help-font-size: var(--font-size-sm);
+  --form-help-margin-top: var(--spacing-1);
+
+  /* Error States */
+  --form-error-fg: var(--feedback-error);
+  --form-error-font-size: var(--font-size-sm);
+  --form-error-margin-top: var(--spacing-1);
+
+  /* Checkbox & Radio */
+  --form-checkbox-size: 1rem;
+  --form-checkbox-bg: var(--surface-input);
+  --form-checkbox-bg-checked: var(--brand-primary);
+  --form-checkbox-bg-disabled: var(--surface-muted);
+  --form-checkbox-border: var(--surface-input-border);
+  --form-checkbox-border-checked: var(--brand-primary);
+  --form-checkbox-fg-checked: var(--brand-primary-foreground);
+  --form-checkbox-radius: var(--radius-sm);
+
+  /* Select */
+  --form-select-bg: var(--surface-input);
+  --form-select-fg: var(--surface-input-foreground);
+  --form-select-border: var(--surface-input-border);
+  --form-select-border-focus: var(--surface-input-border-focus);
+  --form-select-arrow-color: var(--surface-text-secondary);
+
+  /* Focus States */
+  --form-focus-ring: var(--shadow-focus-ring);
+  --form-focus-offset: 2px;
+
+  /* Transitions */
+  --form-transition: all 0.15s ease-in-out;
+}

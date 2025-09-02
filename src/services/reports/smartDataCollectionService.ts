@@ -20,6 +20,23 @@ export interface SmartDataCollectionResult {
   dataFreshness: 'new' | 'existing' | 'mixed' | 'basic';
   collectionTime: number;
   priorityBreakdown: PriorityUsageBreakdown;
+  
+  /**
+   * Total number of competitor snapshots captured (fresh + existing)
+   * 
+   * This field was added as part of TP-025 to fix the issue where
+   * competitorSnapshotsCaptured was always 0 despite existing snapshots.
+   * 
+   * The value is calculated as:
+   * capturedCount = competitorData.freshSnapshots + competitorData.existingSnapshots
+   * 
+   * This ensures that InitialComparativeReportService can properly determine
+   * whether to generate full comparative reports or fall back to emergency reports.
+   * 
+   * @see TP-025-20250805-report-data-collection-aggregation-fix.md
+   * @see A-003-20250805-report-data-collection-failure-root-cause-investigation.md
+   */
+  capturedCount: number;
 }
 
 export interface ProductDataResult {
@@ -127,7 +144,11 @@ export class SmartDataCollectionService {
         dataCompletenessScore,
         dataFreshness,
         collectionTime: Date.now() - startTime,
-        priorityBreakdown
+        priorityBreakdown,
+        // TP-025 FIX: Calculate total captured snapshots for report metadata
+        // This fixes the issue where competitorSnapshotsCaptured was always 0
+        // by properly aggregating fresh and existing snapshot counts
+        capturedCount: competitorDataResult.freshSnapshots + competitorDataResult.existingSnapshots
       };
 
       logger.info('Smart data collection completed successfully', {
@@ -136,14 +157,58 @@ export class SmartDataCollectionService {
           dataCompletenessScore: result.dataCompletenessScore,
           dataFreshness: result.dataFreshness,
           collectionTime: result.collectionTime,
-          priorityBreakdown: result.priorityBreakdown
+          priorityBreakdown: result.priorityBreakdown,
+          capturedCount: result.capturedCount
         }
       });
 
       return result;
 
     } catch (error) {
-      logger.error('Smart data collection failed', error as Error, context);
+      // Enhanced error logging for zombie report prevention
+      const enhancedContext = {
+        ...context,
+        errorType: (error as Error).name,
+        errorMessage: (error as Error).message,
+        errorStack: (error as Error).stack?.substring(0, 500), // Truncate stack trace
+        options: {
+          requireFreshSnapshots: options.requireFreshSnapshots,
+          maxCaptureTime: options.maxCaptureTime,
+          fallbackToPartialData: options.fallbackToPartialData,
+          fastCollectionOnly: options.fastCollectionOnly
+        },
+        collectionPhase: 'INITIALIZATION', // Track which phase failed
+        timestamp: new Date().toISOString(),
+        correlationId: (context as any).correlationId || 'unknown'
+      };
+
+      logger.error('Smart data collection failed - CRITICAL: This may trigger emergency fallback report generation', error as Error, enhancedContext);
+      
+      // Track specific error patterns that commonly cause zombie reports
+      if ((error as Error).message.includes('collectProductData')) {
+        logger.error('SmartDataCollectionService.collectProductData specific failure detected', error as Error, {
+          ...enhancedContext,
+          failureLocation: 'collectProductData',
+          zombieRiskLevel: 'HIGH'
+        });
+      }
+
+      if ((error as Error).message.includes('timeout') || (error as Error).name === 'TimeoutError') {
+        logger.error('SmartDataCollectionService timeout failure - high zombie report risk', error as Error, {
+          ...enhancedContext,
+          failureType: 'TIMEOUT',
+          zombieRiskLevel: 'HIGH'
+        });
+      }
+
+      if ((error as Error).message.includes('database') || (error as Error).message.includes('connection')) {
+        logger.error('SmartDataCollectionService database failure - database integrity risk', error as Error, {
+          ...enhancedContext,
+          failureType: 'DATABASE_CONNECTION',
+          zombieRiskLevel: 'MEDIUM'
+        });
+      }
+
       throw error;
     }
   }
@@ -623,19 +688,44 @@ export class SmartDataCollectionService {
         }
       };
 
-      // Store fast collection result
-      await prisma.competitorSnapshot.create({
-        data: {
-          id: createId(),
-          competitorId: competitor.id,
-          metadata: {
-            captureType: 'fast_collection',
-            captureTime: Date.now(),
-            dataCompleteness: 'essential_only',
-            ...fastData
+      // Store fast collection result with enhanced error handling
+      try {
+        const snapshotId = createId();
+        await prisma.snapshot.create({
+          data: {
+            id: snapshotId,
+            competitorId: competitor.id,
+            metadata: {
+              captureType: 'fast_collection',
+              captureTime: Date.now(),
+              dataCompleteness: 'essential_only',
+              ...fastData
+            }
           }
-        }
-      });
+        });
+
+        logger.info('Fast collection snapshot created successfully', {
+          ...context,
+          snapshotId,
+          competitorId: competitor.id,
+          dataType: 'fast_collection'
+        });
+
+      } catch (dbError) {
+        logger.error('Failed to create fast collection snapshot', dbError as Error, {
+          ...context,
+          competitorId: competitor.id,
+          operation: 'snapshot_creation',
+          errorType: 'database_error'
+        });
+        
+        // Don't throw here - fast collection should be resilient
+        logger.warn('Continuing without snapshot creation', {
+          ...context,
+          competitorId: competitor.id,
+          fallbackReason: 'snapshot_creation_failed'
+        });
+      }
 
       logger.info('Fast competitor data collection completed', context);
 

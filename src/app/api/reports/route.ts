@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { generateCorrelationId, logger, trackEvent, trackError } from '@/lib/logger';
+import { ProfileScopedQueries, getCurrentProfileId } from '@/lib/profile/profileUtils';
 
 export async function GET(request: NextRequest) {
   const correlationId = generateCorrelationId();
@@ -27,14 +28,21 @@ export async function GET(request: NextRequest) {
       metadata: { projectId, limit, offset }
     }, logContext);
 
-    // Build where clause based on filters
-    const whereClause: any = {};
+    // Get current profile ID for scoped access
+    const currentProfileId = await getCurrentProfileId();
+
+    // Build where clause with profile scoping - only show reports from projects owned by current profile
+    const whereClause: any = {
+      project: {
+        profileId: currentProfileId
+      }
+    };
     
     if (projectId) {
       whereClause.projectId = projectId;
     }
 
-    // Fetch reports from database with filtering
+    // Fetch reports from database with profile-scoped filtering
     const reports = await prisma.report.findMany({
       where: whereClause,
       include: {
@@ -42,6 +50,7 @@ export async function GET(request: NextRequest) {
           select: {
             id: true,
             name: true,
+            profileId: true, // Include profileId for verification
             competitors: {
               select: { id: true }
             }
@@ -70,7 +79,7 @@ export async function GET(request: NextRequest) {
       take: limit
     });
 
-    // Get total count for pagination
+    // Get total count for pagination with same profile scoping
     const totalCount = await prisma.report.count({
       where: whereClause
     });

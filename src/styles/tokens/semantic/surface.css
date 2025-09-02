@@ -1,0 +1,109 @@
+/**
+ * Semantic Surface Tokens
+ * Background, border, and text colors for UI surfaces
+ */
+
+:root {
+  /* Background Colors */
+  --surface-background: var(--color-background-light);
+  --surface-foreground: #171717; /* Current foreground */
+  --surface-foreground-elements: var(--color-white);
+
+  /* Card/Container Surfaces */
+  --surface-card: var(--color-white);
+  --surface-card-foreground: var(--color-gray-900);
+  --surface-card-border: var(--color-gray-200);
+
+  /* Overlay Surfaces */
+  --surface-overlay: var(--color-white);
+  --surface-overlay-foreground: var(--color-gray-900);
+  --surface-overlay-border: var(--color-gray-300);
+
+  /* Muted Surfaces */
+  --surface-muted: var(--color-gray-100);
+  --surface-muted-foreground: var(--color-gray-600);
+
+  /* Accent Surfaces */
+  --surface-accent: var(--color-gray-100);
+  --surface-accent-foreground: var(--color-gray-900);
+
+  /* Interactive Surfaces */
+  --surface-hover: var(--color-gray-50);
+  --surface-active: var(--color-gray-100);
+  --surface-selected: var(--color-green-50);
+  --surface-selected-foreground: var(--color-green-900);
+
+  /* Border Colors */
+  --surface-border: var(--color-gray-200);
+  --surface-border-hover: var(--color-gray-300);
+  --surface-border-focus: var(--brand-primary);
+
+  /* Text Colors */
+  --surface-text-primary: var(--color-gray-900);
+  --surface-text-secondary: var(--color-gray-600);
+  --surface-text-tertiary: var(--color-gray-500);
+  --surface-text-disabled: var(--color-gray-400);
+  --surface-text-inverted: var(--color-white);
+
+  /* Input Surfaces */
+  --surface-input: var(--color-white);
+  --surface-input-foreground: var(--color-gray-900);
+  --surface-input-border: var(--color-gray-300);
+  --surface-input-border-hover: var(--color-gray-400);
+  --surface-input-border-focus: var(--brand-primary);
+  --surface-input-placeholder: var(--color-gray-500);
+}
+
+/* Dark Mode Surface Overrides */
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* Background Colors */
+    --surface-background: var(--color-background-dark);
+    --surface-foreground: #ededed; /* Current dark foreground */
+    --surface-foreground-elements: var(--color-gray-900);
+
+    /* Card/Container Surfaces */
+    --surface-card: var(--color-gray-900);
+    --surface-card-foreground: var(--color-gray-100);
+    --surface-card-border: var(--color-gray-800);
+
+    /* Overlay Surfaces */
+    --surface-overlay: var(--color-gray-800);
+    --surface-overlay-foreground: var(--color-gray-100);
+    --surface-overlay-border: var(--color-gray-700);
+
+    /* Muted Surfaces */
+    --surface-muted: var(--color-gray-800);
+    --surface-muted-foreground: var(--color-gray-400);
+
+    /* Accent Surfaces */
+    --surface-accent: var(--color-gray-800);
+    --surface-accent-foreground: var(--color-gray-100);
+
+    /* Interactive Surfaces */
+    --surface-hover: var(--color-gray-800);
+    --surface-active: var(--color-gray-700);
+    --surface-selected: var(--color-green-950);
+    --surface-selected-foreground: var(--color-green-100);
+
+    /* Border Colors */
+    --surface-border: var(--color-gray-800);
+    --surface-border-hover: var(--color-gray-700);
+    --surface-border-focus: var(--brand-primary);
+
+    /* Text Colors */
+    --surface-text-primary: var(--color-gray-100);
+    --surface-text-secondary: var(--color-gray-400);
+    --surface-text-tertiary: var(--color-gray-500);
+    --surface-text-disabled: var(--color-gray-600);
+    --surface-text-inverted: var(--color-gray-900);
+
+    /* Input Surfaces */
+    --surface-input: var(--color-gray-900);
+    --surface-input-foreground: var(--color-gray-100);
+    --surface-input-border: var(--color-gray-700);
+    --surface-input-border-hover: var(--color-gray-600);
+    --surface-input-border-focus: var(--brand-primary);
+    --surface-input-placeholder: var(--color-gray-500);
+  }
+}

@@ -232,6 +232,144 @@ export class EnhancedProjectExtractor {
   }
 
   /**
+   * Enhanced URL extraction with confidence scoring - Task 5.1
+   */
+  private extractUrlWithConfidence(message: string): { url: string | null; confidence: number } {
+    // Enhanced URL patterns with different confidence levels
+    const urlPatterns = [
+      { pattern: /https?:\/\/(?:www\.)?([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(?:\/[^\s]*)?/g, confidence: 95 },
+      { pattern: /(?:https?:\/\/)?(?:www\.)?([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(?:\/[^\s]*)?/g, confidence: 85 },
+      { pattern: /([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}(?:\/[^\s]*)?/g, confidence: 70 }
+    ];
+
+    for (const { pattern, confidence } of urlPatterns) {
+      const matches = Array.from(message.matchAll(pattern));
+      if (matches.length > 0) {
+        const url = matches[0][0];
+        const validatedUrl = this.validateAndCleanUrl(url);
+        if (validatedUrl) {
+          return { url: validatedUrl, confidence };
+        }
+      }
+    }
+
+    return { url: null, confidence: 0 };
+  }
+
+  /**
+   * Enhanced product name extraction with confidence scoring - Task 5.1
+   */
+  private extractProductNameWithConfidence(message: string): { name: string | null; confidence: number } {
+    const productPatterns = [
+      // High confidence patterns - explicit product mentions
+      { pattern: /(?:product|company|brand|business)\s*(?:name|is)?\s*:?\s*["']?([^"',\n]{2,50})["']?/i, confidence: 95 },
+      { pattern: /(?:analyzing|analyze|review)\s+(?:the\s+)?["']?([^"',\n]{2,50})["']?\s+(?:product|company|app|website|platform)/i, confidence: 90 },
+      
+      // Medium confidence patterns - context-based
+      { pattern: /(?:working\s+(?:on|at)|developing)\s+["']?([^"',\n]{2,50})["']?/i, confidence: 80 },
+      { pattern: /(?:our|my)\s+(?:product|company|startup|business)\s+["']?([^"',\n]{2,50})["']?/i, confidence: 85 },
+      
+      // Lower confidence patterns - general extraction
+      { pattern: /^(?:product|company|brand)\s*:?\s*([^,\n]+)/i, confidence: 70 },
+      { pattern: /(?:called|named)\s+["']?([^"',\n]{2,50})["']?/i, confidence: 75 }
+    ];
+
+    for (const { pattern, confidence } of productPatterns) {
+      const match = message.match(pattern);
+      if (match && match[1]) {
+        let name = match[1].trim().replace(/^["'](.*)["']$/, '$1');
+        
+        // Additional confidence adjustments based on content quality
+        let adjustedConfidence = confidence;
+        
+        // Reduce confidence for very short names (likely not complete)
+        if (name.length < 3) adjustedConfidence *= 0.5;
+        
+        // Reduce confidence for names with suspicious patterns
+        if (name.includes('...') || name.includes('etc') || name.match(/^[a-z]+$/)) {
+          adjustedConfidence *= 0.7;
+        }
+        
+        // Increase confidence for names with proper capitalization
+        if (name.match(/^[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*$/)) {
+          adjustedConfidence *= 1.1;
+        }
+        
+        return { name, confidence: Math.min(adjustedConfidence, 100) };
+      }
+    }
+
+    return { name: null, confidence: 0 };
+  }
+
+  /**
+   * Enhanced URL validation with better normalization - Task 5.1
+   */
+  private validateAndCleanUrl(url: string): string | null {
+    try {
+      // Remove trailing punctuation that might not be part of URL
+      const cleanUrl = url.replace(/[.,;!?)]+$/, '');
+      
+      // Handle cases where user provides URL without protocol
+      let urlToValidate = cleanUrl;
+      if (!urlToValidate.startsWith('http://') && !urlToValidate.startsWith('https://')) {
+        urlToValidate = 'https://' + urlToValidate;
+      }
+
+      const parsedUrl = new URL(urlToValidate);
+      
+      // Enhanced validation checks
+      if (!parsedUrl.hostname || parsedUrl.hostname.length < 3) {
+        return null;
+      }
+
+      // Ensure protocol is http or https
+      if (parsedUrl.protocol !== 'https:' && parsedUrl.protocol !== 'http:') {
+        return null;
+      }
+
+      // Domain validation - must contain at least one dot (except localhost)
+      if (!parsedUrl.hostname.includes('.') && 
+          !parsedUrl.hostname.startsWith('localhost') && 
+          !parsedUrl.hostname.includes(':')) {
+        return null;
+      }
+
+      // Reject invalid domain patterns
+      const invalidPatterns = [
+        /^\./, // starts with dot
+        /\.\.$/, // ends with double dot
+        /\s/, // contains spaces
+        /[<>"]/, // contains invalid characters
+        /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ // bare IP addresses (require context)
+      ];
+
+      if (invalidPatterns.some(pattern => pattern.test(parsedUrl.hostname))) {
+        return null;
+      }
+
+      // Normalize URL format
+      let normalizedUrl = parsedUrl.toString();
+      
+      // Remove default ports
+      if ((parsedUrl.protocol === 'https:' && parsedUrl.port === '443') ||
+          (parsedUrl.protocol === 'http:' && parsedUrl.port === '80')) {
+        normalizedUrl = normalizedUrl.replace(`:${parsedUrl.port}`, '');
+      }
+      
+      // Ensure trailing slash for consistency
+      if (parsedUrl.pathname === '/') {
+        normalizedUrl = normalizedUrl.replace(/\/$/, '');
+      }
+
+      return normalizedUrl;
+    } catch (error) {
+      // URL parsing failed
+      return null;
+    }
+  }
+
+  /**
    * Intelligent unstructured extraction using pattern matching
    */
   private tryUnstructuredExtraction(message: string): ExtractionResult {
@@ -243,22 +381,16 @@ export class EnhancedProjectExtractor {
     const userEmail = emailMatch ? emailMatch[0] : null;
 
     // Extract frequency using pattern matching
-    const frequencyMatch = message.match(/\b(weekly|monthly|daily|quarterly)\b/i);
+    const frequencyMatch = message.match(/\b(weekly|monthly|daily|quarterly|bi-weekly|annually)\b/i);
     const frequency = frequencyMatch ? frequencyMatch[1] : null;
 
-    // Extract project name (look for project/report keywords)
+    // Enhanced project name extraction with confidence
     const projectPatterns = [
-      // Match "should be called" with quotes
       /should be called\s*["']([^"']+)["']/i,
-      // Match "project should be called" with quotes  
       /(?:project|report|analysis)\s+should be called\s*["']([^"']+)["']/i,
-      // Match project with colon and optional quotes
       /(?:project|report|analysis)\s*:?\s*["']?([^"',\n]+?)["']?$/i,
-      // Match name/title with colon
       /(?:name|title)\s*:?\s*["']?([^"',\n]+?)["']?$/i,
-      // Match "called" patterns
       /(?:called?)\s+(?:the\s+)?(?:project|report|analysis)\s*:?\s*["']?([^"',\n]+?)["']?/i,
-      // Fallback: any text after project keywords
       /(?:project|analysis|report).*?["']([^"']{10,})["']/i
     ];
     
@@ -271,29 +403,19 @@ export class EnhancedProjectExtractor {
       }
     }
 
-    // Extract website URL
-    const websiteMatch = message.match(/https?:\/\/[^\s]+/);
-    const productWebsite = websiteMatch ? this.validateAndCleanUrl(websiteMatch[0]) : null;
+    // Enhanced URL extraction with confidence
+    const urlResult = this.extractUrlWithConfidence(message);
+    const productWebsite = urlResult.url;
 
-    // Extract product name
-    const productPatterns = [
-      /^(?:product|company|brand)\s*:?\s*([^,\n]+)/i,
-      /(?:analyzing|analyze)\s+([^,\n]+)/i
-    ];
-    
-    let productName = null;
-    for (const pattern of productPatterns) {
-      const match = message.match(pattern);
-      if (match && match[1]) {
-        productName = match[1].trim().replace(/['"]/g, '');
-        break;
-      }
-    }
+    // Enhanced product name extraction with confidence
+    const productResult = this.extractProductNameWithConfidence(message);
+    const productName = productResult.name;
 
-    // Extract industry
+    // Extract industry with enhanced patterns
     const industryPatterns = [
       /(?:industry|market|sector)\s*:?\s*([^,\n]+)/i,
-      /(?:in\s+the)\s+([^,\n\s]+(?:\s+[^,\n\s]+)*?)\s+(?:industry|market|space)/i
+      /(?:in\s+the)\s+([^,\n\s]+(?:\s+[^,\n\s]+)*?)\s+(?:industry|market|space)/i,
+      /(?:focused\s+on|specializing\s+in)\s+([^,\n]+)/i
     ];
     
     let industry = null;
@@ -305,57 +427,52 @@ export class EnhancedProjectExtractor {
       }
     }
 
-    // Validation and error checking
+    // Enhanced validation with confidence-based error messages
     if (!userEmail) {
-      errors.push('Invalid email address format in first line');
+      errors.push('Invalid email address format');
       suggestions.push('Please include your email address (e.g., user@company.com)');
     }
 
     if (!frequency) {
-      errors.push('Invalid frequency in second line');
-      suggestions.push('Please specify how often you want reports (e.g., "Weekly" or "Monthly")');
+      errors.push('Invalid frequency specification');
+      suggestions.push('Please specify report frequency (weekly, monthly, quarterly)');
     }
 
     if (!projectName) {
-      errors.push('Project name too short or missing in third line');
-      suggestions.push('Please specify the project name (e.g., "Project: Competitor Analysis")');
+      errors.push('Project name missing or too short');
+      suggestions.push('Please provide a clear project name (e.g., "Competitive Analysis for ProductX")');
     }
 
-    if (!productWebsite) {
-      suggestions.push('Consider including your product website URL for better analysis');
+    // Task 5.1: Add confidence-based suggestions for improvements
+    if (productResult.confidence > 0 && productResult.confidence < 80 && productName) {
+      suggestions.push(`Product name "${productName}" detected with ${Math.round(productResult.confidence)}% confidence. Consider providing more context.`);
     }
 
-    // Return result if we have minimum required information
-    if (userEmail && frequency && projectName) {
-      return {
-        success: true,
-        data: {
-          userEmail,
-          frequency,
-          projectName,
-          productWebsite: productWebsite || undefined,
-          productName: productName || undefined,
-          industry: industry || undefined
-        },
-        errors,
-        suggestions
-      };
+    if (urlResult.confidence > 0 && urlResult.confidence < 80 && productWebsite) {
+      suggestions.push(`URL "${productWebsite}" detected with ${Math.round(urlResult.confidence)}% confidence. Please verify the URL is correct.`);
     }
 
     return {
-      success: false,
+      success: errors.length === 0,
+      data: errors.length === 0 ? {
+        userEmail,
+        reportFrequency: frequency,
+        projectName,
+        productName: productName || undefined,
+        productUrl: productWebsite || undefined,
+        industry: industry || undefined,
+        positioning: undefined,
+        customerData: undefined,
+        userProblem: undefined
+      } : null,
       errors,
-      suggestions: [
-        ...suggestions,
-        '',
-        'Example format:',
-        'user@company.com',
-        'Weekly',
-        'Project: Good Chop Analysis',  
-        'https://goodchop.com',
-        'Product: Good Chop',
-        'Industry: Food Delivery'
-      ]
+      suggestions,
+      completeness: 0,
+      confidence: {
+        productName: productResult.confidence,
+        productUrl: urlResult.confidence,
+        overall: errors.length === 0 ? 85 : 0
+      }
     };
   }
 
@@ -486,48 +603,6 @@ export class EnhancedProjectExtractor {
     return null;
   }
 
-  private validateAndCleanUrl(url: string): string | null {
-    try {
-      // Remove trailing punctuation that might not be part of URL
-      const cleanUrl = url.replace(/[.,;!?)]+$/, '');
-      
-      // Handle cases where user provides URL without protocol
-      let urlToValidate = cleanUrl;
-      if (!urlToValidate.startsWith('http://') && !urlToValidate.startsWith('https://')) {
-        urlToValidate = 'https://' + urlToValidate;
-      }
-
-      const parsedUrl = new URL(urlToValidate);
-      
-      // Basic validation
-      if (!parsedUrl.hostname || parsedUrl.hostname.length < 3) {
-        return null;
-      }
-
-      // Ensure protocol is http or https
-      if (parsedUrl.protocol !== 'https:' && parsedUrl.protocol !== 'http:') {
-        return null;
-      }
-
-      // Domain should contain at least one dot (except localhost)
-      if (!parsedUrl.hostname.includes('.') && 
-          !parsedUrl.hostname.startsWith('localhost') && 
-          !parsedUrl.hostname.includes(':')) {
-        return null;
-      }
-
-      // Normalize URL format - add trailing slash for consistency
-      let normalizedUrl = parsedUrl.toString();
-      if (!normalizedUrl.endsWith('/') && parsedUrl.pathname === '/') {
-        normalizedUrl = normalizedUrl + '/';
-      }
-
-      return normalizedUrl;
-    } catch (error) {
-      return null;
-    }
-  }
-
   /**
    * Calculate completeness percentage based on available fields
    */
@@ -589,7 +664,7 @@ export class EnhancedProjectExtractor {
     let message = '✅ **Project Information Extracted Successfully!**\n\n';
     
     message += `📧 **Email:** ${data.userEmail}\n`;
-    message += `📊 **Frequency:** ${data.frequency}\n`;
+    message += `📊 **Frequency:** ${data.reportFrequency}\n`;
     message += `📋 **Project:** ${data.projectName}\n`;
     
     if (data.productWebsite) {

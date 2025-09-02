@@ -3,6 +3,12 @@
 import React from 'react';
 import Link from 'next/link';
 import { InitialReportStatus } from '@/hooks/useInitialReportStatus';
+import { Card, CardContent } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Progress } from '@/components/ui/progress';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { cn } from '@/lib/utils';
 
 interface InitialReportStatusCardProps {
   projectId: string;
@@ -105,24 +111,37 @@ export default function InitialReportStatusCard({
   const freshnessInfo = getFreshnessLabel(status?.dataFreshness || 'basic');
 
   // Determine card styling based on status
-  const getCardStyling = () => {
-    const baseClasses = "bg-white border rounded-lg p-4 transition-all duration-200";
-    
+  const getCardVariant = () => {
     switch (config.color) {
       case 'green':
-        return `${baseClasses} border-green-200 hover:border-green-300`;
+        return 'border-green-200 hover:border-green-300';
       case 'red':
-        return `${baseClasses} border-red-200 hover:border-red-300`;
+        return 'border-red-200 hover:border-red-300';
       case 'blue':
-        return `${baseClasses} border-blue-200 hover:border-blue-300`;
+        return 'border-blue-200 hover:border-blue-300';
       case 'yellow':
-        return `${baseClasses} border-yellow-200 hover:border-yellow-300`;
+        return 'border-yellow-200 hover:border-yellow-300';
       default:
-        return `${baseClasses} border-gray-200 hover:border-gray-300`;
+        return 'border-border hover:border-border/80';
     }
   };
 
-  const getStatusStyling = () => {
+  const getBadgeVariant = () => {
+    switch (config.color) {
+      case 'green':
+        return 'default' as const;
+      case 'red':
+        return 'destructive' as const;
+      case 'blue':
+        return 'default' as const;
+      case 'yellow':
+        return 'secondary' as const;
+      default:
+        return 'secondary' as const;
+    }
+  };
+
+  const getIconBgColor = () => {
     switch (config.color) {
       case 'green':
         return 'text-green-600 bg-green-50';
@@ -133,134 +152,135 @@ export default function InitialReportStatusCard({
       case 'yellow':
         return 'text-yellow-600 bg-yellow-50';
       default:
-        return 'text-gray-600 bg-gray-50';
+        return 'text-muted-foreground bg-muted';
     }
   };
 
   return (
-    <div className={getCardStyling()}>
-      <div className="flex items-start justify-between">
-        <div className="flex items-start space-x-3">
-          <div className={`flex-shrink-0 p-2 rounded-lg ${getStatusStyling()}`}>
-            <StatusIcon type={config.icon} className={`h-5 w-5 text-${config.color}-600`} />
-          </div>
-          
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center space-x-2">
-              <h3 className="text-sm font-medium text-gray-900">
-                Initial Report
-              </h3>
-              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-${config.color}-100 text-${config.color}-800`}>
-                {config.label}
-              </span>
+    <Card className={cn("transition-all duration-200", getCardVariant())}>
+      <CardContent className="p-4">
+        <div className="flex items-start justify-between">
+          <div className="flex items-start space-x-3">
+            <div className={cn("flex-shrink-0 p-2 rounded-lg", getIconBgColor())}>
+              <StatusIcon type={config.icon} className="h-5 w-5" />
             </div>
             
-            <p className="mt-1 text-sm text-gray-500">
-              {config.description}
-            </p>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center space-x-2">
+                <h3 className="text-sm font-medium">
+                  Initial Report
+                </h3>
+                <Badge variant={getBadgeVariant()} className="text-xs">
+                  {config.label}
+                </Badge>
+              </div>
+              
+              <p className="mt-1 text-sm text-muted-foreground">
+                {config.description}
+              </p>
 
-            {/* Quality and Freshness Indicators */}
-            {status && currentStatus !== 'not_started' && (
-              <div className="mt-2 flex items-center space-x-3">
-                {status.dataCompletenessScore !== undefined && (
+              {/* Quality and Freshness Indicators */}
+              {status && currentStatus !== 'not_started' && (
+                <div className="mt-2 flex items-center space-x-3">
+                  {status.dataCompletenessScore !== undefined && (
+                    <div className="flex items-center space-x-1">
+                      <span className="text-xs text-muted-foreground">Quality:</span>
+                      <Badge variant="outline" className="text-xs">
+                        {status.dataCompletenessScore}%
+                      </Badge>
+                    </div>
+                  )}
+                  
                   <div className="flex items-center space-x-1">
-                    <span className="text-xs text-gray-500">Quality:</span>
-                    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-${qualityTier.color}-100 text-${qualityTier.color}-800`}>
-                      {status.dataCompletenessScore}%
-                    </span>
+                    <span className="text-xs text-muted-foreground">Data:</span>
+                    <Badge variant="outline" className="text-xs">
+                      {freshnessInfo.label}
+                    </Badge>
                   </div>
-                )}
-                
-                <div className="flex items-center space-x-1">
-                  <span className="text-xs text-gray-500">Data:</span>
-                  <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-${freshnessInfo.color}-100 text-${freshnessInfo.color}-800`}>
-                    {freshnessInfo.label}
-                  </span>
                 </div>
-              </div>
-            )}
+              )}
 
-            {/* Competitor Snapshots Summary */}
-            {status?.competitorSnapshotsStatus && showProgress && (
-              <div className="mt-2 text-xs text-gray-500">
-                Snapshots: {status.competitorSnapshotsStatus.captured} captured
-                {status.competitorSnapshotsStatus.failures && status.competitorSnapshotsStatus.failures.length > 0 && (
-                  <span className="text-red-500 ml-1">
-                    ({status.competitorSnapshotsStatus.failures.length} failed)
-                  </span>
-                )}
-              </div>
-            )}
+              {/* Competitor Snapshots Summary */}
+              {status?.competitorSnapshotsStatus && showProgress && (
+                <div className="mt-2 text-xs text-muted-foreground">
+                  Snapshots: {status.competitorSnapshotsStatus.captured} captured
+                  {status.competitorSnapshotsStatus.failures && status.competitorSnapshotsStatus.failures.length > 0 && (
+                    <span className="text-destructive ml-1">
+                      ({status.competitorSnapshotsStatus.failures.length} failed)
+                    </span>
+                  )}
+                </div>
+              )}
 
-            {/* Error Message */}
-            {currentStatus === 'failed' && status?.error && (
-              <div className="mt-2 text-xs text-red-600 bg-red-50 px-2 py-1 rounded">
-                {status.error}
-              </div>
-            )}
+              {/* Error Message */}
+              {currentStatus === 'failed' && status?.error && (
+                <Alert variant="destructive" className="mt-2">
+                  <AlertDescription className="text-xs">
+                    {status.error}
+                  </AlertDescription>
+                </Alert>
+              )}
           </div>
         </div>
 
-        {/* Action Buttons */}
-        <div className="flex-shrink-0 ml-4">
-          {currentStatus === 'completed' && status?.reportId && (
-            <div className="space-y-1">
-              {onViewReport ? (
-                <button
-                  onClick={() => onViewReport(status.reportId!)}
-                  className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded text-green-700 bg-green-100 hover:bg-green-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
-                >
-                  View Report
-                </button>
-              ) : (
-                <Link
-                  href={`/reports/${status.reportId}`}
-                  className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded text-green-700 bg-green-100 hover:bg-green-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
-                >
-                  View Report
+          {/* Action Buttons */}
+          <div className="flex-shrink-0 ml-4">
+            {currentStatus === 'completed' && status?.reportId && (
+              <div className="space-y-1">
+                {onViewReport ? (
+                  <Button
+                    onClick={() => onViewReport(status.reportId!)}
+                    size="sm"
+                    variant="default"
+                  >
+                    View Report
+                  </Button>
+                ) : (
+                  <Button asChild size="sm" variant="default">
+                    <Link href={`/reports/${status.reportId}`}>
+                      View Report
+                    </Link>
+                  </Button>
+                )}
+                
+                {status.generatedAt && (
+                  <div className="text-xs text-muted-foreground">
+                    {new Date(status.generatedAt).toLocaleDateString()}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {currentStatus === 'failed' && (
+              <Button asChild size="sm" variant="outline">
+                <Link href={`/projects/${projectId}/reports/new`}>
+                  Retry
                 </Link>
-              )}
-              
-              {status.generatedAt && (
-                <div className="text-xs text-gray-500">
-                  {new Date(status.generatedAt).toLocaleDateString()}
-                </div>
-              )}
-            </div>
-          )}
+              </Button>
+            )}
 
-          {currentStatus === 'failed' && (
-            <Link
-              href={`/projects/${projectId}/reports/new`}
-              className="inline-flex items-center px-3 py-1.5 border border-gray-300 text-xs font-medium rounded text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-            >
-              Retry
-            </Link>
-          )}
-
-          {currentStatus === 'not_started' && (
-            <Link
-              href={`/projects/${projectId}/reports/new?initial=true`}
-              className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded text-indigo-700 bg-indigo-100 hover:bg-indigo-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-            >
-              Generate
-            </Link>
-          )}
+            {currentStatus === 'not_started' && (
+              <Button asChild size="sm" variant="default">
+                <Link href={`/projects/${projectId}/reports/new?initial=true`}>
+                  Generate
+                </Link>
+              </Button>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Minimal Progress Bar for Generating Status */}
-      {currentStatus === 'generating' && showProgress && (
-        <div className="mt-3">
-          <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
-            <span>Progress</span>
-            <span>In Progress...</span>
+        {/* Minimal Progress Bar for Generating Status */}
+        {currentStatus === 'generating' && showProgress && (
+          <div className="mt-3">
+            <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
+              <span>Progress</span>
+              <span>In Progress...</span>
+            </div>
+            <Progress value={60} className="h-1.5 animate-pulse" />
           </div>
-          <div className="w-full bg-gray-200 rounded-full h-1.5">
-            <div className="bg-blue-500 h-1.5 rounded-full animate-pulse" style={{ width: '60%' }} />
-          </div>
-        </div>
-      )}
-    </div>
+        )}
+      </CardContent>
+    </Card>
   );
 } 

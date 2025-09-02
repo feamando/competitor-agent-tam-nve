@@ -1,4 +1,5 @@
 import { ComparativeAnalysis } from './analysis';
+import { ReportGenerationFallbackInfo } from './bedrockHealth';
 
 // Enhanced types for comparative reporting
 export interface ComparativeReportMetadata {
@@ -21,7 +22,8 @@ export interface ComparativeReportSection {
   title: string;
   content: string;
   type: 'executive_summary' | 'feature_comparison' | 'positioning_analysis' | 
-        'ux_comparison' | 'customer_targeting' | 'recommendations' | 'appendix';
+        'ux_comparison' | 'customer_targeting' | 'recommendations' | 'appendix' |
+        'analysis' | 'findings' | 'competitive_analysis';
   order: number;
   charts?: ReportChart[];
   tables?: ReportTable[];
@@ -111,6 +113,7 @@ export interface ReportGenerationResult {
   cost: number;
   warnings: string[];
   errors: string[];
+  aiEnhancementInfo?: ReportGenerationFallbackInfo;
 }
 
 // Report template constants

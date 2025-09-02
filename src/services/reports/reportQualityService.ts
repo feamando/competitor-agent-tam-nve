@@ -168,7 +168,7 @@ export class ReportQualityService {
     const dataFreshness = this.calculateDataFreshness(report, competitorData);
     
     // Analysis confidence (35% of overall score)
-    const analysisConfidence = analysis.metadata.confidenceScore;
+    const analysisConfidence = analysis?.metadata?.confidenceScore || 75;
 
     // Section-specific completeness
     const sectionCompleteness = this.calculateSectionCompleteness(report.sections, competitorData);
@@ -368,7 +368,7 @@ export class ReportQualityService {
       }
 
       // Overall analysis confidence
-      if (analysis.metadata.confidenceScore >= 80) {
+      if ((analysis?.metadata?.confidenceScore || 75) >= 80) {
         factors.push({
           factor: 'analysis_confidence',
           impact: 'positive',
@@ -599,8 +599,8 @@ export class ReportQualityService {
     const dataSourceQuality: Record<string, number> = {
       'product_data': report.metadata.productName ? 90 : 50,
       'competitor_data': competitorCoverage,
-      'market_data': analysis.metadata.confidenceScore,
-      'analysis_quality': analysis.metadata.confidenceScore
+      'market_data': analysis?.metadata?.confidenceScore || 75,
+      'analysis_quality': analysis?.metadata?.confidenceScore || 75
     };
 
     return {

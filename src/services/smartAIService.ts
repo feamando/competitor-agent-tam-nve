@@ -13,6 +13,8 @@ import { logger, generateCorrelationId, trackErrorWithCorrelation, trackPerforma
 import { SmartSchedulingService, ProjectFreshnessStatus } from './smartSchedulingService';
 import { BedrockService } from './bedrock/bedrock.service';
 import { ConversationManager } from '@/lib/chat/conversation';
+import { CompAIPromptBuilder } from './analysis/compaiPromptBuilder';
+import { CompAIPromptOptions } from '@/types/prompts';
 import prisma from '@/lib/prisma';
 
 // Smart AI interfaces
@@ -22,6 +24,9 @@ export interface SmartAIAnalysisRequest {
   analysisType: 'competitive' | 'trend' | 'comprehensive';
   dataCutoff?: Date;
   context?: Record<string, any>;
+  // TP-014: CompAI integration options
+  useCompAIFormat?: boolean;
+  compaiOptions?: CompAIPromptOptions;
 }
 
 export interface SmartAIAnalysisResponse {
@@ -52,10 +57,12 @@ export class SmartAIService {
   private smartScheduler: SmartSchedulingService;
   private bedrockService: BedrockService | null = null;
   private conversationManager: ConversationManager;
+  private compaiBuilder: CompAIPromptBuilder; // TP-014: CompAI integration
 
   constructor() {
     this.smartScheduler = new SmartSchedulingService();
     this.conversationManager = new ConversationManager();
+    this.compaiBuilder = new CompAIPromptBuilder(); // TP-014: CompAI integration
   }
 
   /**
@@ -279,11 +286,14 @@ export class SmartAIService {
       });
 
       // Build enhanced prompt with freshness context
-      const enhancedPrompt = this.buildEnhancedPrompt(
+      // TP-014: Pass CompAI options if requested
+      const enhancedPrompt = await this.buildEnhancedPrompt(
         { ...project, products, competitors },
         request.analysisType,
         freshnessStatus,
-        request.context
+        request.context,
+        request.useCompAIFormat,
+        request.compaiOptions
       );
 
       // Generate analysis using Claude via Bedrock
@@ -322,13 +332,42 @@ export class SmartAIService {
 
   /**
    * Build enhanced prompt with freshness and scheduling context
+   * TP-014: Extended with CompAI format support
    */
-  private buildEnhancedPrompt(
+  private async buildEnhancedPrompt(
     project: any,
     analysisType: string,
     freshnessStatus: ProjectFreshnessStatus,
-    additionalContext?: Record<string, any>
-  ): string {
+    additionalContext?: Record<string, any>,
+    useCompAIFormat = false, // TP-014: CompAI integration
+    compaiOptions?: CompAIPromptOptions // TP-014: CompAI options
+  ): Promise<string> {
+    // TP-014: Use CompAI format if requested
+    if (useCompAIFormat && analysisType === 'competitive') {
+      try {
+        logger.info('Building CompAI prompt for competitive analysis', {
+          projectId: project.id,
+          projectName: project.name,
+          useCompAIFormat,
+          compaiOptions
+        });
+
+        return await this.compaiBuilder.buildCompAIPrompt(
+          project,
+          'competitive',
+          freshnessStatus,
+          compaiOptions
+        );
+      } catch (error) {
+        logger.error('Failed to build CompAI prompt, falling back to legacy format', {
+          error: error instanceof Error ? error.message : 'Unknown error',
+          projectId: project.id
+        });
+        // Fall through to legacy format
+      }
+    }
+
+    // Legacy prompt format (backward compatibility)
     const freshDataIndicators = this.buildDataFreshnessContext(freshnessStatus);
     const competitorData = this.buildCompetitorContext(project.competitors);
     const productData = this.buildProductContext(project.products);

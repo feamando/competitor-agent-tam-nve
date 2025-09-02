@@ -6,13 +6,37 @@ import { projectScrapingService } from '@/services/projectScrapingService';
 import { productChatProcessor } from './productChatProcessor';
 import { productService } from '@/services/productService';
 import { enhancedProjectExtractor, EnhancedChatProjectData } from './enhancedProjectExtractor';
-import { ComprehensiveRequirementsCollector, ComprehensiveProjectRequirements } from './comprehensiveRequirementsCollector';
+import { ComprehensiveRequirementsCollector, ComprehensiveProjectRequirements, RequirementsValidationResult } from './comprehensiveRequirementsCollector';
 import { logger, generateCorrelationId, trackBusinessEvent } from '@/lib/logger';
 import { productRepository } from '@/lib/repositories';
 import { getAutoReportService } from '@/services/autoReportGenerationService';
 import { dataIntegrityValidator } from '@/lib/validation/dataIntegrity';
 import { registerService } from '@/services/serviceRegistry';
 import { ConversationMemoryOptimizer, MAX_MESSAGES_PER_CONVERSATION } from './memoryOptimization';
+import { getOrCreateMockUserWithProfile } from '@/lib/profile/profileUtils';
+import { ChatAWSStatusChecker, AWSStatusResult } from '@/lib/chat/awsStatusChecker';
+import { CompetitorResolutionService } from '@/services/competitorResolutionService';
+// Removed duplicate imports that were causing module resolution errors
+
+// Type definitions for enhanced error handling - Task 1: Move interfaces outside class
+interface ParseErrorCategory {
+  type: 'format_error' | 'missing_data' | 'validation_error' | 'partial_success' | 'general_error';
+  category: string;
+  severity: 'low' | 'medium' | 'high';
+  details: any;
+}
+
+interface RecoveryStrategy {
+  strategy: string;
+  priority: 'low' | 'medium' | 'high';
+  suggestions: string[];
+}
+
+interface ProgressiveParsingResult {
+  hasValidData: boolean;
+  data: any;
+  confidence: number;
+}
 
 export class ConversationManager {
   private chatState: ChatState;
@@ -42,6 +66,7 @@ export class ConversationManager {
       stepDescription: 'Welcome',
       expectedInputType: 'text',
       useComprehensiveFlow: enableComprehensiveFlow, // Respect environment setting
+      collectedData: {}, // Initialize collectedData as empty object to prevent undefined errors
       ...initialState,
     };
     this.reportGenerator = new MarkdownReportGenerator();
@@ -297,13 +322,32 @@ Please tell me:
 
   private async handleStep0(content: string): Promise<ChatResponse> {
     // Phase 5.2: Direct migration - try comprehensive flow first with fallback
+    // Add timeout handling to prevent hanging
+    const processStep0 = async (): Promise<ChatResponse> => {
+      try {
+        return await this.handleComprehensiveInput(content);
+      } catch (error) {
+        console.warn('Comprehensive parsing failed, falling back to legacy flow:', error);
+        
+        // Fallback to legacy flow when comprehensive parsing fails
+        return this.handleLegacyFallback(content, error);
+      }
+    };
+
+    // Implement timeout for step0 processing to prevent hanging
+    const timeoutPromise = new Promise<ChatResponse>((_, reject) => {
+      setTimeout(() => reject(new Error('Step0 processing timeout')), 30000); // 30 second timeout for service initialization and project creation
+    });
+
     try {
-      return await this.handleComprehensiveInput(content);
+      return await Promise.race([processStep0(), timeoutPromise]);
     } catch (error) {
-      console.warn('Comprehensive parsing failed, falling back to legacy flow:', error);
-      
-      // Fallback to legacy flow when comprehensive parsing fails
-      return this.handleLegacyFallback(content, error);
+      console.error('Step0 processing failed:', error);
+      return {
+        message: `⚠️ **Service Initialization Issue**\n\nI'm experiencing some delays during startup. Let me try a simplified approach.\n\nWhat would you like to name your analysis project?`,
+        stepDescription: 'Fallback Mode',
+        expectedInputType: 'text',
+      };
     }
   }
 
@@ -337,6 +381,28 @@ Please tell me:
 
       // Set legacy fallback flag for this session
       this.chatState.useComprehensiveFlow = false;
+
+      // TP-032: Add duplicate prevention check before project creation
+      if (this.chatState.databaseProjectCreated && this.chatState.projectId) {
+        const existingProjectId = this.chatState.projectId;
+        const existingProjectName = this.chatState.projectName || extractedData.projectName;
+        
+        logger.info('Duplicate project creation prevented (legacy fallback)', {
+          conversationId: this.conversationId,
+          existingProjectId,
+          existingProjectName,
+          requestedProjectName: extractedData.projectName
+        });
+
+        return {
+          message: `✅ **Project Already Created!**\n\n` +
+                  `Your project "${existingProjectName}" (ID: ${existingProjectId}) is already set up and running.\n\n` +
+                  `The system is currently populating it with competitor data and generating your initial reports.`,
+          isComplete: true,
+          projectCreated: true,
+          projectId: existingProjectId
+        };
+      }
 
       // Create project with extracted data (simplified for Phase 5.2 compatibility)
       const databaseProject = { 
@@ -480,6 +546,28 @@ Once we have these basics, I'll guide you through the rest of the information ne
     );
 
     try {
+      // TP-032: Add duplicate prevention check before project creation
+      if (this.chatState.databaseProjectCreated && this.chatState.projectId) {
+        const existingProjectId = this.chatState.projectId;
+        const existingProjectName = this.chatState.projectName || extractedData.projectName;
+        
+        logger.info('Duplicate project creation prevented (legacy step0)', {
+          conversationId: this.conversationId,
+          existingProjectId,
+          existingProjectName,
+          requestedProjectName: extractedData.projectName
+        });
+
+        return {
+          message: `✅ **Project Already Created!**\n\n` +
+                  `Your project "${existingProjectName}" (ID: ${existingProjectId}) is already set up and running.\n\n` +
+                  `The system is currently populating it with competitor data and generating your initial reports.`,
+          isComplete: true,
+          projectCreated: true,
+          projectId: existingProjectId
+        };
+      }
+
       // Create actual database project with all competitors auto-assigned
                   // Create project with extracted data (simplified for legacy compatibility)
             const databaseProject = { 
@@ -1231,78 +1319,385 @@ Now, what is the name of the product that you want to perform competitive analys
   }
 
   /**
-   * Phase 5: Handle parsing errors with graceful recovery
+   * Task 5.2: Enhanced parsing error handler with better categorization and recovery mechanisms
    */
   private handleParsingError(content: string, error: Error): ChatResponse {
     console.error('Parsing error occurred:', error);
     
-    // Phase 2.1 Fix: Provide specific error messages based on error type and test expectations
+    // Task 5.2: Enhanced error categorization
+    const errorCategory = this.categorizeParsingError(error, content);
+    const recoveryStrategy = this.determineRecoveryStrategy(errorCategory, content);
+    
     let message = '';
-    let errorMessage = '';
     let stepDescription = 'Error Recovery';
     
-    // Analyze the error and content to provide targeted responses
-    if (error.message.includes('Failed to parse input format')) {
-      errorMessage = 'Failed to parse input format';
-      stepDescription = 'Fix Input Format';
-      
-      message = `🔄 **Oops! I had trouble parsing your input.**\n\n`;
-      message += `Don't worry - this happens sometimes. Let me help you get back on track!\n\n`;
-      message += `💡 **What happened:** Failed to parse input format\n\n`;
-      
-      if (content.length > 1000) {
-        message += `🚀 **How to proceed:**\n`;
-        message += `• **Try shorter format** - breaking it into key points\n`;
-        message += `• **Use numbered list** - organize information clearly\n`;
-        message += `• **Step-by-step** - Type "help" for guided setup\n\n`;
-      } else if (content.includes('*') || content.includes('#') || content.includes('[')) {
-        message += `🚀 **How to proceed:**\n`;
-        message += `• **Simplify formatting** - use basic punctuation\n`;
-        message += `• **Plain text** - avoid special characters\n`;
-        message += `• **Step-by-step** - Type "help" for guided setup\n\n`;
-      } else {
-        message += `🚀 **How to proceed:**\n`;
-        message += `• **Use numbered list** (1-9) for best results\n`;
-        message += `• **Include all required fields** - email, product name, URL, etc.\n`;
-        message += `• **Step-by-step** - Type "help" for guided setup\n\n`;
+    switch (errorCategory.type) {
+      case 'format_error':
+        stepDescription = 'Fix Input Format';
+        message = this.createFormatErrorMessage(content, errorCategory.details);
+        break;
+        
+      case 'missing_data':
+        stepDescription = 'Complete Required Data';
+        message = this.createMissingDataErrorMessage(content, errorCategory.details);
+        break;
+        
+      case 'validation_error':
+        stepDescription = 'Fix Data Validation';
+        message = this.createValidationErrorMessage(content, errorCategory.details);
+        break;
+        
+      case 'partial_success':
+        stepDescription = 'Complete Partial Data';
+        message = this.createPartialSuccessMessage(content, errorCategory.details);
+        break;
+        
+      default:
+        stepDescription = 'General Error Recovery';
+        message = this.createGeneralErrorMessage(content, error);
+    }
+    
+    // Task 5.2: Try progressive parsing recovery
+    const recoveredData = this.attemptProgressiveParsing(content, errorCategory);
+    if (recoveredData.hasValidData) {
+      message += `\n\n✅ **Good news!** I was able to recover some of your information:\n`;
+      message += this.formatRecoveredData(recoveredData.data);
+      message += `\n\nPlease provide the missing information to continue.`;
+    }
+
+    return {
+      message,
+      expectedInputType: 'text',
+      step: this.chatState.step,
+      stepDescription,
+      error: {
+        type: errorCategory.type,
+        category: errorCategory.category,
+        recoveryStrategy: recoveryStrategy.strategy,
+        suggestions: recoveryStrategy.suggestions
+      }
+    };
+  }
+
+  /**
+   * Task 5.2: Categorize parsing errors for better recovery strategies
+   */
+  private categorizeParsingError(error: Error, content: string): ParseErrorCategory {
+    const errorMessage = error.message.toLowerCase();
+    const contentLength = content.length;
+    const lines = content.split('\n').filter(line => line.trim());
+    
+    // Format-related errors
+    if (errorMessage.includes('failed to parse input format') || 
+        errorMessage.includes('invalid format') ||
+        contentLength > 2000) {
+      return {
+        type: 'format_error',
+        category: 'formatting',
+        severity: 'medium',
+        details: {
+          isOverlyLong: contentLength > 2000,
+          hasSpecialCharacters: /[*#\[\]{}]/.test(content),
+          lineCount: lines.length,
+          suggestedFormat: 'structured'
+        }
+      };
+    }
+    
+    // Missing required data
+    if (errorMessage.includes('email') || errorMessage.includes('required')) {
+      const missingFields = this.detectMissingFields(content);
+      return {
+        type: 'missing_data',
+        category: 'incomplete',
+        severity: 'high',
+        details: {
+          missingFields,
+          providedFields: this.detectProvidedFields(content),
+          completeness: this.calculateCompleteness(content)
+        }
+      };
+    }
+    
+    // Validation errors (invalid email, URL, etc.)
+    if (errorMessage.includes('invalid') || errorMessage.includes('validation')) {
+      return {
+        type: 'validation_error',
+        category: 'data_quality',
+        severity: 'medium',
+        details: {
+          invalidFields: this.detectInvalidFields(content),
+          validationIssues: this.getValidationIssues(content)
+        }
+      };
+    }
+    
+    // Partial parsing success (some data extracted)
+    const partialData = this.attemptPartialExtraction(content);
+    if (partialData && Object.keys(partialData).length > 0) {
+      return {
+        type: 'partial_success',
+        category: 'recoverable',
+        severity: 'low',
+        details: {
+          extractedFields: Object.keys(partialData),
+          extractedData: partialData,
+          missingFields: this.detectMissingFields(content)
+        }
+      };
+    }
+    
+    // General parsing error
+    return {
+      type: 'general_error',
+      category: 'parsing',
+      severity: 'high',
+      details: {
+        errorMessage: error.message,
+        contentPreview: content.slice(0, 100)
+      }
+    };
+  }
+
+  /**
+   * Task 5.2: Progressive parsing strategy - attempt to extract any valid data
+   */
+  private attemptProgressiveParsing(content: string, errorCategory: ParseErrorCategory): ProgressiveParsingResult {
+    const recoveredData: any = {};
+    let hasValidData = false;
+    
+    try {
+      // Stage 1: Basic pattern extraction
+      const emailMatch = content.match(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/);
+      if (emailMatch) {
+        recoveredData.userEmail = emailMatch[0];
+        hasValidData = true;
       }
       
-      message += `I've preserved any valid information you provided, so you won't lose your progress! 🤝`;
-      
-    } else if (content.toLowerCase().includes('error input') || error.message.includes('conversational')) {
-      // Handle conversational tone test case
-      errorMessage = 'System error occurred: Unexpected processing issue';
-      
-      message = `😊 **I'm here to help!**\n\n`;
-      message += `Don't worry - we'll get this sorted out together! I want to make this as comfortable for you as possible.\n\n`;
-      message += `💡 **What happened:** I had some trouble understanding your input format\n\n`;
-      message += `🚀 **How to proceed:**\n`;
-      message += `• **Try again** - You can resubmit your information\n`;
-      message += `• **Step-by-step** - Type "help" for guided setup\n`;
-      message += `• **Start fresh** - Type "restart" to begin a new project\n\n`;
-      message += `I've preserved any valid information you provided, so you won't lose your progress! 😊`;
-      
-    } else {
-      // Default parsing error with specific templates
-      if (error.message.includes('JSON') || error.message.includes('parse')) {
-        errorMessage = this.errorTemplates.parsing.replace('{reason}', 'Format could not be recognized');
-      } else if (error.message.includes('URL') || error.message.includes('url')) {
-        errorMessage = this.errorTemplates.dataExtraction.replace('{reason}', 'Invalid URL format');
-      } else {
-        errorMessage = this.errorTemplates.systemError.replace('{reason}', 'Unexpected processing issue');
+      // Stage 2: Frequency detection
+      const frequencyMatch = content.match(/\b(weekly|monthly|daily|quarterly|bi-weekly|annually)\b/i);
+      if (frequencyMatch) {
+        recoveredData.reportFrequency = frequencyMatch[1];
+        hasValidData = true;
       }
       
-      message = `I apologize, but there was an error processing your request: ${errorMessage}.\n\n`;
-      message += `Please try again or contact support if this continues to happen.`;
+      // Stage 3: URL extraction
+      const urlMatch = content.match(/https?:\/\/[^\s]+/);
+      if (urlMatch) {
+        recoveredData.productUrl = urlMatch[0];
+        hasValidData = true;
+      }
+      
+      // Stage 4: Project name extraction (simplified)
+      const projectMatch = content.match(/(?:project|report|analysis).*?[:\-]\s*(.+?)(?:\n|$)/i);
+      if (projectMatch && projectMatch[1] && projectMatch[1].length > 3) {
+        recoveredData.projectName = projectMatch[1].trim();
+        hasValidData = true;
+      }
+      
+      // Stage 5: Company/product name extraction
+      const companyMatch = content.match(/(?:company|product|brand).*?[:\-]\s*(.+?)(?:\n|$)/i);
+      if (companyMatch && companyMatch[1] && companyMatch[1].length > 2) {
+        recoveredData.productName = companyMatch[1].trim();
+        hasValidData = true;
+      }
+      
+    } catch (parseError) {
+      console.warn('Progressive parsing failed:', parseError);
     }
     
     return {
-      message,
-      nextStep: 0,
-      stepDescription,
-      expectedInputType: 'text',
-      error: errorMessage
+      hasValidData,
+      data: recoveredData,
+      confidence: hasValidData ? Math.min(Object.keys(recoveredData).length * 20, 80) : 0
     };
+  }
+
+  /**
+   * Task 5.2: Create user-friendly error messages based on error category
+   */
+  private createFormatErrorMessage(content: string, details: any): string {
+    let message = `🔄 **Let's fix the input format!**\n\n`;
+    
+    if (details.isOverlyLong) {
+      message += `Your message is quite long (${content.length} characters). Let's break it down:\n\n`;
+      message += `💡 **Try this approach:**\n`;
+      message += `• Use a **numbered list** (1-9 items)\n`;
+      message += `• One piece of information per line\n`;
+      message += `• Keep each line under 100 characters\n\n`;
+    } else if (details.hasSpecialCharacters) {
+      message += `I noticed some special formatting characters (* # [ ]) that might be causing issues.\n\n`;
+      message += `💡 **For best results:**\n`;
+      message += `• Use **plain text** without special symbols\n`;
+      message += `• Use simple punctuation (: - ,)\n`;
+      message += `• Avoid markdown or rich formatting\n\n`;
+    } else {
+      message += `💡 **Let's organize your information:**\n`;
+      message += `• Use a **clear structure** with labels\n`;
+      message += `• Include one item per line\n`;
+      message += `• Start with your email address\n\n`;
+    }
+    
+    message += `📋 **Suggested format:**\n`;
+    message += `1. Email: your@email.com\n`;
+    message += `2. Frequency: Weekly\n`;
+    message += `3. Project: Your Analysis Name\n`;
+    message += `4. Website: https://yoursite.com\n`;
+    message += `5. Product: Your Product Name\n\n`;
+    
+    return message;
+  }
+
+  /**
+   * Task 5.2: Create missing data error message
+   */
+  private createMissingDataErrorMessage(content: string, details: any): string {
+    let message = `📝 **Almost there! Just need a few more details**\n\n`;
+    
+    if (details.missingFields && details.missingFields.length > 0) {
+      message += `I'm missing these required fields:\n`;
+      details.missingFields.forEach((field: string, index: number) => {
+        const fieldName = this.getFieldDisplayName(field);
+        const example = this.getFieldExample(field);
+        message += `${index + 1}. **${fieldName}** - ${example}\n`;
+      });
+      message += `\n`;
+    }
+    
+    if (details.providedFields && details.providedFields.length > 0) {
+      message += `✅ **Already provided:**\n`;
+      details.providedFields.forEach((field: string) => {
+        message += `• ${this.getFieldDisplayName(field)}\n`;
+      });
+      message += `\n`;
+    }
+    
+    message += `💡 **What to do:** Just provide the missing information above, and we'll be all set!\n`;
+    
+    return message;
+  }
+
+  /**
+   * Task 5.2: Determine recovery strategy based on error category
+   */
+  private determineRecoveryStrategy(errorCategory: ParseErrorCategory, content: string): RecoveryStrategy {
+    switch (errorCategory.type) {
+      case 'format_error':
+        return {
+          strategy: 'reformat',
+          priority: 'high',
+          suggestions: [
+            'Use numbered list format',
+            'Simplify special characters',
+            'Break into shorter segments'
+          ]
+        };
+        
+      case 'missing_data':
+        return {
+          strategy: 'complete_data',
+          priority: 'high',
+          suggestions: [
+            'Provide missing required fields',
+            'Use clear field labels',
+            'Follow the suggested format'
+          ]
+        };
+        
+      case 'validation_error':
+        return {
+          strategy: 'fix_validation',
+          priority: 'medium',
+          suggestions: [
+            'Check email format',
+            'Verify URL structure',
+            'Use standard frequency terms'
+          ]
+        };
+        
+      case 'partial_success':
+        return {
+          strategy: 'progressive_completion',
+          priority: 'low',
+          suggestions: [
+            'Add missing information',
+            'Verify extracted data',
+            'Continue with next steps'
+          ]
+        };
+        
+      default:
+        return {
+          strategy: 'guided_restart',
+          priority: 'high',
+          suggestions: [
+            'Type "help" for guided setup',
+            'Use step-by-step format',
+            'Contact support if needed'
+          ]
+        };
+    }
+  }
+
+  // Helper methods for error categorization
+  private detectMissingFields(content: string): string[] {
+    const missing: string[] = [];
+    
+    if (!content.match(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/)) {
+      missing.push('userEmail');
+    }
+    
+    if (!content.match(/\b(weekly|monthly|daily|quarterly)\b/i)) {
+      missing.push('reportFrequency');
+    }
+    
+    if (!content.match(/(?:project|report|analysis)/i)) {
+      missing.push('projectName');
+    }
+    
+    return missing;
+  }
+
+  private detectProvidedFields(content: string): string[] {
+    const provided: string[] = [];
+    
+    if (content.match(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/)) {
+      provided.push('userEmail');
+    }
+    
+    if (content.match(/\b(weekly|monthly|daily|quarterly)\b/i)) {
+      provided.push('reportFrequency');
+    }
+    
+    if (content.match(/https?:\/\/[^\s]+/)) {
+      provided.push('productUrl');
+    }
+    
+    return provided;
+  }
+
+  private getFieldDisplayName(field: string): string {
+    const displayNames: { [key: string]: string } = {
+      'userEmail': 'Email Address',
+      'reportFrequency': 'Report Frequency',
+      'projectName': 'Project Name',
+      'productUrl': 'Website URL',
+      'productName': 'Product Name'
+    };
+    
+    return displayNames[field] || field;
+  }
+
+  private getFieldExample(field: string): string {
+    const examples: { [key: string]: string } = {
+      'userEmail': 'e.g., john@company.com',
+      'reportFrequency': 'e.g., Weekly, Monthly',
+      'projectName': 'e.g., "Competitor Analysis for ProductX"',
+      'productUrl': 'e.g., https://yoursite.com',
+      'productName': 'e.g., "Your Product Name"'
+    };
+    
+    return examples[field] || 'Please provide';
   }
 
   /**
@@ -1641,8 +2036,13 @@ Now, what is the name of the product that you want to perform competitive analys
     const response = content.toLowerCase().trim();
     
     if (response.includes('yes') || response === 'y' || response.includes('confirm') || response.includes('proceed')) {
-      // User confirmed - proceed with project creation
-      return this.executeProjectCreation();
+      // User confirmed - proceed to completion (project was already created)
+      return {
+        message: `🚀 **Analysis Complete!**\n\nYour competitive analysis project is now set up and ready. The system will begin automated analysis and report generation.\n\nThank you for using the Competitor Research Agent! You can start a new project anytime by saying "start new project".`,
+        isComplete: true,
+        nextStep: 3,
+        stepDescription: 'Complete',
+      };
     } else if (response.includes('edit') || response.includes('modify') || response.includes('change')) {
       // User wants to edit - return to comprehensive input
       return {
@@ -1663,80 +2063,7 @@ Now, what is the name of the product that you want to perform competitive analys
     }
   }
 
-  /**
-   * Phase 4.2: Execute actual project creation after confirmation
-   */
-  private async executeProjectCreation(): Promise<ChatResponse> {
-    try {
-      // Get the requirements from chat state
-      const requirements = this.extractRequirementsFromChatState();
-      
-      if (!requirements) {
-        throw new Error('No project requirements found in chat state');
-      }
 
-      // Store comprehensive data in chat state
-      this.chatState.collectedData = this.comprehensiveCollector.toChatState(requirements).collectedData;
-      
-      // Create database project with all competitors auto-assigned
-      const databaseProject = await this.createProjectWithAllCompetitors(requirements.projectName, requirements.userEmail);
-      
-      this.chatState.projectId = databaseProject.id;
-      this.chatState.projectName = databaseProject.name;
-      this.chatState.databaseProjectCreated = true;
-
-      const competitorCount = databaseProject.competitors?.length || 0;
-      const competitorNames = databaseProject.competitors?.map((c: any) => c.name).join(', ') || 'None';
-      const parsedFreq = parseFrequency(requirements.reportFrequency);
-
-      let message = `🎉 **PROJECT CREATED SUCCESSFULLY!**\n\n`;
-      
-      message += `✅ **Project Details:**\n`;
-      message += `• **Name:** ${databaseProject.name}\n`;
-      message += `• **ID:** ${databaseProject.id}\n`;
-      message += `• **Product:** ${requirements.productName}\n`;
-      message += `• **URL:** ${requirements.productUrl}\n`;
-      message += `• **Industry:** ${requirements.industry}\n`;
-      message += `• **Competitors Auto-Assigned:** ${competitorCount}\n`;
-      message += `• **Report Schedule:** ${this.formatReportFrequency(requirements.reportFrequency)}\n\n`;
-
-      if (competitorCount > 0) {
-        message += `🏢 **Competitors Found:** ${competitorNames}\n\n`;
-      }
-
-      message += `🚀 **What Happens Next:**\n`;
-      message += `1. **Immediate:** Automated competitor discovery and website scraping begins\n`;
-      message += `2. **Within 30 minutes:** Initial competitive landscape analysis\n`;
-      message += `3. **${this.formatReportFrequency(requirements.reportFrequency)}:** First comprehensive report delivered to ${requirements.userEmail}\n`;
-      message += `4. **Ongoing:** Continuous monitoring and automated updates\n\n`;
-
-      message += `📊 **Analysis Features Enabled:**\n`;
-      message += `• Product positioning analysis vs competitors\n`;
-      message += `• Customer experience comparisons\n`;
-      message += `• Pricing and feature analysis\n`;
-      message += `• Market positioning insights\n`;
-      message += `• Automated trend detection\n\n`;
-
-      message += `✨ **Ready to start comprehensive competitive analysis!**\n\n`;
-      message += `Would you like me to begin the analysis immediately? (yes/no)`;
-
-      return {
-        message,
-        nextStep: 3,
-        stepDescription: 'Start Analysis',
-        expectedInputType: 'text',
-        projectCreated: true,
-      };
-    } catch (error) {
-      console.error('Failed to create project:', error);
-      
-      return {
-        message: `❌ **Error Creating Project**\n\nI encountered an error while creating your project: ${error instanceof Error ? error.message : 'Unknown error'}\n\nYour information has been saved. Would you like me to:\n\n1. **Retry** - Try creating the project again\n2. **Edit** - Modify the project information\n3. **Support** - Get help with this issue\n\nPlease respond with "retry", "edit", or "support".`,
-        expectedInputType: 'text',
-        error: error instanceof Error ? error.message : 'Unknown error',
-      };
-    }
-  }
 
   /**
    * Phase 4.2: Extract requirements from current chat state
@@ -1812,6 +2139,29 @@ Now, what is the name of the product that you want to perform competitive analys
         };
       }
       
+      // TP-032: Add duplicate prevention check before project creation
+      if (this.chatState.databaseProjectCreated && this.chatState.projectId) {
+        // Project already exists, return success message with existing project
+        const existingProjectId = this.chatState.projectId;
+        const existingProjectName = this.chatState.projectName || requirements.projectName;
+        
+        logger.info('Duplicate project creation prevented', {
+          conversationId: this.conversationId,
+          existingProjectId,
+          existingProjectName,
+          requestedProjectName: requirements.projectName
+        });
+
+        return {
+          message: `✅ **Project Already Created!**\n\n` +
+                  `Your project "${existingProjectName}" (ID: ${existingProjectId}) is already set up and running.\n\n` +
+                  `The system is currently populating it with competitor data and generating your initial reports. You can check the progress in your projects dashboard.`,
+          isComplete: true,
+          projectCreated: true,
+          projectId: existingProjectId
+        };
+      }
+      
       // Create database project with all competitors auto-assigned
       const databaseProject = await this.createProjectWithAllCompetitors(requirements.projectName, requirements.userEmail);
       
@@ -1856,6 +2206,7 @@ Now, what is the name of the product that you want to perform competitive analys
       }
 
       message += `🕕 **Automated Scraping Scheduled:** Your competitors will be automatically scraped ${frequencyToString(parsedFreq.frequency).toLowerCase()} to ensure fresh data for reports.\n\n`;
+      message += `📊 **Initial Report:** Your first comparative report is being generated in the background. You'll receive it at ${requirements.userEmail} within a few minutes.\n\n`;
       message += `Reports will be sent to: ${requirements.userEmail}\n\n`;
       message += `🚀 **Ready to start comprehensive competitive analysis?** (yes/no)`;
 
@@ -2579,34 +2930,90 @@ What would you prefer?`,
         userEmail
       });
 
-      // Step 1: Validate prerequisites
+      // Step 1: Check AWS status before proceeding (non-blocking)
+      const awsStatusChecker = ChatAWSStatusChecker.getInstance();
+      
+      // Start AWS check in background but don't wait for it
+      const awsStatusPromise = awsStatusChecker.checkAWSStatus().catch(err => {
+        logger.warn('AWS status check failed, proceeding with fallback', {
+          ...context,
+          error: err.message
+        });
+        return {
+          available: false,
+          message: 'AWS status check failed, proceeding without reports',
+          canProceedWithReports: false,
+          fallbackToBasicCreation: true,
+          error: err.message
+        };
+      });
+      
+      // Get cached status immediately or use safe default
+      const awsStatus = awsStatusChecker.getCachedStatus();
+      
+      logger.info('AWS status check for project creation (non-blocking)', {
+        ...context,
+        awsAvailable: awsStatus.available,
+        canProceedWithReports: awsStatus.canProceedWithReports,
+        message: awsStatus.message,
+        usingCachedStatus: true
+      });
+
+      // Step 2: Validate prerequisites
       await this.validateProjectCreationPrerequisites(context);
 
-      // Step 2: Get or create user
-      const mockUser = await this.getOrCreateMockUser(context);
+      // Step 2: Get or create user with profile
+      const { user: mockUser, profile } = await getOrCreateMockUserWithProfile();
 
       // Step 3: Get competitors with validation
       const competitorData = await this.getAndValidateCompetitors(context);
       
-      // Step 4: Create project in transaction
+            // Step 4: Create project in transaction
       const projectResult = await this.createProjectInTransaction(
-        projectName, 
-        userEmail, 
-        mockUser, 
-        competitorData, 
+        projectName,
+        userEmail,
+        mockUser,
+        profile,
+        competitorData,
         context
       );
 
       // Step 5: Create product entity if data available
       const productResult = await this.createProductEntityIfAvailable(projectResult.project, context);
 
-      // Step 6: Generate initial report with enhanced logic
-      const reportResult = await this.generateInitialReportWithRetry(
+      // Step 6: Generate initial report asynchronously to prevent timeouts
+      let reportResult = {
+        reportGenerated: false,
+        reportData: null,
+        attempts: 0,
+        async: true,
+        message: 'Report generation started in background'
+      };
+      
+      // Start report generation in background - don't await
+      this.generateInitialReportWithRetry(
         projectResult.project, 
         competitorData, 
         productResult,
         context
-      );
+      ).then((result) => {
+        logger.info('Background initial report generation completed for chat-created project', {
+          ...context,
+          projectId: projectResult.project.id,
+          success: result.reportGenerated
+        });
+      }).catch((reportError) => {
+        logger.error('Background initial report generation failed for chat-created project', reportError as Error, {
+          ...context,
+          projectId: projectResult.project.id
+        });
+      });
+      
+      logger.info('Initial report generation started in background for chat-created project', {
+        ...context,
+        projectId: projectResult.project.id,
+        message: 'User will be notified when complete'
+      });
 
       // Step 7: Schedule periodic reports
       const schedulingResult = await this.schedulePeriodicReportsWithFallback(
@@ -2670,13 +3077,16 @@ What would you prefer?`,
       try {
         switch (service) {
           case 'InitialComparativeReportService':
-            await import('@/services/reports/initialComparativeReportService');
+            const { InitialComparativeReportService } = await import('../../services/reports/initialComparativeReportService');
+            if (!InitialComparativeReportService) throw new Error('Service not available');
             break;
           case 'ProductRepository':
-            await import('@/lib/repositories/productRepository');
+            const { ProductRepository } = await import('../repositories/productRepository');
+            if (!ProductRepository) throw new Error('Service not available');
             break;
           case 'AutoReportGenerationService':
-            await import('@/services/autoReportGenerationService');
+            const { AutoReportGenerationService } = await import('../../services/autoReportGenerationService');
+            if (!AutoReportGenerationService) throw new Error('Service not available');
             break;
         }
       } catch (importError) {
@@ -2720,57 +3130,165 @@ What would you prefer?`,
   }
 
   /**
-   * Task 5.2: Get and validate competitors with enhanced validation
+   * TP-027: Get and validate competitors based on user input, not auto-assignment
    */
   private async getAndValidateCompetitors(context: any): Promise<{
     competitors: any[];
     competitorIds: string[];
     validationPassed: boolean;
+    userSpecified: boolean;
   }> {
     try {
-      const allCompetitors = await prisma.competitor.findMany({
-        select: { id: true, name: true, website: true, industry: true }
+      // Get competitor input from user (from chatState.collectedData.competitors)
+      const userCompetitorInput = this.chatState.collectedData?.competitors;
+      
+      logger.info('TP-027: Processing competitor selection', {
+        ...context,
+        hasUserInput: !!userCompetitorInput,
+        userInputType: Array.isArray(userCompetitorInput) ? 'array' : typeof userCompetitorInput,
+        userInputLength: Array.isArray(userCompetitorInput) ? userCompetitorInput.length : 0
       });
 
-      if (allCompetitors.length === 0) {
-        throw new Error('No competitors available in database - cannot create meaningful project');
+      // If user provided specific competitors, resolve them
+      if (userCompetitorInput && Array.isArray(userCompetitorInput) && userCompetitorInput.length > 0) {
+        return await this.resolveUserSpecifiedCompetitors(userCompetitorInput, context);
       }
 
-      // Validate competitor data quality
-      const validCompetitors = allCompetitors.filter(competitor => 
-        competitor.name && 
-        competitor.name.trim().length > 0 &&
-        competitor.website &&
-        competitor.website.trim().length > 0
-      );
+      // If user provided a string (comma-separated), parse it
+      if (userCompetitorInput && typeof userCompetitorInput === 'string' && userCompetitorInput.trim()) {
+        const competitorArray = userCompetitorInput.split(',').map(c => c.trim()).filter(c => c.length > 0);
+        if (competitorArray.length > 0) {
+          return await this.resolveUserSpecifiedCompetitors(competitorArray, context);
+        }
+      }
 
-      if (validCompetitors.length < allCompetitors.length * 0.5) {
-        logger.warn('Many competitors have incomplete data', {
+      // Fallback: If no user input, auto-assign all competitors (backward compatibility)
+      logger.info('TP-027: No user competitor input, falling back to all competitors', context);
+      return await this.getAllCompetitorsAsFallback(context);
+
+    } catch (error) {
+      logger.error('TP-027: Failed to get and validate competitors', error as Error, context);
+      throw new Error(`Competitor setup failed: ${(error as Error).message}`);
+    }
+  }
+
+  /**
+   * TP-027: Resolve user-specified competitors using CompetitorResolutionService
+   */
+  private async resolveUserSpecifiedCompetitors(
+    competitorInputs: string[], 
+    context: any
+  ): Promise<{
+    competitors: any[];
+    competitorIds: string[];
+    validationPassed: boolean;
+    userSpecified: boolean;
+  }> {
+    const competitorResolver = new CompetitorResolutionService(context.correlationId);
+    
+    try {
+      const resolution = await competitorResolver.resolveCompetitorInput(competitorInputs);
+      
+      // Log resolution results
+      logger.info('TP-027: Competitor resolution completed', {
+        ...context,
+        inputCount: competitorInputs.length,
+        successfulCount: resolution.successful.length,
+        failedCount: resolution.failed.length,
+        resolvedIds: resolution.resolvedIds
+      });
+
+      // If some competitors failed to resolve, log warnings but continue
+      if (resolution.failed.length > 0) {
+        const failureDetails = resolution.failed.map(f => 
+          `"${f.input}": ${f.error}${f.suggestions?.length ? ` (suggestions: ${f.suggestions.join(', ')})` : ''}`
+        );
+        
+        logger.warn('TP-027: Some competitors could not be resolved', {
           ...context,
-          totalCompetitors: allCompetitors.length,
-          validCompetitors: validCompetitors.length,
-          dataQualityScore: Math.round((validCompetitors.length / allCompetitors.length) * 100)
+          failures: failureDetails
         });
       }
 
-      const competitorIds = allCompetitors.map(c => c.id);
-      
-      logger.info('Task 5.2: Competitors validated and prepared', {
-        ...context,
-        totalCompetitors: allCompetitors.length,
-        validCompetitors: validCompetitors.length,
-        competitorNames: allCompetitors.map(c => c.name).join(', ')
+      // If no competitors were resolved successfully, throw error
+      if (resolution.successful.length === 0) {
+        const errorMsg = resolution.failed.length > 0 
+          ? `Could not resolve any competitors:\n${resolution.failed.map(f => `- ${f.input}: ${f.error}`).join('\n')}`
+          : 'No competitors could be resolved from the provided input';
+        throw new Error(errorMsg);
+      }
+
+      // Fetch full competitor data for resolved IDs
+      const competitors = await prisma.competitor.findMany({
+        where: { id: { in: resolution.resolvedIds } },
+        select: { id: true, name: true, website: true, industry: true }
       });
 
       return {
-        competitors: allCompetitors,
-        competitorIds,
-        validationPassed: validCompetitors.length >= Math.min(3, allCompetitors.length)
+        competitors,
+        competitorIds: resolution.resolvedIds,
+        validationPassed: true,
+        userSpecified: true
       };
+
     } catch (error) {
-      logger.error('Failed to get and validate competitors', error as Error, context);
-      throw new Error(`Competitor setup failed: ${(error as Error).message}`);
+      logger.error('TP-027: Failed to resolve user-specified competitors', error as Error, {
+        ...context,
+        inputs: competitorInputs
+      });
+      throw error;
     }
+  }
+
+  /**
+   * TP-027: Fallback method to get all competitors (backward compatibility)
+   */
+  private async getAllCompetitorsAsFallback(context: any): Promise<{
+    competitors: any[];
+    competitorIds: string[];
+    validationPassed: boolean;
+    userSpecified: boolean;
+  }> {
+    const allCompetitors = await prisma.competitor.findMany({
+      select: { id: true, name: true, website: true, industry: true }
+    });
+
+    if (allCompetitors.length === 0) {
+      throw new Error('No competitors available in database - cannot create meaningful project');
+    }
+
+    // Validate competitor data quality
+    const validCompetitors = allCompetitors.filter(competitor => 
+      competitor.name && 
+      competitor.name.trim().length > 0 &&
+      competitor.website &&
+      competitor.website.trim().length > 0
+    );
+
+    if (validCompetitors.length < allCompetitors.length * 0.5) {
+      logger.warn('TP-027: Many competitors have incomplete data', {
+        ...context,
+        totalCompetitors: allCompetitors.length,
+        validCompetitors: validCompetitors.length,
+        dataQualityScore: Math.round((validCompetitors.length / allCompetitors.length) * 100)
+      });
+    }
+
+    const competitorIds = allCompetitors.map(c => c.id);
+    
+    logger.info('TP-027: Fallback - All competitors assigned', {
+      ...context,
+      totalCompetitors: allCompetitors.length,
+      validCompetitors: validCompetitors.length,
+      competitorNames: allCompetitors.map(c => c.name).slice(0, 5).join(', ') + (allCompetitors.length > 5 ? '...' : '')
+    });
+
+    return {
+      competitors: allCompetitors,
+      competitorIds,
+      validationPassed: validCompetitors.length >= Math.min(3, allCompetitors.length),
+      userSpecified: false
+    };
   }
 
   /**
@@ -2780,6 +3298,7 @@ What would you prefer?`,
     projectName: string,
     userEmail: string,
     mockUser: any,
+    profile: any,
     competitorData: any,
     context: any
   ): Promise<{ project: any }> {
@@ -2797,7 +3316,12 @@ What would you prefer?`,
             description: `Enhanced competitive analysis project created via chat interface - Task 5.2`,
             status: 'ACTIVE',
             priority: 'HIGH', // High priority for chat-created projects
-            userId: mockUser.id,
+            user: {
+              connect: { id: mockUser.id }
+            },
+            profile: {
+              connect: { id: profile.id }
+            },
             userEmail: userEmail,
             parameters: {
               // Enhanced metadata for Task 5.2
@@ -2809,6 +3333,8 @@ What would you prefer?`,
               task52Implementation: true,
               competitorDataQuality: competitorData.validationPassed,
               creationTimestamp: new Date().toISOString(),
+              // CRITICAL FIX: Add autoGenerateInitialReport flag for API compatibility
+              autoGenerateInitialReport: true, // TP-024 Task 1.2: Fix missing flag
               // Configuration for initial report generation
               initialReportConfig: {
                 enabled: true,
@@ -2842,6 +3368,22 @@ What would you prefer?`,
         if (!project.id || project.competitors.length !== competitorData.competitorIds.length) {
           throw new Error('Project creation validation failed');
         }
+
+        // TP-024 Task 1.4: Validate autoGenerateInitialReport flag is set
+        if (!project.parameters?.autoGenerateInitialReport) {
+          logger.error('CRITICAL: autoGenerateInitialReport flag not set during chat project creation', {
+            ...context,
+            projectId: project.id,
+            parameters: project.parameters
+          });
+          throw new Error('autoGenerateInitialReport flag validation failed');
+        }
+
+        logger.info('TP-024: Validated autoGenerateInitialReport flag is properly set', {
+          ...context,
+          projectId: project.id,
+          autoGenerateInitialReport: project.parameters.autoGenerateInitialReport
+        });
 
         return { project };
       });
@@ -2974,7 +3516,7 @@ What would you prefer?`,
           template: project.parameters?.initialReportConfig?.template || 'comprehensive',
           priority: project.parameters?.initialReportConfig?.priority || 'high',
           timeout: project.parameters?.initialReportConfig?.timeout || 180000,
-          fallbackToPartialData: attempt > 1 ? true : project.parameters?.initialReportConfig?.fallbackToPartialData,
+          fallbackToPartialData: attempt > 2 ? true : false, // Only force partial on 3rd+ attempt
           notifyOnCompletion: true,
           requireFreshSnapshots: attempt === 1 ? false : true, // Try fresh snapshots on retry
           forceGeneration: attempt > 1, // Force on retry attempts

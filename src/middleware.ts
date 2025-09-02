@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   // Authentication disabled - all routes are now public
   // const path = request.nextUrl.pathname
   // const isPublicPath = path === '/auth/signin' || path === '/api/chat'
@@ -21,11 +21,13 @@ export function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    '/dashboard/:path*',
-    '/projects/:path*',
-    '/competitors/:path*',
-    '/reports/:path*',
-    '/api/:path*',
-    '/auth/signin',
+    /*
+     * Match all request paths except for the ones starting with:
+     * - api (API routes)
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico (favicon file)
+     */
+    '/((?!api|_next/static|_next/image|favicon.ico).*)',
   ],
 } 

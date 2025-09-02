@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { getCurrentProfileId } from '@/lib/profile/profileUtils';
 
 export async function GET(
   request: NextRequest,
@@ -8,16 +9,28 @@ export async function GET(
   try {
     const reportId = (await context.params).id;
 
-    // Get report with its latest version
-    const report = await prisma.report.findUnique({
-      where: { id: reportId },
+    // Get current profile ID for access control
+    const currentProfileId = await getCurrentProfileId();
+
+    // Get report with profile access control - only allow download if user owns the project
+    const report = await prisma.report.findFirst({
+      where: { 
+        id: reportId,
+        project: {
+          profileId: currentProfileId
+        }
+      },
       include: {
         versions: {
           orderBy: { version: 'desc' },
           take: 1,
         },
         competitor: true,
-        project: true,
+        project: {
+          include: {
+            profile: true // Include profile for verification
+          }
+        },
       },
     });
 

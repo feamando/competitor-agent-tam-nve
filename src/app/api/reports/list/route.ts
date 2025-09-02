@@ -19,6 +19,7 @@ import {
 } from '@/lib/logger';
 import { cacheService, withCache } from '@/lib/cache';
 import { profileOperation, PERFORMANCE_THRESHOLDS } from '@/lib/profiling';
+import { getCurrentProfileId } from '@/lib/profile/profileUtils';
 import type { ReportFile as ReportFileType } from '@/types/report';
 
 interface ReportFile {
@@ -172,8 +173,19 @@ async function fetchReportData(limit: number, offset: number, projectId: string 
   // - Apply pagination directly in the query
   // - Add proper indexes to support the query (already done in migration)
   
-  // Build query conditions for optimal performance
-  const where = projectId ? { projectId } : {};
+  // Get current profile ID for scoped access
+  const currentProfileId = await getCurrentProfileId();
+
+  // Build query conditions for optimal performance with profile scoping
+  const where: any = {
+    project: {
+      profileId: currentProfileId
+    }
+  };
+  
+  if (projectId) {
+    where.projectId = projectId;
+  }
 
   // OPTIMIZATION 2: First get count with a separate efficient query
   const totalCount = await profileOperation(
@@ -199,6 +211,7 @@ async function fetchReportData(limit: number, offset: number, projectId: string 
         project: {
           select: {
             name: true,
+            profileId: true, // Include profileId for verification
           }
         },
         competitor: {
@@ -246,8 +259,9 @@ async function fetchReportData(limit: number, offset: number, projectId: string 
   metrics.databaseReports = transformedReports.length;
   reports.push(...transformedReports);
 
-  // MISSING CALL: Fetch reports from file system
-  await fetchFileReports(reports, limit, offset, logContext, metrics);
+  // DISABLED: File-based reports don't have profile ownership info, 
+  // so they're disabled for security. Only database reports are returned.
+  // await fetchFileReports(reports, limit, offset, logContext, metrics);
 
   // Return optimized result
   return {

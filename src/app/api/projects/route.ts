@@ -4,39 +4,21 @@ import { logger, generateCorrelationId, trackBusinessEvent } from '@/lib/logger'
 import { prisma } from '@/lib/prisma';
 import { productRepository } from '@/lib/repositories';
 import { getAutoReportService } from '@/services/autoReportGenerationService';
-
-// Default mock user for testing without authentication
-const DEFAULT_USER_EMAIL = 'mock@example.com';
-
-async function getOrCreateMockUser() {
-  let mockUser = await prisma.user.findFirst({
-    where: { email: DEFAULT_USER_EMAIL }
-  });
-  
-  if (!mockUser) {
-    mockUser = await prisma.user.create({
-      data: {
-        email: DEFAULT_USER_EMAIL,
-        name: 'Mock User'
-      }
-    });
-  }
-  return mockUser;
-}
+import { ensureServicesInitialized } from '@/lib/startup';
+import { getOrCreateMockUserWithProfile, ProfileScopedQueries, getCurrentProfileId } from '@/lib/profile/profileUtils';
+import { SessionManager, ServerSessionManager } from '@/lib/profile/sessionManager';
+import { CompetitorResolutionService } from '@/services/competitorResolutionService';
 
 // GET /api/projects
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const correlationId = generateCorrelationId();
     const context = { operation: 'GET /api/projects', correlationId };
 
     logger.info('Fetching projects', context);
 
-    // Get or create mock user for testing
-    const mockUser = await getOrCreateMockUser();
-
-    // Fetch projects for mock user
-    const projects = await projectService.getProjectsByUserId(mockUser.id);
+    // Get profile-scoped projects
+    const projects = await ProfileScopedQueries.getProjectsForCurrentProfile();
 
     logger.info('Projects fetched successfully', {
       ...context,
@@ -59,6 +41,9 @@ export async function POST(request: NextRequest) {
   const context = { operation: 'POST /api/projects', correlationId };
 
   try {
+    // TP-024: Ensure services are initialized on first API call
+    await ensureServicesInitialized();
+    
     logger.info('Creating new project with automatic report generation and scheduling', context);
 
     const json = await request.json();
@@ -68,20 +53,84 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Project name is required' }, { status: 400 });
     }
 
-    // Get or create mock user for testing
-    const mockUser = await getOrCreateMockUser();
+    // Get user and profile
+    const { user: mockUser, profile } = await getOrCreateMockUserWithProfile();
 
-    // Auto-assign all competitors
-    const allCompetitors = await prisma.competitor.findMany({
-      select: { id: true, name: true }
-    });
-    const competitorIds = allCompetitors.map(c => c.id);
+    // TP-027: Support selective competitor assignment or auto-assign as fallback
+    let competitorIds: string[] = [];
+    let userSpecified = false;
     
-    logger.info(`Auto-assigning ${allCompetitors.length} competitors to project`, {
-      ...context,
-      projectName: json.name,
-      competitorNames: allCompetitors.map(c => c.name)
-    });
+    if (json.competitorIds && Array.isArray(json.competitorIds) && json.competitorIds.length > 0) {
+      // Use provided competitor IDs directly (already validated)
+      competitorIds = json.competitorIds;
+      userSpecified = true;
+      
+      logger.info('TP-027: Using provided competitor IDs', {
+        ...context,
+        projectName: json.name,
+        competitorCount: competitorIds.length,
+        competitorIds: competitorIds.slice(0, 5) // Log first 5 for debugging
+      });
+      
+    } else if (json.competitors && Array.isArray(json.competitors) && json.competitors.length > 0) {
+      // Resolve competitor names/URLs/IDs using CompetitorResolutionService
+      const competitorResolver = new CompetitorResolutionService(correlationId);
+      
+      try {
+        const resolution = await competitorResolver.resolveCompetitorInput(json.competitors);
+        
+        if (resolution.successful.length === 0) {
+          const errorDetails = resolution.failed.map(f => `"${f.input}": ${f.error}`).join(', ');
+          return NextResponse.json({ 
+            error: 'Could not resolve any competitors',
+            details: errorDetails,
+            correlationId 
+          }, { status: 400 });
+        }
+        
+        // Log warnings for failed resolutions but continue with successful ones
+        if (resolution.failed.length > 0) {
+          logger.warn('TP-027: Some competitors could not be resolved in API', {
+            ...context,
+            failures: resolution.failed.map(f => `${f.input}: ${f.error}`)
+          });
+        }
+        
+        competitorIds = resolution.resolvedIds;
+        userSpecified = true;
+        
+        logger.info('TP-027: Resolved competitors from input', {
+          ...context,
+          projectName: json.name,
+          inputCount: json.competitors.length,
+          resolvedCount: competitorIds.length,
+          successfulCompetitors: resolution.successful.map(s => s.competitor.name)
+        });
+        
+      } catch (error) {
+        logger.error('TP-027: Failed to resolve competitors in API', error as Error, context);
+        return NextResponse.json({ 
+          error: 'Failed to resolve competitors',
+          message: (error as Error).message,
+          correlationId 
+        }, { status: 400 });
+      }
+      
+    } else {
+      // Fallback: Auto-assign all competitors (backward compatibility)
+      const allCompetitors = await prisma.competitor.findMany({
+        select: { id: true, name: true }
+      });
+      competitorIds = allCompetitors.map(c => c.id);
+      userSpecified = false;
+      
+      logger.info('TP-027: Fallback - Auto-assigning all competitors', {
+        ...context,
+        projectName: json.name,
+        competitorCount: allCompetitors.length,
+        competitorNames: allCompetitors.map(c => c.name).slice(0, 5).join(', ') + (allCompetitors.length > 5 ? '...' : '')
+      });
+    }
 
     // Create project with competitors in transaction
     const result = await prisma.$transaction(async (tx) => {
@@ -90,11 +139,19 @@ export async function POST(request: NextRequest) {
           name: json.name,
           description: json.description || `Competitive analysis project`,
           status: 'ACTIVE', // Auto-activate projects
-          userId: mockUser.id,
+          user: {
+            connect: { id: mockUser.id }
+          },
+          profile: {
+            connect: { id: profile.id }
+          },
           parameters: {
             ...json.parameters || {},
-            autoAssignedCompetitors: competitorIds.length > 0,
+            // TP-027: Enhanced competitor assignment tracking
+            autoAssignedCompetitors: !userSpecified, // True only if fallback was used
+            userSpecifiedCompetitors: userSpecified, // True if user provided competitors
             assignedCompetitorCount: competitorIds.length,
+            competitorSelectionMethod: userSpecified ? 'user_specified' : 'auto_assigned',
             frequency: json.frequency || 'weekly',
             autoGenerateInitialReport: json.autoGenerateInitialReport !== false,
             reportTemplate: json.reportTemplate || 'comprehensive',
@@ -182,7 +239,7 @@ export async function POST(request: NextRequest) {
             template: json.reportTemplate || 'comprehensive',
             priority: 'high',
             timeout: 120000, // 2 minutes
-            fallbackToPartialData: true,
+            fallbackToPartialData: false, // Let the service decide based on data completeness
             notifyOnCompletion: true,
             requireFreshSnapshots: false // Allow existing data for immediate reports
           }

@@ -253,7 +253,7 @@ class WebScraperService {
       // Set timeout and navigate
       await page.goto(url, { 
         waitUntil: 'networkidle0',
-        timeout: options.timeout || this.defaultOptions.timeout
+        timeout: options.timeout || this.defaultOptions.timeout || 30000
       });
       
       // Extract content

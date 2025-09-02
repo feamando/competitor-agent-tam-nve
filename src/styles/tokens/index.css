@@ -1,0 +1,19 @@
+/**
+ * Design Tokens Index
+ * Imports all design token CSS files in the correct order
+ */
+
+/* Base Tokens - Primitive values */
+@import './base/colors.css';
+@import './base/typography.css';
+@import './base/spacing.css';
+@import './base/shadows.css';
+
+/* Semantic Tokens - Contextual mappings */
+@import './semantic/brand.css';
+@import './semantic/feedback.css';
+@import './semantic/surface.css';
+
+/* Component Tokens - Component-specific values */
+@import './component/button.css';
+@import './component/form.css';

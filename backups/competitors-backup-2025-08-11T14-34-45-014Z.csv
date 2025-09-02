@@ -1,0 +1,26 @@
+id,name,website,industry,description,employeeCount,revenue,founded,headquarters,socialMedia,createdAt,updatedAt
+cme73sniv0000lqkrp58f2r2a,Direct Test,https://direct.com,Tech,,,,,,,2025-08-11T12:43:21.751Z,2025-08-11T12:43:21.751Z
+cme744t0r0000lqo584cud6up,Fresh Server Test,https://fresh.com,Technology,,,,,,,2025-08-11T12:52:48.748Z,2025-08-11T12:52:48.748Z
+cme745i1z0002lqo59h9zyt28,Shared Competitor,https://shared.com,SaaS,This competitor should be visible to all users,,,,,,2025-08-11T12:53:21.192Z,2025-08-11T12:53:21.192Z
+cme77riay0000lqxbq78x15hp,Butcher Box,https://www.butcherbox.com,Food & Beverage,Premium meat delivery service with grass-fed beef and organic chicken,,,,,,2025-08-11T14:34:26.794Z,2025-08-11T14:34:26.794Z
+cme77rib00001lqxb5qgzh3qt,HelloFresh,https://hellofresh.com,Food & Beverage,Meal kit delivery service with pre-portioned ingredients and recipes,,,,,,2025-08-11T14:34:26.797Z,2025-08-11T14:34:26.797Z
+cme77rib10002lqxbxbchv22d,Good Ranchers,https://www.goodranchers.com,Food & Beverage,American meat delivery service focusing on American-sourced products,,,,,,2025-08-11T14:34:26.798Z,2025-08-11T14:34:26.798Z
+cme77rib20003lqxbhrxgbsr2,Good Chop,https://www.goodchop.com,Food & Beverage,Premium meat and seafood delivery service,,,,,,2025-08-11T14:34:26.798Z,2025-08-11T14:34:26.798Z
+cme77rib30004lqxb7jirazqi,Blue Apron,https://www.blueapron.com,Food & Beverage,Meal kit delivery service with chef-designed recipes,,,,,,2025-08-11T14:34:26.799Z,2025-08-11T14:34:26.799Z
+cme77rib60005lqxbwfvxcnty,Home Chef,https://www.homechef.com,Food & Beverage,Meal kit delivery service owned by Kroger,,,,,,2025-08-11T14:34:26.802Z,2025-08-11T14:34:26.802Z
+cme77rib70006lqxbj5yb02ba,Purple Carrot,https://www.purplecarrot.com,Food & Beverage,Plant-based meal kit delivery service,,,,,,2025-08-11T14:34:26.803Z,2025-08-11T14:34:26.803Z
+cme77rib80007lqxbbtcpnysm,EveryPlate,https://www.everyplate.com,Food & Beverage,Budget-friendly meal kit delivery service,,,,,,2025-08-11T14:34:26.804Z,2025-08-11T14:34:26.804Z
+cme77rib80008lqxbpcc69eyg,Sunbasket,https://sunbasket.com,Food & Beverage,Organic meal kit delivery with dietary options,,,,,,2025-08-11T14:34:26.805Z,2025-08-11T14:34:26.805Z
+cme77rib90009lqxb4gkam8vm,Green Chef,https://www.greenchef.com,Food & Beverage,Keto and paleo meal kit delivery service,,,,,,2025-08-11T14:34:26.806Z,2025-08-11T14:34:26.806Z
+cme77riba000alqxbh8uglofh,Factor,https://www.factor75.com,Food & Beverage,Ready-to-eat meal delivery service,,,,,,2025-08-11T14:34:26.807Z,2025-08-11T14:34:26.807Z
+cme77ribb000blqxbp1jxmjzc,Freshly,https://www.freshly.com,Food & Beverage,Prepared meal delivery service,,,,,,2025-08-11T14:34:26.808Z,2025-08-11T14:34:26.808Z
+cme77ribc000clqxbl7dprieo,Gobble,https://www.gobble.com,Food & Beverage,15-minute meal kit delivery service,,,,,,2025-08-11T14:34:26.808Z,2025-08-11T14:34:26.808Z
+cme77ribd000dlqxb3xu42ynw,Crowd Cow,https://www.crowdcow.com,Food & Beverage,Craft meat delivery service,,,,,,2025-08-11T14:34:26.809Z,2025-08-11T14:34:26.809Z
+cme77ribd000elqxbpjcliuxf,Omaha Steaks,https://www.omahasteaks.com,Food & Beverage,Premium meat and gourmet food delivery,,,,,,2025-08-11T14:34:26.810Z,2025-08-11T14:34:26.810Z
+cme77ribe000flqxb8ro103rs,Wild Fork Foods,https://www.wildforkfoods.com,Food & Beverage,Specialty meat and seafood delivery,,,,,,2025-08-11T14:34:26.811Z,2025-08-11T14:34:26.811Z
+cme77ribf000glqxbmb8vrusz,Instacart,https://www.instacart.com,Food & Beverage,Grocery delivery platform,,,,,,2025-08-11T14:34:26.811Z,2025-08-11T14:34:26.811Z
+cme77ribg000hlqxbygyaxkew,FreshDirect,https://www.freshdirect.com,Food & Beverage,Online grocery delivery service,,,,,,2025-08-11T14:34:26.812Z,2025-08-11T14:34:26.812Z
+cme77ribg000ilqxb116105tf,Thrive Market,https://thrivemarket.com,Food & Beverage,Healthy and sustainable food delivery,,,,,,2025-08-11T14:34:26.813Z,2025-08-11T14:34:26.813Z
+cme77ribh000jlqxbanokww26,Imperfect Foods,https://www.imperfectfoods.com,Food & Beverage,Ugly produce and surplus food delivery,,,,,,2025-08-11T14:34:26.813Z,2025-08-11T14:34:26.813Z
+cme77ribi000klqxbrsyyjkg9,Misfits Market,https://www.misfitsmarket.com,Food & Beverage,Organic produce delivery service,,,,,,2025-08-11T14:34:26.814Z,2025-08-11T14:34:26.814Z
+cme77ribj000llqxbku6v26oj,Daily Harvest,https://www.daily-harvest.com,Food & Beverage,Frozen smoothies and healthy food delivery,,,,,,2025-08-11T14:34:26.815Z,2025-08-11T14:34:26.815Z

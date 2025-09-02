@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { generateCorrelationId, logger, trackEvent, trackError } from '@/lib/logger';
+import { getCurrentProfileId } from '@/lib/profile/profileUtils';
 
 export async function GET(
   request: NextRequest,
@@ -24,9 +25,17 @@ export async function GET(
       metadata: { reportId }
     }, logContext);
 
-    // Fetch report with its latest version and project info
-    const report = await prisma.report.findUnique({
-      where: { id: reportId },
+    // Get current profile ID for access control
+    const currentProfileId = await getCurrentProfileId();
+    
+    // Fetch report with profile access control - only allow access if user owns the associated project
+    const report = await prisma.report.findFirst({
+      where: { 
+        id: reportId,
+        project: {
+          profileId: currentProfileId
+        }
+      },
       include: {
         versions: {
           orderBy: { createdAt: 'desc' },
@@ -43,6 +52,7 @@ export async function GET(
           select: {
             id: true,
             name: true,
+            profileId: true, // Include for verification
             competitors: {
               select: {
                 id: true,
@@ -184,8 +194,17 @@ export async function HEAD(
   const { id: reportId } = await context.params;
   
   try {
-    const report = await prisma.report.findUnique({
-      where: { id: reportId },
+    // Get current profile ID for access control
+    const currentProfileId = await getCurrentProfileId();
+    
+    // Check if report exists and user has access through project ownership
+    const report = await prisma.report.findFirst({
+      where: { 
+        id: reportId,
+        project: {
+          profileId: currentProfileId
+        }
+      },
       select: { id: true, updatedAt: true }
     });
 

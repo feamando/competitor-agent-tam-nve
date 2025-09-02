@@ -6,73 +6,11 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-
-// Simple UI components for demonstration
-const Card = ({ children, className = '' }: { children: React.ReactNode; className?: string }) => (
-  <div className={`bg-white border rounded-lg shadow-sm ${className}`}>{children}</div>
-);
-
-const CardHeader = ({ children, className = '' }: { children: React.ReactNode; className?: string }) => (
-  <div className={`p-4 pb-2 ${className}`}>{children}</div>
-);
-
-const CardTitle = ({ children, className = '' }: { children: React.ReactNode; className?: string }) => (
-  <h3 className={`font-semibold ${className}`}>{children}</h3>
-);
-
-const CardDescription = ({ children, className = '' }: { children: React.ReactNode; className?: string }) => (
-  <p className={`text-sm text-gray-600 ${className}`}>{children}</p>
-);
-
-const CardContent = ({ children, className = '' }: { children: React.ReactNode; className?: string }) => (
-  <div className={`p-4 pt-0 ${className}`}>{children}</div>
-);
-
-const Badge = ({ children, className = '', variant = 'default' }: { children: React.ReactNode; className?: string; variant?: string }) => (
-  <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-    variant === 'outline' ? 'border border-gray-300 text-gray-700' : 'bg-gray-100 text-gray-800'
-  } ${className}`}>
-    {children}
-  </span>
-);
-
-const Button = ({ 
-  children, 
-  onClick, 
-  disabled = false, 
-  size = 'default', 
-  variant = 'default',
-  className = '' 
-}: { 
-  children: React.ReactNode; 
-  onClick?: () => void; 
-  disabled?: boolean; 
-  size?: string; 
-  variant?: string;
-  className?: string;
-}) => (
-  <button 
-    onClick={onClick} 
-    disabled={disabled}
-    className={`px-4 py-2 rounded font-medium ${
-      size === 'sm' ? 'px-2 py-1 text-sm' : ''
-    } ${
-      variant === 'outline' 
-        ? 'border border-gray-300 text-gray-700 hover:bg-gray-50' 
-        : 'bg-blue-600 text-white hover:bg-blue-700'
-    } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'} ${className}`}
-  >
-    {children}
-  </button>
-);
-
-const Alert = ({ children, className = '' }: { children: React.ReactNode; className?: string }) => (
-  <div className={`border border-yellow-200 bg-yellow-50 rounded-lg p-4 ${className}`}>{children}</div>
-);
-
-const AlertDescription = ({ children }: { children: React.ReactNode }) => (
-  <div className="text-sm text-yellow-800">{children}</div>
-);
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { LoadingButton } from '@/components/composed/LoadingButton';
 
 interface QueueHealth {
   status: 'healthy' | 'degraded' | 'critical' | 'recovering';

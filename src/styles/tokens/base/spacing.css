@@ -1,0 +1,61 @@
+/**
+ * Base Spacing Tokens
+ * Margin, padding, gap, and layout spacing values
+ */
+
+:root {
+  /* Spacing Scale */
+  --spacing-0: 0px;
+  --spacing-px: 1px;
+  --spacing-0-5: 0.125rem;  /* 2px */
+  --spacing-1: 0.25rem;     /* 4px */
+  --spacing-1-5: 0.375rem;  /* 6px */
+  --spacing-2: 0.5rem;      /* 8px */
+  --spacing-2-5: 0.625rem;  /* 10px */
+  --spacing-3: 0.75rem;     /* 12px */
+  --spacing-3-5: 0.875rem;  /* 14px */
+  --spacing-4: 1rem;        /* 16px */
+  --spacing-5: 1.25rem;     /* 20px */
+  --spacing-6: 1.5rem;      /* 24px */
+  --spacing-7: 1.75rem;     /* 28px */
+  --spacing-8: 2rem;        /* 32px */
+  --spacing-9: 2.25rem;     /* 36px */
+  --spacing-10: 2.5rem;     /* 40px */
+  --spacing-11: 2.75rem;    /* 44px */
+  --spacing-12: 3rem;       /* 48px */
+  --spacing-14: 3.5rem;     /* 56px */
+  --spacing-16: 4rem;       /* 64px */
+  --spacing-20: 5rem;       /* 80px */
+  --spacing-24: 6rem;       /* 96px */
+  --spacing-28: 7rem;       /* 112px */
+  --spacing-32: 8rem;       /* 128px */
+  --spacing-36: 9rem;       /* 144px */
+  --spacing-40: 10rem;      /* 160px */
+  --spacing-44: 11rem;      /* 176px */
+  --spacing-48: 12rem;      /* 192px */
+  --spacing-52: 13rem;      /* 208px */
+  --spacing-56: 14rem;      /* 224px */
+  --spacing-60: 15rem;      /* 240px */
+  --spacing-64: 16rem;      /* 256px */
+  --spacing-72: 18rem;      /* 288px */
+  --spacing-80: 20rem;      /* 320px */
+  --spacing-96: 24rem;      /* 384px */
+
+  /* Border Radius */
+  --radius-none: 0px;
+  --radius-sm: 0.125rem;     /* 2px */
+  --radius-base: 0.25rem;    /* 4px */
+  --radius-md: 0.375rem;     /* 6px - current default */
+  --radius-lg: 0.5rem;       /* 8px */
+  --radius-xl: 0.75rem;      /* 12px */
+  --radius-2xl: 1rem;        /* 16px */
+  --radius-3xl: 1.5rem;      /* 24px */
+  --radius-full: 9999px;
+
+  /* Border Widths */
+  --border-width-0: 0px;
+  --border-width-1: 1px;
+  --border-width-2: 2px;
+  --border-width-4: 4px;
+  --border-width-8: 8px;
+}
