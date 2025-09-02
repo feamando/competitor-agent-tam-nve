@@ -850,3 +850,5 @@ export class SmartSchedulingService {
     });
   }
 }
+
+export default SmartSchedulingService;

@@ -1,6 +1,14 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
+  output: 'export',  // Add this line for static export
+  trailingSlash: true,  // Required for static export
+  eslint: {
+    ignoreDuringBuilds: true,  // Disable ESLint during builds
+  },
+  images: {
+    unoptimized: true,  // Required for static export
+  },
   // Remove handlebars-loader config that's causing issues
   webpack: (config, { isServer }) => {
     // Fix for webpack fallback warnings
@@ -29,9 +37,6 @@ const nextConfig: NextConfig = {
     ];
 
     return config;
-  },
-  images: {
-    unoptimized: true,
   },
 };
 

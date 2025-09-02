@@ -1,0 +1,72 @@
+{
+  "appId": "com.hellofresh.competitor-research-agent",
+  "productName": "Competitor Research Agent",
+  "copyright": "Copyright © 2024 HelloFresh",
+  "directories": {
+    "output": "dist-electron",
+    "buildResources": "build-resources"
+  },
+  "files": [
+    "dist/**/*",
+    ".next/**/*",
+    "prisma/**/*",
+    "public/**/*",
+    "package.json",
+    "node_modules/**/*",
+    "!scripts/**/*",
+    "!src/**/*",
+    "!**/*.test.*",
+    "!**/__tests__/**/*",
+    "!**/*.spec.*"
+  ],
+  "extraResources": [
+    {
+      "from": "prisma/",
+      "to": "prisma/"
+    }
+  ],
+  "mac": {
+    "category": "public.app-category.business",
+    "target": [
+      {
+        "target": "dmg",
+        "arch": ["x64", "arm64"]
+      }
+    ],
+    "hardenedRuntime": true,
+    "gatekeeperAssess": false,
+    "entitlements": "build-resources/entitlements.mac.plist",
+    "entitlementsInherit": "build-resources/entitlements.mac.plist"
+  },
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64", "ia32"]
+      }
+    ],
+    "verifyUpdateCodeSignature": false
+  },
+  "linux": {
+    "target": [
+      {
+        "target": "AppImage",
+        "arch": ["x64"]
+      },
+      {
+        "target": "deb",
+        "arch": ["x64"]
+      }
+    ],
+    "category": "Office"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "Competitor Research Agent"
+  },
+  "compression": "maximum",
+  "buildDependenciesFromSource": false
+}
